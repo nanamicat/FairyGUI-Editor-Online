@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "module": "es6",
+    "target": "es2021",
+    "lib": [
+      "dom",
+      "es2021"
+    ],
+    "strict": true,
+    "strictNullChecks": true,
+    "noEmit": true,
+    "noEmitHelpers": true,
+    "sourceMap": false,
+    "experimentalDecorators": true,
+    "skipLibCheck": true,
+    "moduleResolution": "node",
+    "allowSyntheticDefaultImports": true
+  },
+  "include": [
+    "./assets",
+    "./src",
+    "./engine/types/LayaAir.d.ts",
+    "./engine/types/spine.d.ts"
+  ]
+}

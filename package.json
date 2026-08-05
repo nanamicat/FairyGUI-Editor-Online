@@ -1,0 +1,31 @@
+{
+  "name": "fairygui-editor-online",
+  "version": "1.0.0",
+  "description": "A browser-based FairyGUI project editor powered by OpenFairyGUI.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "typecheck": "tsc --noEmit -p tsconfig.json --pretty false",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "publish:editor-ui": "node scripts/publish-editor-ui.mjs",
+    "generate": "node scripts/generate-project-snapshot.mjs && node scripts/internal/verify-phase5-save-publish.mjs && node scripts/prepare-runtime-preview.mjs && node scripts/prepare-browser-runtime.mjs",
+    "verify": "node scripts/internal/verify-all.mjs"
+  },
+  "devDependencies": {
+    "@openfairygui/backend": "0.2.2",
+    "@openfairygui/cli": "0.2.2",
+    "@openfairygui/core": "0.2.2",
+    "@openfairygui/functions": "0.2.2",
+    "typescript": "5.9.3",
+    "vite": "8.1.5"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3"
+  }
+}

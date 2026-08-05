@@ -1,0 +1,6 @@
+[submodule "vendor/FairyGUI-Editor"]
+	path = vendor/FairyGUI-Editor
+	url = https://github.com/fairygui/FairyGUI-Editor.git
+[submodule "samples/FairyGUI-layabox"]
+	path = samples/FairyGUI-layabox
+	url = https://github.com/fairygui/FairyGUI-layabox.git

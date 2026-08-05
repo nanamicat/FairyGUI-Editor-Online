@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "projectId": "42eb7038a35576a032d8aba97f9a18cc"
+  },
+  "packages": [
+    {
+      "packageId": "rbw1tv9t",
+      "packageName": "Bag",
+      "publishName": "Bag",
+      "resourceKey": "resources/editor/authoring-runtime/Bag",
+      "files": [
+        "Bag.fui",
+        "Bag_atlas0.png"
+      ]
+    },
+    {
+      "packageId": "9leh0eyf",
+      "packageName": "Basics",
+      "publishName": "Basics",
+      "resourceKey": "resources/editor/authoring-runtime/Basics",
+      "files": [
+        "Basics.fui",
+        "Basics_atlas0.png",
+        "Basics_gojg7u.wav",
+        "Basics_o4lt7w.wav"
+      ]
+    },
+    {
+      "packageId": "y768eypa",
+      "packageName": "Chat",
+      "publishName": "Chat",
+      "resourceKey": "resources/editor/authoring-runtime/Chat",
+      "files": [
+        "Chat.fui",
+        "Chat_atlas0.png"
+      ]
+    },
+    {
+      "packageId": "y768eypf",
+      "packageName": "Cooldown",
+      "publishName": "Cooldown",
+      "resourceKey": "resources/editor/authoring-runtime/Cooldown",
+      "files": [
+        "Cooldown.fui",
+        "Cooldown_atlas0.png"
+      ]
+    },
+    {
+      "packageId": "q3l7vvj0",
+      "packageName": "Guide",
+      "publishName": "Guide",
+      "resourceKey": "resources/editor/authoring-runtime/Guide",
+      "files": [
+        "Guide.fui",
+        "Guide_atlas0.png"
+      ]
+    },
+    {
+      "packageId": "ezq9a8mh",
+      "packageName": "HitTest",
+      "publishName": "HitTest",
+      "resourceKey": "resources/editor/authoring-runtime/HitTest",
+      "files": [
+        "HitTest.fui",
+        "HitTest_atlas0.png"
+      ]
+    },
+    {
+      "packageId": "rbw1tvvv",
+      "packageName": "Joystick",
+      "publishName": "Joystick",
+      "resourceKey": "resources/editor/authoring-runtime/Joystick",
+      "files": [
+        "Joystick.fui",
+        "Joystick_atlas0.png"
+      ]
+    },
+    {
+      "packageId": "jou4kj6p",
+      "packageName": "ListEffect",
+      "publishName": "ListEffect",
+      "resourceKey": "resources/editor/authoring-runtime/ListEffect",
+      "files": [
+        "ListEffect.fui",
+        "ListEffect_atlas0.png"
+      ]
+    },
+    {
+      "packageId": "qf88jb5n",
+      "packageName": "LoopList",
+      "publishName": "LoopList",
+      "resourceKey": "resources/editor/authoring-runtime/LoopList",
+      "files": [
+        "LoopList.fui",
+        "LoopList_atlas0.png"
+      ]
+    },
+    {
+      "packageId": "58oxr1hs",
+      "packageName": "MainMenu",
+      "publishName": "MainMenu",
+      "resourceKey": "resources/editor/authoring-runtime/MainMenu",
+      "files": [
+        "MainMenu.fui",
+        "MainMenu_atlas0.png"
+      ]
+    },
+    {
+      "packageId": "16eoroa8",
+      "packageName": "ModalWaiting",
+      "publishName": "ModalWaiting",
+      "resourceKey": "resources/editor/authoring-runtime/ModalWaiting",
+      "files": [
+        "ModalWaiting.fui",
+        "ModalWaiting_atlas0.png"
+      ]
+    },
+    {
+      "packageId": "0jgb9xgy",
+      "packageName": "PullToRefresh",
+      "publishName": "PullToRefresh",
+      "resourceKey": "resources/editor/authoring-runtime/PullToRefresh",
+      "files": [
+        "PullToRefresh.fui",
+        "PullToRefresh_atlas0.png"
+      ]
+    },
+    {
+      "packageId": "8rugjhhl",
+      "packageName": "ScrollPane",
+      "publishName": "ScrollPane",
+      "resourceKey": "resources/editor/authoring-runtime/ScrollPane",
+      "files": [
+        "ScrollPane.fui",
+        "ScrollPane_atlas0.png"
+      ]
+    },
+    {
+      "packageId": "c0hnre6o",
+      "packageName": "Transition",
+      "publishName": "Transition",
+      "resourceKey": "resources/editor/authoring-runtime/Transition",
+      "files": [
+        "Transition.fui",
+        "Transition_atlas0.png",
+        "Transition_lvxrs.mp3"
+      ]
+    },
+    {
+      "packageId": "5nx1f8vz",
+      "packageName": "TreeView",
+      "publishName": "TreeView",
+      "resourceKey": "resources/editor/authoring-runtime/TreeView",
+      "files": [
+        "TreeView.fui",
+        "TreeView_atlas0.png"
+      ]
+    },
+    {
+      "packageId": "qkteqwfp",
+      "packageName": "VirtualList",
+      "publishName": "VirtualList",
+      "resourceKey": "resources/editor/authoring-runtime/VirtualList",
+      "files": [
+        "VirtualList.fui",
+        "VirtualList_atlas0.png"
+      ]
+    }
+  ]
+}
