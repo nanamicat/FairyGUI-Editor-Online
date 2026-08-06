@@ -9,7 +9,7 @@ import { resolveAuthoringProjectPath, resolveOpenFairyGuiModuleRoot } from "../p
 const moduleRoot = resolveOpenFairyGuiModuleRoot(process.argv[2]);
 const projectPath = resolveAuthoringProjectPath(process.argv[3]);
 const packageVersion = JSON.parse(readFileSync(path.join(moduleRoot, "core/package.json"), "utf8")).version;
-assert.equal(packageVersion, "0.2.2", "Resource batch verification requires OpenFairyGUI 0.2.2.");
+assert.equal(packageVersion, "0.2.4", "Resource batch verification requires OpenFairyGUI 0.2.4.");
 const editorUiSource = [
     readFileSync("src/editor/EditorShell.ts", "utf8"),
     readFileSync("src/editor/ui/ProjectTreeInteractionController.ts", "utf8"),

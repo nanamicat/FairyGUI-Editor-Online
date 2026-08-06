@@ -18,10 +18,10 @@
     "verify": "node scripts/internal/verify-all.mjs"
   },
   "devDependencies": {
-    "@openfairygui/backend": "0.2.2",
-    "@openfairygui/cli": "0.2.2",
-    "@openfairygui/core": "0.2.2",
-    "@openfairygui/functions": "0.2.2",
+    "@openfairygui/backend": "0.2.4",
+    "@openfairygui/cli": "0.2.4",
+    "@openfairygui/core": "0.2.4",
+    "@openfairygui/functions": "0.2.4",
     "typescript": "5.9.3",
     "vite": "8.1.5"
   },

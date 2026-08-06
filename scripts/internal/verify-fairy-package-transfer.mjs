@@ -18,7 +18,7 @@ const versions = Object.fromEntries(["core", "functions", "backend", "cli"].map(
     JSON.parse(readFileSync(path.join(moduleRoot, name, "package.json"), "utf8")).version,
 ]));
 for (const [name, version] of Object.entries(versions)) {
-    assert.equal(version, "0.2.2", `${name} must use OpenFairyGUI 0.2.2`);
+    assert.equal(version, "0.2.4", `${name} must use OpenFairyGUI 0.2.4`);
 }
 const editorShellSource = [
     readFileSync("src/editor/EditorShell.ts", "utf8"),

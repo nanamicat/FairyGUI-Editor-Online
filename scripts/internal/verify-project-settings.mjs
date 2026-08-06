@@ -9,7 +9,7 @@ import { resolveAuthoringProjectPath, resolveOpenFairyGuiModuleRoot } from "../p
 const moduleRoot = resolveOpenFairyGuiModuleRoot(process.argv[2]);
 const projectPath = resolveAuthoringProjectPath(process.argv[3]);
 const version = JSON.parse(readFileSync(path.join(moduleRoot, "core/package.json"), "utf8")).version;
-assert.equal(version, "0.2.2");
+assert.equal(version, "0.2.4");
 const [core, projectIo, backend, web, transactions, languageFiles] = await Promise.all([
     import(pathToFileURL(path.join(moduleRoot, "core/dist/index.js")).href),
     import(pathToFileURL(path.join(moduleRoot, "core/dist/project-io.js")).href),

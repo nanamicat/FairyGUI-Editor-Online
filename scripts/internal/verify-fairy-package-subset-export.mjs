@@ -19,7 +19,7 @@ const [core, projectIo, backend, transfer] = await Promise.all([
     importFile(path.join(moduleRoot, "backend/dist/index.mjs")),
     importTypeScriptModule("src/editor/services/FairyPackageTransfer.ts"),
 ]);
-const expectedVersion = "0.2.2";
+const expectedVersion = "0.2.4";
 for (const packageName of ["core", "functions", "backend", "cli"]) {
     const version = JSON.parse(readFileSync(path.join(moduleRoot, packageName, "package.json"), "utf8")).version;
     assert.equal(version, expectedVersion, `${packageName} must use OpenFairyGUI ${expectedVersion}`);

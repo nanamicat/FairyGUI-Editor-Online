@@ -49,7 +49,7 @@ for (const [kind, size] of [
     if (kind === "textInput") {
         const snapshot = createProjectSnapshotFromUamProject(applied, {
             projectPath: "verification",
-            openfairyguiVersion: "0.2.2",
+            openfairyguiVersion: "0.2.4",
             reader: "browser-uam-session",
         });
         const child = snapshot.packages

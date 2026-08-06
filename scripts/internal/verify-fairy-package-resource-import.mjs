@@ -13,7 +13,7 @@ const projectPath = resolveAuthoringProjectPath(process.argv[3]);
 const projectDir = path.dirname(projectPath);
 const fairyPath = path.basename(projectPath);
 const importFile = (filePath) => import(pathToFileURL(filePath).href);
-const expectedVersion = "0.2.2";
+const expectedVersion = "0.2.4";
 for (const packageName of ["core", "functions", "backend", "cli"]) {
     const version = JSON.parse(readFileSync(path.join(moduleRoot, packageName, "package.json"), "utf8")).version;
     assert.equal(version, expectedVersion, `${packageName} must use OpenFairyGUI ${expectedVersion}`);

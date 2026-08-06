@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { relativeWorkspacePath, resolveOpenFairyGuiModuleRoot } from '../project-boundary.mjs';
 import { readJson } from '../verification-helpers.mjs';
 
-const expectedVersion = '0.2.2';
+const expectedVersion = '0.2.4';
 const moduleRoot = resolveOpenFairyGuiModuleRoot(process.argv[2]);
 const suiteStartedAt = Date.now();
 

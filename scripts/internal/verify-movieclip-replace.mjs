@@ -19,7 +19,7 @@ const moduleRoot = resolveOpenFairyGuiModuleRoot(process.argv[2]);
 const projectPath = resolveAuthoringProjectPath(process.argv[3]);
 assert.equal(
     JSON.parse(readFileSync(path.join(moduleRoot, "core/package.json"), "utf8")).version,
-    "0.2.2",
+    "0.2.4",
 );
 const [core, projectIo, backend, movieClipTransactions] = await Promise.all([
     import(pathToFileURL(path.join(moduleRoot, "core/dist/index.js")).href),
@@ -441,7 +441,7 @@ assert.deepEqual(storedRestoredResource.sourceBytes, originalPersistedBytes);
 
 console.log(JSON.stringify({
     ok: true,
-    backendVersion: "0.2.2",
+    backendVersion: "0.2.4",
     sequence: { frames: sequenceJta.frames.length, delays: sequenceJta.frames.map((frame) => frame.delay) },
     spriteSheet: { frames: spriteJta.frames.length, delays: spriteJta.frames.map((frame) => frame.delay) },
     timing: { fps: spriteJta.fps, speed: spriteJta.speed, repeatDelay: spriteJta.repeatDelay, swing: spriteJta.swing },

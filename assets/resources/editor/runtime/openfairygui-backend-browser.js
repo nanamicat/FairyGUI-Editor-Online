@@ -6619,7 +6619,7 @@ var ExtensibleProperty = class extends Property {
     return this.listRefMapValues("extensions");
   }
 };
-var VERSION = `v0.2.2`;
+var VERSION = `v0.2.4`;
 var FGUI_MAGIC = 1179080009;
 var NULL_STRING_INDEX = 65534;
 var EMPTY_STRING_INDEX = 65533;
@@ -7925,10 +7925,13 @@ var Component = class extends ExtensibleProperty {
       footerRes: "",
       bgColor: "",
       bgColorEnabled: false,
-      designImageAlpha: 0,
+      designImageAlpha: 50,
       designImageLayer: 0,
       designImageOffsetX: 0,
       designImageOffsetY: 0,
+      designImage: "",
+      designImageForTest: false,
+      pageController: "",
       idNum: 0,
       initName: "",
       remark: "",
@@ -8217,6 +8220,24 @@ var Component = class extends ExtensibleProperty {
   }
   setDesignImageOffsetY(v) {
     return this.set("designImageOffsetY", v);
+  }
+  getDesignImage() {
+    return this.get("designImage");
+  }
+  setDesignImage(v) {
+    return this.set("designImage", v);
+  }
+  getDesignImageForTest() {
+    return this.get("designImageForTest");
+  }
+  setDesignImageForTest(v) {
+    return this.set("designImageForTest", v);
+  }
+  getPageController() {
+    return this.get("pageController");
+  }
+  setPageController(v) {
+    return this.set("pageController", v);
   }
   getIdNum() {
     return this.get("idNum");
@@ -9180,6 +9201,7 @@ var GTextField = class extends GObject {
       demoText: "",
       templateVarsEnabled: false,
       faceDilate: 0,
+      outlineSoftness: 0,
       underlaySoftness: 0,
       ubbEnabled: false,
       underline: false,
@@ -9399,6 +9421,12 @@ var GTextField = class extends GObject {
   }
   setFaceDilate(v) {
     return this.setTextFieldProp("faceDilate", v);
+  }
+  getOutlineSoftness() {
+    return this.getTextFieldProp("outlineSoftness");
+  }
+  setOutlineSoftness(v) {
+    return this.setTextFieldProp("outlineSoftness", v);
   }
   getUnderlaySoftness() {
     return this.getTextFieldProp("underlaySoftness");
@@ -10480,6 +10508,7 @@ var GComponent = class extends GObject {
       instanceChecked: false,
       instanceSound: "",
       instanceSoundVolumeScale: 1,
+      instancePopupDirection: 0,
       instancePromptText: "",
       instanceSelectionController: "",
       instanceVisibleItemCount: 0,
@@ -10766,6 +10795,12 @@ var GComponent = class extends GObject {
   setInstanceSoundVolumeScale(v) {
     return this.setComponentProp("instanceSoundVolumeScale", v);
   }
+  getInstancePopupDirection() {
+    return this.getComponentProp("instancePopupDirection");
+  }
+  setInstancePopupDirection(v) {
+    return this.setComponentProp("instancePopupDirection", v);
+  }
   getInstancePromptText() {
     return firstString$1(this.getComponentProp("instancePromptText"));
   }
@@ -10862,6 +10897,7 @@ var GListBase = class extends GObject {
       src: "",
       overflow: 0,
       scrollType: 1,
+      scrollBarDisplay: 0,
       scrollBarFlags: 0,
       scrollBarMargin: [
         0,
@@ -11063,6 +11099,12 @@ var GListBase = class extends GObject {
   }
   setScrollType(v) {
     return this.setListProp("scrollType", v);
+  }
+  getScrollBarDisplay() {
+    return this.getListProp("scrollBarDisplay");
+  }
+  setScrollBarDisplay(v) {
+    return this.setListProp("scrollBarDisplay", v);
   }
   getScrollBarFlags() {
     return this.getListProp("scrollBarFlags");
@@ -12928,13 +12970,19 @@ function normalizeComponentInstanceProperties(properties) {
         icon: properties.icon ?? "",
         titleColor: properties.titleColor ?? "",
         titleFontSize: properties.titleFontSize ?? 0,
-        promptText: properties.promptText ?? ""
+        promptText: properties.promptText ?? "",
+        sound: properties.sound ?? "",
+        soundVolumeScale: properties.soundVolumeScale ?? 1
       };
     case "ComboBox":
       return {
         extensionType: "ComboBox",
         title: properties.title ?? "",
         icon: properties.icon ?? "",
+        titleColor: properties.titleColor ?? "",
+        popupDirection: properties.popupDirection ?? 0,
+        sound: properties.sound ?? "",
+        soundVolumeScale: properties.soundVolumeScale ?? 1,
         visibleItemCount: properties.visibleItemCount ?? 0,
         selectionController: properties.selectionController ?? "",
         autoClearItems: properties.autoClearItems ?? false,
@@ -12945,9 +12993,17 @@ function normalizeComponentInstanceProperties(properties) {
         }))
       };
     case "ProgressBar":
+      return {
+        extensionType: "ProgressBar",
+        value: properties.value ?? 0,
+        max: properties.max ?? 0,
+        min: properties.min ?? 0,
+        sound: properties.sound ?? "",
+        soundVolumeScale: properties.soundVolumeScale ?? 1
+      };
     case "Slider":
       return {
-        extensionType: properties.extensionType,
+        extensionType: "Slider",
         value: properties.value ?? 0,
         max: properties.max ?? 0,
         min: properties.min ?? 0
@@ -12984,9 +13040,14 @@ function normalizeComponentProperties(properties) {
     footerRes: properties.footerRes ?? "",
     bgColor: properties.bgColor ?? "",
     bgColorEnabled: properties.bgColorEnabled ?? false,
-    designImageAlpha: properties.designImageAlpha ?? 0,
+    designImageAlpha: properties.designImageAlpha ?? 50,
     designImageLayer: properties.designImageLayer ?? 0,
     designImageOffset: normalizePoint(properties.designImageOffset),
+    designImage: properties.designImage ?? "",
+    designImageForTest: properties.designImageForTest ?? false,
+    pageController: properties.pageController ?? "",
+    showSound: properties.showSound ?? "",
+    hideSound: properties.hideSound ?? "",
     idNum: properties.idNum ?? 0,
     initName: properties.initName ?? "",
     remark: properties.remark ?? "",
@@ -13238,6 +13299,7 @@ function normalizeTextProperties(properties) {
     autoSize: properties.autoSize,
     singleLine: properties.singleLine,
     autoClearText: properties.autoClearText,
+    outlineSoftness: properties.outlineSoftness,
     underlaySoftness: properties.underlaySoftness,
     ubbEnabled: properties.ubbEnabled,
     underline: properties.underline,
@@ -13303,7 +13365,13 @@ function normalizeDisplayNode(node) {
         kind: "image",
         ...base,
         group: node.group ?? "",
-        resource: normalizeResourceRef(node.resource)
+        resource: normalizeResourceRef(node.resource),
+        color: node.color ?? "#FFFFFF",
+        flip: node.flip ?? 0,
+        fillMethod: node.fillMethod ?? 0,
+        fillOrigin: node.fillOrigin ?? 0,
+        fillClockwise: node.fillClockwise ?? true,
+        fillAmount: node.fillAmount ?? 100
       };
     case "text":
       return {
@@ -13363,6 +13431,7 @@ function normalizeDisplayNode(node) {
         src: list.src ?? "",
         overflow: list.overflow ?? 0,
         scrollType: list.scrollType ?? 1,
+        scrollBarDisplay: list.scrollBarDisplay ?? 0,
         scrollBarFlags: list.scrollBarFlags ?? 0,
         scrollBarMargin: normalizeEdgeInsets(list.scrollBarMargin),
         vtScrollBarRes: list.vtScrollBarRes ?? "",
@@ -13903,6 +13972,7 @@ var TEXT_PROPERTY_KEYS = [
   "autoSize",
   "singleLine",
   "autoClearText",
+  "outlineSoftness",
   "underlaySoftness",
   "ubbEnabled",
   "underline",
@@ -13934,7 +14004,7 @@ function isValidUamTextProperties(value, nodeKind) {
     properties.italic,
     properties.bold,
     properties.strikethrough
-  ].every((item) => typeof item === "boolean") && typeof properties.underlaySoftness === "number" && Number.isFinite(properties.underlaySoftness) && typeof properties.strokeSize === "number" && Number.isFinite(properties.strokeSize) && properties.strokeSize >= 0 && (properties.strokeColor === null ? properties.strokeSize === 1 : isTextColor(properties.strokeColor)) && isFiniteUamPoint(properties.shadowOffset) && (properties.shadowColor === null ? properties.shadowOffset.x === 0 && properties.shadowOffset.y === 0 : isTextColor(properties.shadowColor));
+  ].every((item) => typeof item === "boolean") && typeof properties.outlineSoftness === "number" && Number.isFinite(properties.outlineSoftness) && typeof properties.underlaySoftness === "number" && Number.isFinite(properties.underlaySoftness) && typeof properties.strokeSize === "number" && Number.isFinite(properties.strokeSize) && properties.strokeSize >= 0 && (properties.strokeColor === null ? properties.strokeSize === 1 : isTextColor(properties.strokeColor)) && isFiniteUamPoint(properties.shadowOffset) && (properties.shadowColor === null ? properties.shadowOffset.x === 0 && properties.shadowOffset.y === 0 : isTextColor(properties.shadowColor));
   if (!commonValid || nodeKind === "richText") return commonValid;
   return typeof properties.demoText === "string" && typeof properties.templateVarsEnabled === "boolean" && typeof properties.faceDilate === "number" && Number.isFinite(properties.faceDilate);
 }
@@ -13951,6 +14021,7 @@ function textPropertiesFromNode(node) {
     autoSize: node.autoSize,
     singleLine: node.singleLine,
     autoClearText: node.autoClearText,
+    outlineSoftness: node.outlineSoftness,
     underlaySoftness: node.underlaySoftness,
     ubbEnabled: node.ubbEnabled,
     underline: node.underline,
@@ -13969,6 +14040,29 @@ function textPropertiesFromNode(node) {
     templateVarsEnabled: node.templateVarsEnabled,
     faceDilate: node.faceDilate
   };
+}
+var IMAGE_PROPERTY_KEYS = [
+  "color",
+  "flip",
+  "fillMethod",
+  "fillOrigin",
+  "fillClockwise",
+  "fillAmount"
+];
+function isValidUamImageProperties(value) {
+  if (typeof value !== "object" || value === null || !hasExactKeys$1(value, IMAGE_PROPERTY_KEYS)) return false;
+  const properties = value;
+  return isTextColor(properties.color) && Number.isInteger(properties.flip) && properties.flip >= 0 && properties.flip <= 3 && Number.isInteger(properties.fillMethod) && properties.fillMethod >= 0 && properties.fillMethod <= 5 && Number.isInteger(properties.fillOrigin) && properties.fillOrigin >= 0 && properties.fillOrigin <= 3 && typeof properties.fillClockwise === "boolean" && typeof properties.fillAmount === "number" && Number.isFinite(properties.fillAmount) && (properties.fillMethod === 0 ? properties.fillOrigin === 0 && properties.fillClockwise && properties.fillAmount === 100 : properties.fillAmount >= 0 && properties.fillAmount <= 1);
+}
+var MOVIE_CLIP_PROPERTY_KEYS = [
+  "playing",
+  "frame",
+  "color"
+];
+function isValidUamMovieClipProperties(value) {
+  if (typeof value !== "object" || value === null || !hasExactKeys$1(value, MOVIE_CLIP_PROPERTY_KEYS)) return false;
+  const properties = value;
+  return typeof properties.playing === "boolean" && Number.isInteger(properties.frame) && properties.frame >= 0 && isTextColor(properties.color);
 }
 var COMPONENT_PROPERTY_KEYS = [
   "minSize",
@@ -13994,6 +14088,11 @@ var COMPONENT_PROPERTY_KEYS = [
   "designImageAlpha",
   "designImageLayer",
   "designImageOffset",
+  "designImage",
+  "designImageForTest",
+  "pageController",
+  "showSound",
+  "hideSound",
   "idNum",
   "initName",
   "remark",
@@ -14028,6 +14127,7 @@ function isValidUamComponentProperties(value) {
     properties.bgColor,
     properties.initName,
     properties.remark,
+    properties.pageController,
     properties.extensionType,
     properties.sound,
     properties.dropdown,
@@ -14038,6 +14138,7 @@ function isValidUamComponentProperties(value) {
     properties.pivotAsAnchor,
     properties.reversedMask,
     properties.bgColorEnabled,
+    properties.designImageForTest,
     properties.opaque,
     properties.reverse,
     properties.wholeNumbers,
@@ -14050,8 +14151,6 @@ function isValidUamComponentProperties(value) {
     properties.scrollType,
     properties.scrollBarDisplay,
     properties.scrollBarFlags,
-    properties.designImageAlpha,
-    properties.designImageLayer,
     properties.idNum,
     properties.buttonMode,
     properties.soundVolumeScale,
@@ -14059,7 +14158,7 @@ function isValidUamComponentProperties(value) {
     properties.downEffectValue,
     properties.titleType
   ];
-  return isFiniteUamSize(properties.minSize) && isFiniteUamSize(properties.maxSize) && isFiniteUamPoint(properties.pivot) && isFiniteUamEdgeInsets(properties.margin) && isFiniteUamPoint(properties.clipSoftness) && isFiniteUamEdgeInsets(properties.scrollBarMargin) && isFiniteUamPoint(properties.designImageOffset) && strings2.every((item) => typeof item === "string") && booleans.every((item) => typeof item === "boolean") && numbers.every((item) => typeof item === "number" && Number.isFinite(item)) && Array.isArray(properties.customProperties) && properties.customProperties.every((property) => property && typeof property === "object" && hasExactKeys$1(property, [
+  return isFiniteUamSize(properties.minSize) && isFiniteUamSize(properties.maxSize) && isFiniteUamPoint(properties.pivot) && isFiniteUamEdgeInsets(properties.margin) && isFiniteUamPoint(properties.clipSoftness) && isFiniteUamEdgeInsets(properties.scrollBarMargin) && isFiniteUamPoint(properties.designImageOffset) && strings2.every((item) => typeof item === "string") && booleans.every((item) => typeof item === "boolean") && numbers.every((item) => typeof item === "number" && Number.isFinite(item)) && isUiResourceReference(properties.designImage) && isSoundReference(properties.showSound) && isSoundReference(properties.hideSound) && Number.isInteger(properties.designImageAlpha) && properties.designImageAlpha >= 0 && properties.designImageAlpha <= 100 && Number.isInteger(properties.designImageLayer) && properties.designImageLayer >= 0 && properties.designImageLayer <= 1 && Array.isArray(properties.customProperties) && properties.customProperties.every((property) => property && typeof property === "object" && hasExactKeys$1(property, [
     "target",
     "propertyId",
     "label"
@@ -14067,6 +14166,13 @@ function isValidUamComponentProperties(value) {
 }
 function isNullableString$1(value) {
   return value === null || typeof value === "string";
+}
+function isUiResourceReference(value) {
+  return typeof value === "string" && (value === "" || value.startsWith("ui://") && value.length > 5 && !/\s/.test(value));
+}
+var isSoundReference = isUiResourceReference;
+function isSoundVolume(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 }
 function isValidUamComponentInstanceProperties(value) {
   if (typeof value !== "object" || value === null || !("extensionType" in value)) return false;
@@ -14096,7 +14202,7 @@ function isValidUamComponentInstanceProperties(value) {
         properties.controller,
         properties.page,
         properties.sound
-      ].every((item) => typeof item === "string") && finite(properties.titleFontSize) && typeof properties.checked === "boolean" && finite(properties.soundVolumeScale);
+      ].every((item) => typeof item === "string") && finite(properties.titleFontSize) && typeof properties.checked === "boolean" && isSoundReference(properties.sound) && isSoundVolume(properties.soundVolumeScale);
     case "Label":
       return hasExactKeys$1(properties, [
         "extensionType",
@@ -14104,18 +14210,23 @@ function isValidUamComponentInstanceProperties(value) {
         "icon",
         "titleColor",
         "titleFontSize",
-        "promptText"
+        "promptText",
+        "sound",
+        "soundVolumeScale"
       ]) && [
         properties.title,
         properties.icon,
-        properties.titleColor,
         properties.promptText
-      ].every((item) => typeof item === "string") && finite(properties.titleFontSize);
+      ].every((item) => typeof item === "string") && (properties.titleColor === "" || isTextColor(properties.titleColor)) && finite(properties.titleFontSize) && isSoundReference(properties.sound) && isSoundVolume(properties.soundVolumeScale);
     case "ComboBox":
       return hasExactKeys$1(properties, [
         "extensionType",
         "title",
         "icon",
+        "titleColor",
+        "popupDirection",
+        "sound",
+        "soundVolumeScale",
         "visibleItemCount",
         "selectionController",
         "autoClearItems",
@@ -14124,12 +14235,24 @@ function isValidUamComponentInstanceProperties(value) {
         properties.title,
         properties.icon,
         properties.selectionController
-      ].every((item) => typeof item === "string") && finite(properties.visibleItemCount) && typeof properties.autoClearItems === "boolean" && Array.isArray(properties.items) && properties.items.every((item) => item && typeof item === "object" && hasExactKeys$1(item, [
+      ].every((item) => typeof item === "string") && (properties.titleColor === "" || isTextColor(properties.titleColor)) && Number.isInteger(properties.popupDirection) && properties.popupDirection >= 0 && properties.popupDirection <= 2 && isSoundReference(properties.sound) && isSoundVolume(properties.soundVolumeScale) && finite(properties.visibleItemCount) && typeof properties.autoClearItems === "boolean" && Array.isArray(properties.items) && properties.items.every((item) => item && typeof item === "object" && hasExactKeys$1(item, [
         "title",
         "value",
         "icon"
       ]) && isNullableString$1(item.title) && isNullableString$1(item.value) && isNullableString$1(item.icon));
     case "ProgressBar":
+      return hasExactKeys$1(properties, [
+        "extensionType",
+        "value",
+        "max",
+        "min",
+        "sound",
+        "soundVolumeScale"
+      ]) && [
+        properties.value,
+        properties.max,
+        properties.min
+      ].every(finite) && isSoundReference(properties.sound) && isSoundVolume(properties.soundVolumeScale);
     case "Slider":
       return hasExactKeys$1(properties, [
         "extensionType",
@@ -14276,9 +14399,23 @@ function validateDisplayNode(node, controllerMap, knownChildIds, knownGroupIds, 
   }
   if (node.kind === "component" && node.propertyOverrides !== void 0 && (!Array.isArray(node.propertyOverrides) || !node.propertyOverrides.every(isValidUamComponentPropertyOverride))) pushIssue(issues, `${path}.propertyOverrides`, "Component property overrides must contain a non-empty target, a non-negative integer propertyId, and a string value.");
   if (node.kind === "list" || node.kind === "tree") {
+    if (!Number.isInteger(node.scrollBarDisplay) || node.scrollBarDisplay < 0 || node.scrollBarDisplay > 3) pushIssue(issues, `${path}.scrollBarDisplay`, "List scrollBarDisplay must be an integer between 0 and 3.");
     for (const [itemIndex, item] of node.listItems.entries()) if (item.propertyOverrides !== void 0 && (!Array.isArray(item.propertyOverrides) || !item.propertyOverrides.every(isValidUamComponentPropertyOverride))) pushIssue(issues, `${path}.listItems[${itemIndex}].propertyOverrides`, "List item property overrides must contain a non-empty target, a non-negative integer propertyId, and a string value.");
   }
   if ((node.kind === "text" || node.kind === "richText" || node.kind === "textInput") && !isValidUamTextProperties(textPropertiesFromNode(node), node.kind)) pushIssue(issues, path, "Text properties must be a complete valid snapshot matching the display node kind.");
+  if (node.kind === "image" && !isValidUamImageProperties({
+    color: node.color,
+    flip: node.flip,
+    fillMethod: node.fillMethod,
+    fillOrigin: node.fillOrigin,
+    fillClockwise: node.fillClockwise,
+    fillAmount: node.fillAmount
+  })) pushIssue(issues, path, "Image properties must be a complete valid property snapshot.");
+  if (node.kind === "movieClip" && !isValidUamMovieClipProperties({
+    playing: node.playing,
+    frame: node.frame,
+    color: node.color
+  })) pushIssue(issues, path, "MovieClip properties must be a complete valid property snapshot.");
   if (node.kind === "loader" || node.kind === "loader3D") {
     if ("group" in node) pushIssue(issues, `${path}.group`, `${node.kind} display nodes must not declare a group reference.`);
   } else if (!("group" in node) || typeof node.group !== "string") pushIssue(issues, `${path}.group`, "Display node group must be a string.");
@@ -14351,6 +14488,7 @@ function validateUamProject(project) {
         }
         for (const [actionIndex, action] of controller.actions.entries()) validateControllerAction(action, pageIds, childIds, `${controllerPath}.actions[${actionIndex}]`, issues);
       }
+      if (component.properties.pageController && !controllerMap.has(component.properties.pageController)) pushIssue(issues, `${resourcePath}.component.properties.pageController`, `Unknown page controller "${component.properties.pageController}".`);
       for (const [childIndex, child] of component.displayList.entries()) {
         if (child.kind === "component" && child.instanceProperties !== void 0 && !isValidUamComponentInstanceProperties(child.instanceProperties)) pushIssue(issues, `${resourcePath}.component.displayList[${childIndex}].instanceProperties`, "Component instance properties must be a complete valid extension snapshot.");
         validateDisplayNode(child, controllerMap, childIds, groupIds, `${resourcePath}.component.displayList[${childIndex}]`, issues);
@@ -14549,8 +14687,14 @@ function commitUamProjectSourcePaths(project) {
 function materializeUamGraphProperties(graph, properties) {
   graph.setGraphType(properties.graphType).setLineSize(properties.lineSize).setLineColor(properties.lineColor).setFillColor(properties.fillColor).setCornerRadius(properties.cornerRadius).setPoints(properties.points).setSides(properties.sides).setStartAngle(properties.startAngle).setDistances(properties.distances);
 }
+function materializeUamImageProperties(image, properties) {
+  image.setColor(properties.color).setFlip(properties.flip).setFillMethod(properties.fillMethod).setFillOrigin(properties.fillOrigin).setFillClockwise(properties.fillClockwise).setFillAmount(properties.fillAmount);
+}
+function materializeUamMovieClipProperties(movieClip, properties) {
+  movieClip.setPlaying(properties.playing).setFrame(properties.frame).setColor(properties.color);
+}
 function materializeUamTextProperties(text, properties) {
-  text.setText(properties.text).setFont(properties.font).setFontSize(properties.fontSize).setColor(properties.color).setAlign(properties.align).setVAlign(properties.vAlign).setLeading(properties.leading).setLetterSpacing(properties.letterSpacing).setAutoSize(properties.autoSize).setSingleLine(properties.singleLine).setAutoClearText(properties.autoClearText).setUnderlaySoftness(properties.underlaySoftness).setUbbEnabled(properties.ubbEnabled).setUnderline(properties.underline).setItalic(properties.italic).setBold(properties.bold).setStrikethrough(properties.strikethrough).setStrokeColor(properties.strokeColor).setStrokeSize(properties.strokeSize).setShadowColor(properties.shadowColor).setShadowOffset(properties.shadowOffset);
+  text.setText(properties.text).setFont(properties.font).setFontSize(properties.fontSize).setColor(properties.color).setAlign(properties.align).setVAlign(properties.vAlign).setLeading(properties.leading).setLetterSpacing(properties.letterSpacing).setAutoSize(properties.autoSize).setSingleLine(properties.singleLine).setAutoClearText(properties.autoClearText).setOutlineSoftness(properties.outlineSoftness).setUnderlaySoftness(properties.underlaySoftness).setUbbEnabled(properties.ubbEnabled).setUnderline(properties.underline).setItalic(properties.italic).setBold(properties.bold).setStrikethrough(properties.strikethrough).setStrokeColor(properties.strokeColor).setStrokeSize(properties.strokeSize).setShadowColor(properties.shadowColor).setShadowOffset(properties.shadowOffset);
   if ("demoText" in properties) text.setDemoText(properties.demoText).setTemplateVarsEnabled(properties.templateVarsEnabled).setFaceDilate(properties.faceDilate);
 }
 function materializeUamLoaderProperties(loader, properties) {
@@ -14560,11 +14704,11 @@ function materializeUamGroupProperties(group, properties) {
   group.setLayout(properties.layout).setLineGap(properties.lineGap).setColumnGap(properties.columnGap).setAdvanced(properties.advanced).setExcludeInvisibles(properties.excludeInvisibles).setAutoSizeDisabled(properties.autoSizeDisabled).setMainGridIndex(properties.mainGridIndex);
 }
 function materializeUamListProperties(list, properties) {
-  list.setLayout(properties.layout).setAlign(properties.align).setVAlign(properties.vAlign).setLineGap(properties.lineGap).setColumnGap(properties.columnGap).setLineCount(properties.lineCount).setColumnCount(properties.columnCount).setSelectionMode(properties.selectionMode).setDefaultItem(properties.defaultItem).setAutoResizeItem(properties.autoResizeItem).setChildrenRenderOrder(properties.childrenRenderOrder).setApexIndex(properties.apexIndex).setSrc(properties.src).setOverflow(properties.overflow).setScrollType(properties.scrollType).setScrollBarFlags(properties.scrollBarFlags).setScrollBarMargin(materializeEdgeInsets(properties.scrollBarMargin)).setVtScrollBarRes(properties.vtScrollBarRes).setHzScrollBarRes(properties.hzScrollBarRes).setHeaderRes(properties.headerRes).setFooterRes(properties.footerRes).setMargin(materializeEdgeInsets(properties.margin)).setClipSoftness(properties.clipSoftness).setScrollItemToViewOnClick(properties.scrollItemToViewOnClick).setFoldInvisibleItems(properties.foldInvisibleItems).setAutoClearItems(properties.autoClearItems).setListItems(cloneListItems(properties.listItems)).setPageController(properties.pageController).setControllerOverrides(properties.controllerOverrides).setSelectionController(properties.selectionController);
+  list.setLayout(properties.layout).setAlign(properties.align).setVAlign(properties.vAlign).setLineGap(properties.lineGap).setColumnGap(properties.columnGap).setLineCount(properties.lineCount).setColumnCount(properties.columnCount).setSelectionMode(properties.selectionMode).setDefaultItem(properties.defaultItem).setAutoResizeItem(properties.autoResizeItem).setChildrenRenderOrder(properties.childrenRenderOrder).setApexIndex(properties.apexIndex).setSrc(properties.src).setOverflow(properties.overflow).setScrollType(properties.scrollType).setScrollBarDisplay(properties.scrollBarDisplay).setScrollBarFlags(properties.scrollBarFlags).setScrollBarMargin(materializeEdgeInsets(properties.scrollBarMargin)).setVtScrollBarRes(properties.vtScrollBarRes).setHzScrollBarRes(properties.hzScrollBarRes).setHeaderRes(properties.headerRes).setFooterRes(properties.footerRes).setMargin(materializeEdgeInsets(properties.margin)).setClipSoftness(properties.clipSoftness).setScrollItemToViewOnClick(properties.scrollItemToViewOnClick).setFoldInvisibleItems(properties.foldInvisibleItems).setAutoClearItems(properties.autoClearItems).setListItems(cloneListItems(properties.listItems)).setPageController(properties.pageController).setControllerOverrides(properties.controllerOverrides).setSelectionController(properties.selectionController);
   if ("treeView" in properties) list.setTreeView(properties.treeView).setIndent(properties.indent).setClickToExpand(properties.clickToExpand);
 }
 function materializeUamComponentInstanceProperties(component, properties) {
-  component.setInstanceExtType("").setInstanceTitle("").setInstanceSelectedTitle("").setInstanceIcon("").setInstanceSelectedIcon("").setInstanceTitleColor("").setInstanceTitleFontSize(0).setInstanceController("").setInstancePage("").setInstanceChecked(false).setInstanceSound("").setInstanceSoundVolumeScale(1).setInstancePromptText("").setInstanceSelectionController("").setInstanceVisibleItemCount(0).setInstanceAutoClearItems(false).setInstanceValue(0).setInstanceMax(0).setInstanceMin(0).setInstanceComboItems([]);
+  component.setInstanceExtType("").setInstanceTitle("").setInstanceSelectedTitle("").setInstanceIcon("").setInstanceSelectedIcon("").setInstanceTitleColor("").setInstanceTitleFontSize(0).setInstanceController("").setInstancePage("").setInstanceChecked(false).setInstanceSound("").setInstanceSoundVolumeScale(1).setInstancePopupDirection(0).setInstancePromptText("").setInstanceSelectionController("").setInstanceVisibleItemCount(0).setInstanceAutoClearItems(false).setInstanceValue(0).setInstanceMax(0).setInstanceMin(0).setInstanceComboItems([]);
   if (!properties) return;
   component.setInstanceExtType(properties.extensionType);
   switch (properties.extensionType) {
@@ -14572,12 +14716,14 @@ function materializeUamComponentInstanceProperties(component, properties) {
       component.setInstanceTitle(properties.title).setInstanceSelectedTitle(properties.selectedTitle).setInstanceIcon(properties.icon).setInstanceSelectedIcon(properties.selectedIcon).setInstanceTitleColor(properties.titleColor).setInstanceTitleFontSize(properties.titleFontSize).setInstanceController(properties.controller).setInstancePage(properties.page).setInstanceChecked(properties.checked).setInstanceSound(properties.sound).setInstanceSoundVolumeScale(properties.soundVolumeScale);
       return;
     case "Label":
-      component.setInstanceTitle(properties.title).setInstanceIcon(properties.icon).setInstanceTitleColor(properties.titleColor).setInstanceTitleFontSize(properties.titleFontSize).setInstancePromptText(properties.promptText);
+      component.setInstanceTitle(properties.title).setInstanceIcon(properties.icon).setInstanceTitleColor(properties.titleColor).setInstanceTitleFontSize(properties.titleFontSize).setInstancePromptText(properties.promptText).setInstanceSound(properties.sound).setInstanceSoundVolumeScale(properties.soundVolumeScale);
       return;
     case "ComboBox":
-      component.setInstanceTitle(properties.title).setInstanceIcon(properties.icon).setInstanceVisibleItemCount(properties.visibleItemCount).setInstanceSelectionController(properties.selectionController).setInstanceAutoClearItems(properties.autoClearItems).setInstanceComboItems(properties.items.map((item) => ({ ...item })));
+      component.setInstanceTitle(properties.title).setInstanceIcon(properties.icon).setInstanceTitleColor(properties.titleColor).setInstancePopupDirection(properties.popupDirection).setInstanceSound(properties.sound).setInstanceSoundVolumeScale(properties.soundVolumeScale).setInstanceVisibleItemCount(properties.visibleItemCount).setInstanceSelectionController(properties.selectionController).setInstanceAutoClearItems(properties.autoClearItems).setInstanceComboItems(properties.items.map((item) => ({ ...item })));
       return;
     case "ProgressBar":
+      component.setInstanceValue(properties.value).setInstanceMax(properties.max).setInstanceMin(properties.min).setInstanceSound(properties.sound).setInstanceSoundVolumeScale(properties.soundVolumeScale);
+      return;
     case "Slider":
       component.setInstanceValue(properties.value).setInstanceMax(properties.max).setInstanceMin(properties.min);
       return;
@@ -14586,7 +14732,7 @@ function materializeUamComponentInstanceProperties(component, properties) {
   }
 }
 function materializeUamComponentProperties(component, properties) {
-  component.setMinWidth(properties.minSize.width).setMinHeight(properties.minSize.height).setMaxWidth(properties.maxSize.width).setMaxHeight(properties.maxSize.height).setPivotX(properties.pivot.x).setPivotY(properties.pivot.y).setPivotAsAnchor(properties.pivotAsAnchor).setOverflow(properties.overflow).setMargin(properties.margin).setClipSoftness(properties.clipSoftness).setHitTest(properties.hitTest).setMask(properties.mask).setReversedMask(properties.reversedMask).setScrollType(properties.scrollType).setScrollBarDisplay(properties.scrollBarDisplay).setScrollBarFlags(properties.scrollBarFlags).setScrollBarMargin(properties.scrollBarMargin).setVtScrollBarRes(properties.vtScrollBarRes).setHzScrollBarRes(properties.hzScrollBarRes).setHeaderRes(properties.headerRes).setFooterRes(properties.footerRes).setBgColor(properties.bgColor).setBgColorEnabled(properties.bgColorEnabled).setDesignImageAlpha(properties.designImageAlpha).setDesignImageLayer(properties.designImageLayer).setDesignImageOffsetX(properties.designImageOffset.x).setDesignImageOffsetY(properties.designImageOffset.y).setIdNum(properties.idNum).setInitName(properties.initName).setRemark(properties.remark).setExtensionType(properties.extensionType).setOpaque(properties.opaque).setButtonMode(properties.buttonMode).setSound(properties.sound).setSoundVolumeScale(properties.soundVolumeScale).setDownEffect(properties.downEffect).setDownEffectValue(properties.downEffectValue).setDropdown(properties.dropdown).setPromptText(properties.promptText).setSelectionController(properties.selectionController).setTitleType(properties.titleType).setReverse(properties.reverse).setWholeNumbers(properties.wholeNumbers).setChangeOnClick(properties.changeOnClick).setFixedGripSize(properties.fixedGripSize).setAutoClearItems(properties.autoClearItems).setCustomProperties(properties.customProperties);
+  component.setMinWidth(properties.minSize.width).setMinHeight(properties.minSize.height).setMaxWidth(properties.maxSize.width).setMaxHeight(properties.maxSize.height).setPivotX(properties.pivot.x).setPivotY(properties.pivot.y).setPivotAsAnchor(properties.pivotAsAnchor).setOverflow(properties.overflow).setMargin(properties.margin).setClipSoftness(properties.clipSoftness).setHitTest(properties.hitTest).setMask(properties.mask).setReversedMask(properties.reversedMask).setScrollType(properties.scrollType).setScrollBarDisplay(properties.scrollBarDisplay).setScrollBarFlags(properties.scrollBarFlags).setScrollBarMargin(properties.scrollBarMargin).setVtScrollBarRes(properties.vtScrollBarRes).setHzScrollBarRes(properties.hzScrollBarRes).setHeaderRes(properties.headerRes).setFooterRes(properties.footerRes).setBgColor(properties.bgColor).setBgColorEnabled(properties.bgColorEnabled).setDesignImageAlpha(properties.designImageAlpha).setDesignImageLayer(properties.designImageLayer).setDesignImageOffsetX(properties.designImageOffset.x).setDesignImageOffsetY(properties.designImageOffset.y).setDesignImage(properties.designImage).setDesignImageForTest(properties.designImageForTest).setPageController(properties.pageController).setAddedToStageSound(properties.showSound).setRemovedFromStageSound(properties.hideSound).setIdNum(properties.idNum).setInitName(properties.initName).setRemark(properties.remark).setExtensionType(properties.extensionType).setOpaque(properties.opaque).setButtonMode(properties.buttonMode).setSound(properties.sound).setSoundVolumeScale(properties.soundVolumeScale).setDownEffect(properties.downEffect).setDownEffectValue(properties.downEffectValue).setDropdown(properties.dropdown).setPromptText(properties.promptText).setSelectionController(properties.selectionController).setTitleType(properties.titleType).setReverse(properties.reverse).setWholeNumbers(properties.wholeNumbers).setChangeOnClick(properties.changeOnClick).setFixedGripSize(properties.fixedGripSize).setAutoClearItems(properties.autoClearItems).setCustomProperties(properties.customProperties);
 }
 function materializeDisplayNodeBase(target, node) {
   target.setId(node.id).setXY(node.position.x, node.position.y).setSize(node.size.width, node.size.height).setLocked(node.locked ?? false).setAspect(node.aspect ?? false).setMinWidth(node.minSize?.width ?? 0).setMaxWidth(node.maxSize?.width ?? 0).setMinHeight(node.minSize?.height ?? 0).setMaxHeight(node.maxSize?.height ?? 0).setPivot(node.pivot?.x ?? 0, node.pivot?.y ?? 0, node.pivotAsAnchor ?? false).setScale(node.scale?.x ?? 1, node.scale?.y ?? 1).setSkew(node.skew?.x ?? 0, node.skew?.y ?? 0).setVisible(node.visible).setTouchable(node.touchable).setGrayed(node.grayed).setAlpha(node.alpha).setRotation(node.rotation).setTooltips(node.tooltips ?? "").setBlendMode(node.blendMode ?? "normal").setFilter(node.filter ?? "").setFilterData(node.filterData ?? "").setCustomData(node.customData).setRelations(materializeRelations(node.relations));
@@ -14663,7 +14809,9 @@ function materializeDisplayNode(doc, node) {
   ensureSupportedNodeKind(node.kind);
   if (node.kind === "image") {
     const imageNode = node;
-    return materializeDisplayNodeBase(doc.createGImage(node.name), node).setGroup(imageNode.group).setSrc(imageNode.resource.resourceId);
+    const image = materializeDisplayNodeBase(doc.createGImage(node.name), node).setGroup(imageNode.group).setSrc(imageNode.resource.resourceId);
+    materializeUamImageProperties(image, imageNode);
+    return image;
   }
   if (node.kind === "text" || node.kind === "richText" || node.kind === "textInput") {
     const textNode = node;
@@ -14736,7 +14884,9 @@ function materializeDisplayNode(doc, node) {
     return materializeComponentDerivedControlBase(doc.createGScrollBar(node.name), scrollBarNode).setFixedGripSize(scrollBarNode.fixedGripSize);
   }
   const movieClipNode = node;
-  return materializeDisplayNodeBase(doc.createGMovieClip(node.name), node).setGroup(movieClipNode.group).setSrc(movieClipNode.resource.resourceId).setPackageId(movieClipNode.resource.packageId ?? "").setFileName(movieClipNode.fileName).setPlaying(movieClipNode.playing).setFrame(movieClipNode.frame).setColor(movieClipNode.color);
+  const movieClip = materializeDisplayNodeBase(doc.createGMovieClip(node.name), node).setGroup(movieClipNode.group).setSrc(movieClipNode.resource.resourceId).setPackageId(movieClipNode.resource.packageId ?? "").setFileName(movieClipNode.fileName);
+  materializeUamMovieClipProperties(movieClip, movieClipNode);
+  return movieClip;
 }
 function composeControllers(doc, component, controllers) {
   for (const controller of controllers) composeController(doc, component, {
@@ -15291,7 +15441,13 @@ function liftDisplayNode(child) {
       kind: "image",
       ...liftDisplayNodeBase(image),
       group: image.getGroup(),
-      resource: { resourceId: image.getSrc() }
+      resource: { resourceId: image.getSrc() },
+      color: image.getColor(),
+      flip: image.getFlip(),
+      fillMethod: image.getFillMethod(),
+      fillOrigin: image.getFillOrigin(),
+      fillClockwise: image.getFillClockwise(),
+      fillAmount: image.getFillAmount()
     };
   }
   if (child.propertyType === PropertyType.G_TEXT_FIELD || child.propertyType === PropertyType.G_RICH_TEXT_FIELD || child.propertyType === PropertyType.G_TEXT_INPUT) {
@@ -15308,6 +15464,7 @@ function liftDisplayNode(child) {
       autoSize: text.getAutoSize(),
       singleLine: text.getSingleLine(),
       autoClearText: text.getAutoClearText(),
+      outlineSoftness: text.getOutlineSoftness(),
       underlaySoftness: text.getUnderlaySoftness(),
       ubbEnabled: text.getUbbEnabled(),
       underline: text.getUnderline(),
@@ -15389,6 +15546,7 @@ function liftDisplayNode(child) {
       src: list.getSrc(),
       overflow: list.getOverflow(),
       scrollType: list.getScrollType(),
+      scrollBarDisplay: list.getScrollBarDisplay(),
       scrollBarFlags: list.getScrollBarFlags(),
       scrollBarMargin: liftEdgeInsets(list.getScrollBarMargin()),
       vtScrollBarRes: list.getVtScrollBarRes(),
@@ -15608,22 +15766,36 @@ function liftComponentInstanceProperties(component) {
         icon: component.getInstanceIcon(),
         titleColor: component.getInstanceTitleColor(),
         titleFontSize: component.getInstanceTitleFontSize(),
-        promptText: component.getInstancePromptText()
+        promptText: component.getInstancePromptText(),
+        sound: component.getInstanceSound(),
+        soundVolumeScale: component.getInstanceSoundVolumeScale()
       };
     case "ComboBox":
       return {
         extensionType: "ComboBox",
         title: component.getInstanceTitle(),
         icon: component.getInstanceIcon(),
+        titleColor: component.getInstanceTitleColor(),
+        popupDirection: component.getInstancePopupDirection(),
+        sound: component.getInstanceSound(),
+        soundVolumeScale: component.getInstanceSoundVolumeScale(),
         visibleItemCount: component.getInstanceVisibleItemCount(),
         selectionController: component.getInstanceSelectionController(),
         autoClearItems: component.getInstanceAutoClearItems(),
         items: component.getInstanceComboItems().map((item) => ({ ...item }))
       };
     case "ProgressBar":
+      return {
+        extensionType: "ProgressBar",
+        value: component.getInstanceValue(),
+        max: component.getInstanceMax(),
+        min: component.getInstanceMin(),
+        sound: component.getInstanceSound(),
+        soundVolumeScale: component.getInstanceSoundVolumeScale()
+      };
     case "Slider":
       return {
-        extensionType: component.getInstanceExtType(),
+        extensionType: "Slider",
         value: component.getInstanceValue(),
         max: component.getInstanceMax(),
         min: component.getInstanceMin()
@@ -15745,6 +15917,11 @@ function liftComponentProperties(resource) {
       x: resource.getDesignImageOffsetX(),
       y: resource.getDesignImageOffsetY()
     },
+    designImage: resource.getDesignImage(),
+    designImageForTest: resource.getDesignImageForTest(),
+    pageController: resource.getPageController(),
+    showSound: resource.getAddedToStageSound(),
+    hideSound: resource.getRemovedFromStageSound(),
     idNum: resource.getIdNum(),
     initName: resource.getInitName(),
     remark: resource.getRemark(),
@@ -15841,7 +16018,7 @@ function isResourceFolderLifecycleOperation(operation) {
   return operation.kind === "addResourceFolder" || operation.kind === "renameResourceFolder" || operation.kind === "moveResourceFolder" || operation.kind === "removeResourceFolder";
 }
 function isUamNativeOperation(operation) {
-  return operation.kind === "updateProjectSettings" || operation.kind === "updatePackageSettings" || operation.kind === "setComponentProps" || operation.kind === "setDisplayNodeProps" || operation.kind === "setResourceFavorite" || operation.kind === "setResourceFolderFavorite" || operation.kind === "setResourceExported" || operation.kind === "setImageResourceProps" || isResourceFolderLifecycleOperation(operation) || isResourceLifecycleOperation(operation) || isLifecycleOperation(operation) || isDisplayListRewriteOperation(operation);
+  return operation.kind === "updateProjectSettings" || operation.kind === "updatePackageSettings" || operation.kind === "setComponentProps" || operation.kind === "setDisplayNodeProps" || operation.kind === "setResourceFavorite" || operation.kind === "setResourceFolderFavorite" || operation.kind === "setResourceFolderAtlas" || operation.kind === "setResourceExported" || operation.kind === "setImageResourceProps" || isResourceFolderLifecycleOperation(operation) || isResourceLifecycleOperation(operation) || isLifecycleOperation(operation) || isDisplayListRewriteOperation(operation);
 }
 function renamedResourceFileName(previousFileName, requestedName) {
   if (requestedName.includes(".")) return requestedName;
@@ -16325,6 +16502,16 @@ function applyDocumentOperation(doc, operation) {
       pkg.setResourceFolders(folders);
       return;
     }
+    case "setResourceFolderAtlas": {
+      const pkg = resolvePackage(doc, operation.selector);
+      const branch = operation.selector.branch ?? "";
+      const folders = pkg.listResourceFolders();
+      const folder = folders.find((candidate) => candidate.branch === branch && candidate.path === operation.selector.path);
+      if (!folder) throw new Error(`Resource folder "${branch}:${operation.selector.path}" was not found.`);
+      folder.atlas = operation.atlas;
+      pkg.setResourceFolders(folders);
+      return;
+    }
     case "setResourceExported":
       resolveResource(doc, operation.selector).resource.setExported(operation.exported);
       return;
@@ -16415,6 +16602,14 @@ function applyDocumentOperation(doc, operation) {
       if (operation.props.groupProperties !== void 0) {
         if (node.propertyType !== PropertyType.G_GROUP) throw new Error(`Group display props are not supported on display node type "${node.propertyType}".`);
         materializeUamGroupProperties(node, operation.props.groupProperties);
+      }
+      if (operation.props.imageProperties !== void 0) {
+        if (node.propertyType !== PropertyType.G_IMAGE) throw new Error(`Image display props are not supported on display node type "${node.propertyType}".`);
+        materializeUamImageProperties(node, operation.props.imageProperties);
+      }
+      if (operation.props.movieClipProperties !== void 0) {
+        if (node.propertyType !== PropertyType.G_MOVIE_CLIP) throw new Error(`MovieClip display props are not supported on display node type "${node.propertyType}".`);
+        materializeUamMovieClipProperties(node, operation.props.movieClipProperties);
       }
       if (operation.props.loaderProperties !== void 0) {
         if (node.propertyType !== PropertyType.G_LOADER) throw new Error(`Loader display props are not supported on display node type "${node.propertyType}".`);
@@ -16794,6 +16989,14 @@ function applyDisplayNodePropsUpdate(node, props) {
     if (node.kind !== "group") throw new Error(`Group display props are not supported on display node kind "${node.kind}".`);
     Object.assign(node, structuredClone(props.groupProperties));
   }
+  if (props.imageProperties !== void 0) {
+    if (node.kind !== "image") throw new Error(`Image display props are not supported on display node kind "${node.kind}".`);
+    Object.assign(node, structuredClone(props.imageProperties));
+  }
+  if (props.movieClipProperties !== void 0) {
+    if (node.kind !== "movieClip") throw new Error(`MovieClip display props are not supported on display node kind "${node.kind}".`);
+    Object.assign(node, structuredClone(props.movieClipProperties));
+  }
   if (props.loaderProperties !== void 0) {
     if (node.kind !== "loader") throw new Error(`Loader display props are not supported on display node kind "${node.kind}".`);
     Object.assign(node, structuredClone(props.loaderProperties));
@@ -16858,6 +17061,14 @@ function applyUamNativeOperation(project, operation) {
       const folder = pkg.folders.find((candidate) => candidate.branch === branch && candidate.path === operation.selector.path);
       if (!folder) throw new Error(`Resource folder "${branch}:${operation.selector.path}" was not found in package "${pkg.id}".`);
       folder.favorite = operation.favorite;
+      return;
+    }
+    case "setResourceFolderAtlas": {
+      const pkg = requirePackageSpec(project, operation.selector.packageId);
+      const branch = operation.selector.branch ?? "";
+      const folder = pkg.folders.find((candidate) => candidate.branch === branch && candidate.path === operation.selector.path);
+      if (!folder) throw new Error(`Resource folder "${branch}:${operation.selector.path}" was not found in package "${pkg.id}".`);
+      folder.atlas = operation.atlas;
       return;
     }
     case "setResourceExported": {
@@ -17118,6 +17329,7 @@ var LIST_PROPERTY_KEYS = [
   "src",
   "overflow",
   "scrollType",
+  "scrollBarDisplay",
   "scrollBarFlags",
   "scrollBarMargin",
   "vtScrollBarRes",
@@ -17516,9 +17728,9 @@ function isValidListProperties(value, nodeKind) {
     properties.scrollItemToViewOnClick,
     properties.foldInvisibleItems,
     properties.autoClearItems
-  ].every((item) => typeof item === "boolean") && isIntegerBetween(properties.childrenRenderOrder, 0, 2) && Number.isInteger(properties.apexIndex) && (properties.childrenRenderOrder === 2 || properties.apexIndex === 0) && isIntegerBetween(properties.overflow, 0, 2) && isIntegerBetween(properties.scrollType, 0, 2) && Number.isInteger(properties.scrollBarFlags) && properties.scrollBarFlags >= 0 && isFiniteEdgeInsets(properties.scrollBarMargin) && isFiniteEdgeInsets(properties.margin) && isFiniteUamPoint(properties.clipSoftness) && Array.isArray(properties.listItems) && properties.listItems.every(isValidListItem);
+  ].every((item) => typeof item === "boolean") && isIntegerBetween(properties.childrenRenderOrder, 0, 2) && Number.isInteger(properties.apexIndex) && (properties.childrenRenderOrder === 2 || properties.apexIndex === 0) && isIntegerBetween(properties.overflow, 0, 2) && isIntegerBetween(properties.scrollType, 0, 2) && isIntegerBetween(properties.scrollBarDisplay, 0, 3) && Number.isInteger(properties.scrollBarFlags) && properties.scrollBarFlags >= 0 && isFiniteEdgeInsets(properties.scrollBarMargin) && isFiniteEdgeInsets(properties.margin) && isFiniteUamPoint(properties.clipSoftness) && Array.isArray(properties.listItems) && properties.listItems.every(isValidListItem);
   if (!validListProperties || nodeKind !== "tree") return validListProperties;
-  return properties.treeView === true && isFiniteNumber(properties.indent) && properties.indent >= 0 && isIntegerBetween(properties.clickToExpand, 0, 1) && properties.listItems.every((item) => typeof item.isFolder === "boolean");
+  return properties.treeView === true && isFiniteNumber(properties.indent) && properties.indent >= 0 && isIntegerBetween(properties.clickToExpand, 0, 2) && properties.listItems.every((item) => typeof item.isFolder === "boolean");
 }
 function isValidLoader3DProperties(value) {
   if (!value || typeof value !== "object") return false;
@@ -17537,6 +17749,7 @@ function isValidLoader3DProperties(value) {
   ].every((candidate) => typeof candidate === "boolean") && Number.isInteger(properties.align) && properties.align >= 0 && properties.align <= 2 && Number.isInteger(properties.vAlign) && properties.vAlign >= 0 && properties.vAlign <= 2 && Number.isInteger(properties.frame) && properties.frame >= 0 && isColor(properties.color);
 }
 function validateDisplayPropsPayload(op, project, path, issues) {
+  const initialIssueCount = issues.length;
   const node = findDisplayNodeSpec(project, op.selector);
   const nodeKind = node?.kind;
   const hasTextProperties = op.props.textProperties !== void 0;
@@ -17646,6 +17859,32 @@ function validateDisplayPropsPayload(op, project, path, issues) {
       });
       continue;
     }
+    if (key === "imageProperties") {
+      if (nodeKind && nodeKind !== "image") pushSupportIssue(issues, "unsupported_display_node_field", `${path}.props.imageProperties`, "Image properties are only supported on image display nodes.", {
+        operationKind: op.kind,
+        nodeKind,
+        field: key
+      });
+      else if (!isValidUamImageProperties(op.props.imageProperties)) pushSupportIssue(issues, "invalid_display_node_payload", `${path}.props.imageProperties`, "Image properties must be a complete valid image property snapshot.", {
+        operationKind: op.kind,
+        nodeKind,
+        field: key
+      });
+      continue;
+    }
+    if (key === "movieClipProperties") {
+      if (nodeKind && nodeKind !== "movieClip") pushSupportIssue(issues, "unsupported_display_node_field", `${path}.props.movieClipProperties`, "MovieClip properties are only supported on movieClip display nodes.", {
+        operationKind: op.kind,
+        nodeKind,
+        field: key
+      });
+      else if (!isValidUamMovieClipProperties(op.props.movieClipProperties)) pushSupportIssue(issues, "invalid_display_node_payload", `${path}.props.movieClipProperties`, "MovieClip properties must be a complete valid MovieClip property snapshot.", {
+        operationKind: op.kind,
+        nodeKind,
+        field: key
+      });
+      continue;
+    }
     if (key === "loaderProperties") {
       if (nodeKind && nodeKind !== "loader") pushSupportIssue(issues, "unsupported_display_node_field", `${path}.props.loaderProperties`, "Loader properties are only supported on loader display nodes.", {
         operationKind: op.kind,
@@ -17724,6 +17963,14 @@ function validateDisplayPropsPayload(op, project, path, issues) {
       operationKind: op.kind,
       nodeKind,
       field: String(key)
+    });
+  }
+  if (node && issues.length === initialIssueCount) {
+    const projected = structuredClone(node);
+    applyDisplayNodePropsUpdate(projected, op.props);
+    if (stableJson(projected) === stableJson(node)) pushSupportIssue(issues, "display_node_props_unchanged", `${path}.props`, "setDisplayNodeProps must change at least one display node property.", {
+      operationKind: op.kind,
+      nodeKind
     });
   }
 }
@@ -17934,6 +18181,22 @@ function validateResourceFolderSelector(project, selector, path, issues, operati
   const found = findResourceFolder(project, selector);
   if (!found) pushSupportIssue(issues, "invalid_resource_folder_selector", path, `Resource folder "${folderBranch(selector)}:${selector.path}" was not found in package "${selector.packageId}".`, { operationKind });
   return found;
+}
+function resourceFolderMaxAtlasIndexAt(pkg, operations, operationIndex) {
+  let maxAtlasIndex = pkg.publish?.maxAtlasIndex ?? 10;
+  for (let index = 0; index < operationIndex; index += 1) {
+    const operation = operations[index];
+    if (operation.kind !== "updatePackageSettings" || operation.selector.packageId !== pkg.id) continue;
+    const settings = operation.settings;
+    if (!isPlainRecord(settings) || !isPlainRecord(settings.publish)) continue;
+    if (isIntegerBetween(settings.publish.maxAtlasIndex, 0, 255)) maxAtlasIndex = settings.publish.maxAtlasIndex;
+  }
+  return maxAtlasIndex;
+}
+function validateResourceFolderAtlas(atlas2, maxAtlasIndex, path, issues, operationKind) {
+  if (typeof atlas2 === "string" && (atlas2 === "" || /^(0|[1-9]\d*)$/.test(atlas2) && Number(atlas2) <= maxAtlasIndex)) return true;
+  pushSupportIssue(issues, "invalid_resource_folder_atlas", path, `Resource folder atlas must be empty or a canonical slot index from 0 to ${maxAtlasIndex}.`, { operationKind });
+  return false;
 }
 function primaryResourceFileName(resource) {
   return resource.fileName ?? (resource.kind === "image" ? "" : resource.file) ?? "";
@@ -18148,7 +18411,7 @@ function validateLifecycleOperationPayloads(project, operations, issues) {
   const referenceChecks = [];
   const initialIssueCount = issues.length;
   for (const [operationIndex, operation] of operations.entries()) {
-    if (!isLifecycleOperation(operation) && !isResourceLifecycleOperation(operation) && !isResourceFolderLifecycleOperation(operation) && !isDisplayListRewriteOperation(operation) && operation.kind !== "setDisplayNodeProps" && operation.kind !== "setResourceFolderFavorite") continue;
+    if (!isLifecycleOperation(operation) && !isResourceLifecycleOperation(operation) && !isResourceFolderLifecycleOperation(operation) && !isDisplayListRewriteOperation(operation) && operation.kind !== "setDisplayNodeProps" && operation.kind !== "setResourceFolderFavorite" && operation.kind !== "setResourceFolderAtlas") continue;
     const operationPath = `operations[${operationIndex}]`;
     const issueCount = issues.length;
     switch (operation.kind) {
@@ -18233,7 +18496,7 @@ function validateLifecycleOperationPayloads(project, operations, issues) {
         if (!isSafeResourceFolderPath(operation.path)) pushSupportIssue(issues, "invalid_resource_folder_path", `${operationPath}.path`, "Resource folder path must be canonical, non-root, and traversal-free.", { operationKind: operation.kind });
         if (branch && (!isSafePackageName(branch) || !projected.branches.includes(branch))) pushSupportIssue(issues, "invalid_resource_folder_path", `${operationPath}.branch`, `Resource folder branch "${branch}" is not defined by the project.`, { operationKind: operation.kind });
         if (operation.favorite !== void 0 && typeof operation.favorite !== "boolean") pushSupportIssue(issues, "invalid_resource_payload", `${operationPath}.favorite`, "addResourceFolder.favorite must be boolean.", { operationKind: operation.kind });
-        if (operation.atlas !== void 0 && typeof operation.atlas !== "string") pushSupportIssue(issues, "invalid_resource_payload", `${operationPath}.atlas`, "addResourceFolder.atlas must be a string.", { operationKind: operation.kind });
+        validateResourceFolderAtlas(operation.atlas === void 0 ? "" : operation.atlas, pkg ? resourceFolderMaxAtlasIndexAt(pkg, operations, operationIndex) : 10, `${operationPath}.atlas`, issues, operation.kind);
         if (pkg && isSafeResourceFolderPath(operation.path)) {
           if (!folderParentExists(pkg, branch, operation.path)) pushSupportIssue(issues, "invalid_resource_folder_path", `${operationPath}.path`, `Parent folder "${resourceFolderParentPath(operation.path)}" does not exist.`, { operationKind: operation.kind });
           if (pkg.folders.some((folder) => folder.branch === branch && folder.path === operation.path) || folderPathConflictsWithResource(pkg, branch, operation.path)) pushSupportIssue(issues, "resource_folder_conflict", `${operationPath}.path`, `Resource folder path "${operation.path}" already exists or conflicts with a resource.`, { operationKind: operation.kind });
@@ -18291,6 +18554,12 @@ function validateLifecycleOperationPayloads(project, operations, issues) {
       case "setResourceFolderFavorite":
         validateResourceFolderSelector(projected, operation.selector, `${operationPath}.selector`, issues, operation.kind);
         break;
+      case "setResourceFolderAtlas": {
+        const found = validateResourceFolderSelector(projected, operation.selector, `${operationPath}.selector`, issues, operation.kind);
+        const validAtlas = validateResourceFolderAtlas(operation.atlas, found ? resourceFolderMaxAtlasIndexAt(found.pkg, operations, operationIndex) : 10, `${operationPath}.atlas`, issues, operation.kind);
+        if (found && validAtlas && found.folder.atlas === operation.atlas) pushSupportIssue(issues, "resource_folder_atlas_unchanged", `${operationPath}.atlas`, "setResourceFolderAtlas must change the selected folder atlas.", { operationKind: operation.kind });
+        break;
+      }
     }
     if (issues.length !== issueCount) continue;
     if (isLifecycleOperation(operation)) applyUamLifecycleOperation(projected, operation);
@@ -18298,6 +18567,7 @@ function validateLifecycleOperationPayloads(project, operations, issues) {
     else if (isResourceFolderLifecycleOperation(operation)) applyUamResourceFolderLifecycleOperation(projected, operation);
     else if (operation.kind === "setDisplayNodeProps") applyDisplayNodePropsUpdate(findDisplayNodeSpec(projected, operation.selector), operation.props);
     else if (operation.kind === "setResourceFolderFavorite") findResourceFolder(projected, operation.selector).folder.favorite = operation.favorite;
+    else if (operation.kind === "setResourceFolderAtlas") findResourceFolder(projected, operation.selector).folder.atlas = operation.atlas;
     else applyUamDisplayListRewriteOperation(projected, operation);
     switch (operation.kind) {
       case "removePackage":
@@ -18356,7 +18626,7 @@ function validateLifecycleBatchCompatibility(operations, issues) {
 }
 function requiresSequentialDisplayProjection(operations) {
   const hasDisplayListRewrite = operations.some(isDisplayListRewriteOperation);
-  return operations.some(isLifecycleOperation) || operations.some(isResourceLifecycleOperation) || operations.some(isResourceFolderLifecycleOperation) || hasDisplayListRewrite && (operations.some(isResourceLifecycleOperation) || operations.some((operation) => operation.kind === "setDisplayNodeProps"));
+  return operations.some((operation) => operation.kind === "setDisplayNodeProps") || operations.some(isLifecycleOperation) || operations.some(isResourceLifecycleOperation) || operations.some(isResourceFolderLifecycleOperation) || operations.some((operation) => operation.kind === "setResourceFolderAtlas") || hasDisplayListRewrite && (operations.some(isResourceLifecycleOperation) || operations.some((operation) => operation.kind === "setDisplayNodeProps"));
 }
 function projectedAssetFileName(project, operations, operationIndex, selector) {
   const resource = findResourceSpec(project, selector);
@@ -18430,6 +18700,8 @@ function validateOperationPayloads(project, operations, issues) {
       case "setResourceFolderFavorite":
         if (!usesSequentialDisplayProjection) validateResourceFolderSelector(project, operation.selector, `${operationPath}.selector`, issues, operation.kind);
         if (typeof operation.favorite !== "boolean") pushSupportIssue(issues, "invalid_resource_payload", `${operationPath}.favorite`, "setResourceFolderFavorite.favorite must be boolean.", { operationKind: operation.kind });
+        break;
+      case "setResourceFolderAtlas":
         break;
       case "setResourceExported":
         validateTouchedResourceKind(project, operations, operationIndex, operation.selector, `${operationPath}.selector.resourceId`, issues, operation.kind);
@@ -18692,6 +18964,8 @@ function collectProjectedResourceReferenceIssues(project) {
     ];
     for (const [field, value] of componentRefs) pushMissingUi(`${pkg.id}/${resource.id}/properties/${field}`, `${componentPath}.properties.${field}`, value, componentKinds);
     pushMissingUi(`${pkg.id}/${resource.id}/properties/sound`, `${componentPath}.properties.sound`, resource.component.properties.sound, ["sound"]);
+    pushMissingUi(`${pkg.id}/${resource.id}/properties/designImage`, `${componentPath}.properties.designImage`, resource.component.properties.designImage, ["image"]);
+    for (const field of ["showSound", "hideSound"]) pushMissingUi(`${pkg.id}/${resource.id}/properties/${field}`, `${componentPath}.properties.${field}`, resource.component.properties[field], ["sound"]);
     for (const node of resource.component.displayList) {
       const nodeKey = `${pkg.id}/${resource.id}/${node.id}`;
       const nodePath = `packages.${pkg.id}.resources.${resource.id}.component.displayList.${node.id}`;
@@ -18723,10 +18997,8 @@ function collectProjectedResourceReferenceIssues(project) {
       if (node.kind === "component" && node.instanceProperties) {
         const instance = node.instanceProperties;
         if ("icon" in instance) pushMissingUi(`${nodeKey}/instance/icon`, `${nodePath}.instanceProperties.icon`, instance.icon, visualKinds);
-        if (instance.extensionType === "Button") {
-          pushMissingUi(`${nodeKey}/instance/selectedIcon`, `${nodePath}.instanceProperties.selectedIcon`, instance.selectedIcon, visualKinds);
-          pushMissingUi(`${nodeKey}/instance/sound`, `${nodePath}.instanceProperties.sound`, instance.sound, ["sound"]);
-        }
+        if (instance.extensionType === "Button") pushMissingUi(`${nodeKey}/instance/selectedIcon`, `${nodePath}.instanceProperties.selectedIcon`, instance.selectedIcon, visualKinds);
+        if (instance.extensionType === "Button" || instance.extensionType === "Label" || instance.extensionType === "ComboBox" || instance.extensionType === "ProgressBar") pushMissingUi(`${nodeKey}/instance/sound`, `${nodePath}.instanceProperties.sound`, instance.sound, ["sound"]);
         if (instance.extensionType === "ComboBox") for (const [itemIndex, item] of instance.items.entries()) pushMissingUi(`${nodeKey}/instance/items/${itemIndex}/icon`, `${nodePath}.instanceProperties.items.${itemIndex}.icon`, item.icon ?? "", visualKinds);
       }
       if ("icon" in node) pushMissingUi(`${nodeKey}/icon`, `${nodePath}.icon`, node.icon, visualKinds);
@@ -18762,7 +19034,7 @@ function validateProjectedState(project, operations, issues) {
     if (baselineValidationIssues.has(`${issue.path}\0${issue.message}`) && !touchedGroupPaths.has(issue.path)) continue;
     pushSupportIssue(issues, issue.path.endsWith(".group") ? "invalid_group_reference" : "invalid_resource_payload", issue.path, issue.message);
   }
-  if (operations.some(isLifecycleOperation) || operations.some(isResourceLifecycleOperation) || operations.some(isDisplayListRewriteOperation)) {
+  if (operations.some(isLifecycleOperation) || operations.some(isResourceLifecycleOperation) || operations.some(isDisplayListRewriteOperation) || operations.some((operation) => operation.kind === "setDisplayNodeProps" && operation.props.componentInstanceProperties !== void 0) || operations.some((operation) => operation.kind === "setComponentProps" && operation.props.properties !== void 0)) {
     const baselineReferenceKeys = new Set(collectProjectedResourceReferenceIssues(normalizeUamProject(project)).map((issue) => issue.key));
     for (const issue of collectProjectedResourceReferenceIssues(projected)) {
       if (baselineReferenceKeys.has(issue.key)) continue;
@@ -23991,10 +24263,15 @@ var ROOT_COMPONENT_PANEL_ATTRS = {
   bgColor: { canonical: "bgColor" },
   bgColorEnabled: { canonical: "bgColorEnabled" },
   idnum: { canonical: "idnum" },
-  initName: { canonical: "initName" }
+  initName: { canonical: "initName" },
+  pageController: { canonical: "pageController" },
+  showSound: { canonical: "showSound" },
+  hideSound: { canonical: "hideSound" }
 };
 var ROOT_MISC_PANEL_ATTRS = { remark: { canonical: "remark" } };
 var ROOT_DESIGN_PANEL_ATTRS = {
+  designImage: { canonical: "designImage" },
+  designImageForTest: { canonical: "designImageForTest" },
   designImageAlpha: { canonical: "designImageAlpha" },
   designImageLayer: { canonical: "designImageLayer" },
   designImageOffsetX: { canonical: "designImageOffsetX" },
@@ -24093,6 +24370,7 @@ var TEXT_PANEL_ATTRS = {
   autoClearText: { canonical: "autoClearText" },
   demoText: { canonical: "demoText" },
   faceDilate: { canonical: "faceDilate" },
+  outlineSoftness: { canonical: "outlineSoftness" },
   underlaySoftness: { canonical: "underlaySoftness" },
   vars: { canonical: "vars" }
 };
@@ -24108,6 +24386,7 @@ var TEXT_INPUT_PANEL_ATTRS = {
 };
 var RICH_TEXT_PANEL_ATTRS = {
   restrictSize: { canonical: "restrictSize" },
+  outlineSoftness: { canonical: "outlineSoftness" },
   underlaySoftness: { canonical: "underlaySoftness" }
 };
 var GROUP_PANEL_ATTRS = {
@@ -24164,10 +24443,7 @@ var LIST_PANEL_ATTRS = {
 var BUTTON_EXTENSION_ATTRS = {
   mode: { canonical: "mode" },
   sound: { canonical: "sound" },
-  soundVolumeScale: {
-    canonical: "soundVolumeScale",
-    aliases: ["volume"]
-  },
+  soundVolumeScale: { canonical: "volume" },
   downEffect: { canonical: "downEffect" },
   downEffectValue: { canonical: "downEffectValue" },
   title: { canonical: "title" },
@@ -24185,12 +24461,18 @@ var LABEL_EXTENSION_ATTRS = {
   icon: { canonical: "icon" },
   titleColor: { canonical: "titleColor" },
   titleFontSize: { canonical: "titleFontSize" },
-  prompt: { canonical: "prompt" }
+  prompt: { canonical: "prompt" },
+  sound: { canonical: "sound" },
+  soundVolumeScale: { canonical: "volume" }
 };
 var COMBOBOX_EXTENSION_ATTRS = {
   dropdown: { canonical: "dropdown" },
   title: { canonical: "title" },
   icon: { canonical: "icon" },
+  titleColor: { canonical: "titleColor" },
+  popupDirection: { canonical: "direction" },
+  sound: { canonical: "sound" },
+  soundVolumeScale: { canonical: "volume" },
   visibleItemCount: { canonical: "visibleItemCount" },
   selectionController: { canonical: "selectionController" },
   autoClearItems: { canonical: "autoClearItems" }
@@ -24200,7 +24482,9 @@ var PROGRESSBAR_EXTENSION_ATTRS = {
   reverse: { canonical: "reverse" },
   value: { canonical: "value" },
   max: { canonical: "max" },
-  min: { canonical: "min" }
+  min: { canonical: "min" },
+  sound: { canonical: "sound" },
+  soundVolumeScale: { canonical: "volume" }
 };
 var SLIDER_EXTENSION_ATTRS = {
   titleType: { canonical: "titleType" },
@@ -24881,6 +25165,8 @@ function createDisplayObject(ctx, doc, tagName, attrs, localControllers) {
       if (textVars !== void 0) g.setTemplateVarsEnabled?.(parseBool2(textVars));
       const textFaceDilate = readXmlAttr(attrs, PROJECT_XML_PROTOCOL.text.attrs.faceDilate);
       if (textFaceDilate !== void 0) g.setFaceDilate?.(parseFloat2(textFaceDilate));
+      const textOutlineSoftness = readXmlAttr(attrs, PROJECT_XML_PROTOCOL.text.attrs.outlineSoftness);
+      if (textOutlineSoftness !== void 0) g.setOutlineSoftness?.(parseFloat2(textOutlineSoftness));
       const textUnderlaySoftness = readXmlAttr(attrs, PROJECT_XML_PROTOCOL.text.attrs.underlaySoftness);
       if (textUnderlaySoftness !== void 0) g.setUnderlaySoftness?.(parseFloat2(textUnderlaySoftness));
       const textUbb = readXmlAttr(attrs, PROJECT_XML_PROTOCOL.text.attrs.ubb);
@@ -25005,6 +25291,8 @@ function createDisplayObject(ctx, doc, tagName, attrs, localControllers) {
       if (richTextSingleLine !== void 0) g.setSingleLine?.(parseBool2(richTextSingleLine));
       const richTextAutoClearText = readXmlAttr(attrs, PROJECT_XML_PROTOCOL.text.attrs.autoClearText);
       if (richTextAutoClearText !== void 0) g.setAutoClearText?.(parseBool2(richTextAutoClearText));
+      const richTextOutlineSoftness = readXmlAttr(attrs, PROJECT_XML_PROTOCOL.richText.attrs.outlineSoftness);
+      if (richTextOutlineSoftness !== void 0) g.setOutlineSoftness?.(parseFloat2(richTextOutlineSoftness));
       const richTextUnderlaySoftness = readXmlAttr(attrs, PROJECT_XML_PROTOCOL.richText.attrs.underlaySoftness);
       if (richTextUnderlaySoftness !== void 0) g.setUnderlaySoftness?.(parseFloat2(richTextUnderlaySoftness));
       const richTextUnderline = readXmlAttr(attrs, PROJECT_XML_PROTOCOL.text.attrs.underline);
@@ -25114,6 +25402,8 @@ function createDisplayObject(ctx, doc, tagName, attrs, localControllers) {
       if (inputVars !== void 0) g.setTemplateVarsEnabled?.(parseBool2(inputVars));
       const inputFaceDilate = readXmlAttr(attrs, PROJECT_XML_PROTOCOL.text.attrs.faceDilate);
       if (inputFaceDilate !== void 0) g.setFaceDilate?.(parseFloat2(inputFaceDilate));
+      const inputOutlineSoftness = readXmlAttr(attrs, PROJECT_XML_PROTOCOL.text.attrs.outlineSoftness);
+      if (inputOutlineSoftness !== void 0) g.setOutlineSoftness?.(parseFloat2(inputOutlineSoftness));
       const inputUnderlaySoftness = readXmlAttr(attrs, PROJECT_XML_PROTOCOL.text.attrs.underlaySoftness);
       if (inputUnderlaySoftness !== void 0) g.setUnderlaySoftness?.(parseFloat2(inputUnderlaySoftness));
       const inputUbb = readXmlAttr(attrs, PROJECT_XML_PROTOCOL.text.attrs.ubb);
@@ -25662,9 +25952,10 @@ function createDisplayObject(ctx, doc, tagName, attrs, localControllers) {
       if (selectionController !== void 0) g.setSelectionController?.(selectionController);
       const overflow = readXmlAttr(attrs, PROJECT_XML_PROTOCOL.list.attrs.overflow);
       const scroll = readXmlAttr(attrs, PROJECT_XML_PROTOCOL.list.attrs.scroll);
+      const scrollBar = readXmlAttr(attrs, PROJECT_XML_PROTOCOL.list.attrs.scrollBar);
       const scrollBarFlags = readXmlAttr(attrs, PROJECT_XML_PROTOCOL.list.attrs.scrollBarFlags);
       const margin = readXmlAttr(attrs, PROJECT_XML_PROTOCOL.list.attrs.margin);
-      if (overflow || scroll || scrollBarFlags !== void 0 || margin) {
+      if (overflow || scroll || scrollBar || scrollBarFlags !== void 0 || margin) {
         if (overflow) g.setOverflow({
           visible: 0,
           hidden: 1,
@@ -25675,6 +25966,12 @@ function createDisplayObject(ctx, doc, tagName, attrs, localControllers) {
           vertical: 1,
           both: 2
         }[scroll] ?? 1);
+        if (scrollBar) g.setScrollBarDisplay({
+          default: 0,
+          visible: 1,
+          auto: 2,
+          hidden: 3
+        }[scrollBar] ?? 0);
         if (scrollBarFlags !== void 0) g.setScrollBarFlags(parseInt2(scrollBarFlags));
         if (margin) {
           const parts = margin.split(",").map(Number);
@@ -25779,7 +26076,13 @@ function createDisplayObject(ctx, doc, tagName, attrs, localControllers) {
       const sound = extSpecs.sound ? readXmlAttr(extAttrs, extSpecs.sound) : void 0;
       if (sound !== void 0) componentObj.setInstanceSound?.(sound);
       const soundVolumeScale = extSpecs.soundVolumeScale ? readXmlAttr(extAttrs, extSpecs.soundVolumeScale) : void 0;
-      if (soundVolumeScale !== void 0) componentObj.setInstanceSoundVolumeScale?.(parseFloat2(soundVolumeScale, 1));
+      if (soundVolumeScale !== void 0) componentObj.setInstanceSoundVolumeScale?.(parseFloat2(soundVolumeScale, 100) / 100);
+      const popupDirection = extSpecs.popupDirection ? readXmlAttr(extAttrs, extSpecs.popupDirection) : void 0;
+      if (popupDirection !== void 0) componentObj.setInstancePopupDirection?.({
+        auto: 0,
+        up: 1,
+        down: 2
+      }[popupDirection] ?? 0);
       const prompt = extSpecs.prompt ? readXmlAttr(extAttrs, extSpecs.prompt) : void 0;
       if (prompt !== void 0) componentObj.setInstancePromptText?.(prompt);
       const selectionController = extSpecs.selectionController ? readXmlAttr(extAttrs, extSpecs.selectionController) : void 0;
@@ -26060,6 +26363,10 @@ function readComponentXml(ctx, comp, xmlContent) {
   if (bgColor !== void 0) comp.setBgColor?.(bgColor);
   const bgColorEnabled = readXmlAttr(compNode, PROJECT_XML_PROTOCOL.componentRoot.attrs.bgColorEnabled);
   if (bgColorEnabled !== void 0) comp.setBgColorEnabled?.(parseBool2(bgColorEnabled));
+  const designImage = readXmlAttr(compNode, PROJECT_XML_PROTOCOL.componentRoot.attrs.designImage);
+  if (designImage !== void 0) comp.setDesignImage?.(designImage);
+  const designImageForTest = readXmlAttr(compNode, PROJECT_XML_PROTOCOL.componentRoot.attrs.designImageForTest);
+  if (designImageForTest !== void 0) comp.setDesignImageForTest?.(parseBool2(designImageForTest));
   const designImageAlpha = readXmlAttr(compNode, PROJECT_XML_PROTOCOL.componentRoot.attrs.designImageAlpha);
   if (designImageAlpha !== void 0) comp.setDesignImageAlpha?.(parseInt2(designImageAlpha));
   const designImageLayer = readXmlAttr(compNode, PROJECT_XML_PROTOCOL.componentRoot.attrs.designImageLayer);
@@ -26074,6 +26381,12 @@ function readComponentXml(ctx, comp, xmlContent) {
   if (initName !== void 0) comp.setInitName?.(initName);
   const remark = readXmlAttr(compNode, PROJECT_XML_PROTOCOL.componentRoot.attrs.remark);
   if (remark !== void 0) comp.setRemark?.(remark);
+  const pageController = readXmlAttr(compNode, PROJECT_XML_PROTOCOL.componentRoot.attrs.pageController);
+  if (pageController !== void 0) comp.setPageController?.(pageController);
+  const showSound = readXmlAttr(compNode, PROJECT_XML_PROTOCOL.componentRoot.attrs.showSound);
+  if (showSound !== void 0) comp.setAddedToStageSound?.(showSound);
+  const hideSound = readXmlAttr(compNode, PROJECT_XML_PROTOCOL.componentRoot.attrs.hideSound);
+  if (hideSound !== void 0) comp.setRemovedFromStageSound?.(hideSound);
   const clipSoftness = readXmlAttr(compNode, PROJECT_XML_PROTOCOL.componentRoot.attrs.clipSoftness);
   if (clipSoftness) {
     const parts = clipSoftness.split(",").map(Number);
@@ -26143,7 +26456,7 @@ function readComponentXml(ctx, comp, xmlContent) {
           case "Button":
             if (readXmlAttr(extAttrs, EXTENSION_PROTOCOL_MAP$1.Button.attrs.mode) !== void 0) comp.setButtonMode?.(parseButtonMode(readXmlAttr(extAttrs, EXTENSION_PROTOCOL_MAP$1.Button.attrs.mode)));
             if (readXmlAttr(extAttrs, EXTENSION_PROTOCOL_MAP$1.Button.attrs.sound) !== void 0) comp.setSound?.(String(readXmlAttr(extAttrs, EXTENSION_PROTOCOL_MAP$1.Button.attrs.sound)));
-            if (readXmlAttr(extAttrs, EXTENSION_PROTOCOL_MAP$1.Button.attrs.soundVolumeScale) !== void 0) comp.setSoundVolumeScale?.(parseFloat2(readXmlAttr(extAttrs, EXTENSION_PROTOCOL_MAP$1.Button.attrs.soundVolumeScale), 1));
+            if (readXmlAttr(extAttrs, EXTENSION_PROTOCOL_MAP$1.Button.attrs.soundVolumeScale) !== void 0) comp.setSoundVolumeScale?.(parseFloat2(readXmlAttr(extAttrs, EXTENSION_PROTOCOL_MAP$1.Button.attrs.soundVolumeScale), 100) / 100);
             if (readXmlAttr(extAttrs, EXTENSION_PROTOCOL_MAP$1.Button.attrs.downEffect) !== void 0) comp.setDownEffect?.(parseInt2(readXmlAttr(extAttrs, EXTENSION_PROTOCOL_MAP$1.Button.attrs.downEffect)));
             if (readXmlAttr(extAttrs, EXTENSION_PROTOCOL_MAP$1.Button.attrs.downEffectValue) !== void 0) comp.setDownEffectValue?.(parseFloat2(readXmlAttr(extAttrs, EXTENSION_PROTOCOL_MAP$1.Button.attrs.downEffectValue), 0.8));
             break;
@@ -27573,10 +27886,14 @@ function serializeChild(obj) {
       if (typedObj.getTemplateVarsEnabled?.()) writeXmlAttr(attrs, PROJECT_XML_PROTOCOL.text.attrs.vars, "true");
       const faceDilate = typedObj.getFaceDilate?.() ?? 0;
       if (faceDilate !== 0) writeXmlAttr(attrs, PROJECT_XML_PROTOCOL.text.attrs.faceDilate, String(faceDilate));
+      const outlineSoftness = typedObj.getOutlineSoftness?.() ?? 0;
+      if (outlineSoftness !== 0) writeXmlAttr(attrs, PROJECT_XML_PROTOCOL.text.attrs.outlineSoftness, String(outlineSoftness));
       const underlaySoftness = typedObj.getUnderlaySoftness?.() ?? 0;
       if (underlaySoftness !== 0) writeXmlAttr(attrs, PROJECT_XML_PROTOCOL.text.attrs.underlaySoftness, String(underlaySoftness));
     }
     if (type === "GRichTextField") {
+      const outlineSoftness = typedObj.getOutlineSoftness?.() ?? 0;
+      if (outlineSoftness !== 0) writeXmlAttr(attrs, PROJECT_XML_PROTOCOL.richText.attrs.outlineSoftness, String(outlineSoftness));
       const underlaySoftness = typedObj.getUnderlaySoftness?.() ?? 0;
       if (underlaySoftness !== 0) writeXmlAttr(attrs, PROJECT_XML_PROTOCOL.richText.attrs.underlaySoftness, String(underlaySoftness));
     }
@@ -27746,6 +28063,13 @@ function serializeChild(obj) {
       1: "vertical",
       2: "both"
     }[scrollType] ?? "vertical");
+    const scrollBarDisplay = typedObj.getScrollBarDisplay?.() ?? 0;
+    if (overflow === 2 && scrollBarDisplay !== 0) writeXmlAttr(attrs, PROJECT_XML_PROTOCOL.list.attrs.scrollBar, {
+      0: "default",
+      1: "visible",
+      2: "auto",
+      3: "hidden"
+    }[scrollBarDisplay] ?? "default");
     const scrollBarFlags = typedObj.getScrollBarFlags?.() ?? 0;
     if (scrollBarFlags !== 0) writeXmlAttr(attrs, PROJECT_XML_PROTOCOL.list.attrs.scrollBarFlags, String(scrollBarFlags));
     const scrollBarMargin = typedObj.getScrollBarMargin?.();
@@ -27846,8 +28170,13 @@ function serializeChild(obj) {
       if (typedObj.getInstanceController?.() && extSpecs.controller) writeXmlAttr(extAttrs, extSpecs.controller, typedObj.getInstanceController?.());
       if (typedObj.getInstancePage?.() && extSpecs.page) writeXmlAttr(extAttrs, extSpecs.page, typedObj.getInstancePage?.());
       if (typedObj.getInstanceChecked?.() && extSpecs.checked) writeXmlAttr(extAttrs, extSpecs.checked, "1");
+      const popupDirection = typedObj.getInstancePopupDirection?.() ?? 0;
+      if (popupDirection !== 0 && extSpecs.popupDirection) writeXmlAttr(extAttrs, extSpecs.popupDirection, {
+        1: "up",
+        2: "down"
+      }[popupDirection]);
       if (typedObj.getInstanceSound?.() && extSpecs.sound) writeXmlAttr(extAttrs, extSpecs.sound, typedObj.getInstanceSound?.());
-      if ((typedObj.getInstanceSoundVolumeScale?.() ?? 1) !== 1 && extSpecs.soundVolumeScale) writeXmlAttr(extAttrs, extSpecs.soundVolumeScale, String(typedObj.getInstanceSoundVolumeScale?.() ?? 1));
+      if ((typedObj.getInstanceSoundVolumeScale?.() ?? 1) !== 1 && extSpecs.soundVolumeScale) writeXmlAttr(extAttrs, extSpecs.soundVolumeScale, formatProjectInt32(Math.round((typedObj.getInstanceSoundVolumeScale?.() ?? 1) * 100), "component instance volume"));
       if (typedObj.getInstancePromptText?.() && extSpecs.prompt) writeXmlAttr(extAttrs, extSpecs.prompt, typedObj.getInstancePromptText?.());
       if (typedObj.getInstanceSelectionController?.() && extSpecs.selectionController) writeXmlAttr(extAttrs, extSpecs.selectionController, typedObj.getInstanceSelectionController?.());
       if ((typedObj.getInstanceVisibleItemCount?.() ?? 0) > 0 && extSpecs.visibleItemCount) writeXmlAttr(extAttrs, extSpecs.visibleItemCount, String(typedObj.getInstanceVisibleItemCount?.() ?? 0));
@@ -28025,8 +28354,11 @@ async function writeComponent(fs, comp, pkgDir, sourceRelativePath) {
   if (typedComp.getBgColorEnabled?.()) writeXmlAttr(compAttrs, PROJECT_XML_PROTOCOL.componentRoot.attrs.bgColorEnabled, "true");
   const bgColor = typedComp.getBgColor?.();
   if (bgColor) writeXmlAttr(compAttrs, PROJECT_XML_PROTOCOL.componentRoot.attrs.bgColor, bgColor);
-  const designImageAlpha = typedComp.getDesignImageAlpha?.() ?? 0;
-  if (designImageAlpha !== 0) writeXmlAttr(compAttrs, PROJECT_XML_PROTOCOL.componentRoot.attrs.designImageAlpha, String(designImageAlpha));
+  const designImage = typedComp.getDesignImage?.();
+  if (designImage) writeXmlAttr(compAttrs, PROJECT_XML_PROTOCOL.componentRoot.attrs.designImage, designImage);
+  if (typedComp.getDesignImageForTest?.()) writeXmlAttr(compAttrs, PROJECT_XML_PROTOCOL.componentRoot.attrs.designImageForTest, "true");
+  const designImageAlpha = typedComp.getDesignImageAlpha?.() ?? 50;
+  if (designImageAlpha !== 50) writeXmlAttr(compAttrs, PROJECT_XML_PROTOCOL.componentRoot.attrs.designImageAlpha, String(designImageAlpha));
   const designImageLayer = typedComp.getDesignImageLayer?.() ?? 0;
   if (designImageLayer !== 0) writeXmlAttr(compAttrs, PROJECT_XML_PROTOCOL.componentRoot.attrs.designImageLayer, String(designImageLayer));
   const designImageOffsetX = typedComp.getDesignImageOffsetX?.() ?? 0;
@@ -28039,6 +28371,12 @@ async function writeComponent(fs, comp, pkgDir, sourceRelativePath) {
   if (initName) writeXmlAttr(compAttrs, PROJECT_XML_PROTOCOL.componentRoot.attrs.initName, initName);
   const remark = typedComp.getRemark?.();
   if (remark) writeXmlAttr(compAttrs, PROJECT_XML_PROTOCOL.componentRoot.attrs.remark, remark);
+  const pageController = typedComp.getPageController?.();
+  if (pageController) writeXmlAttr(compAttrs, PROJECT_XML_PROTOCOL.componentRoot.attrs.pageController, pageController);
+  const showSound = typedComp.getAddedToStageSound?.();
+  if (showSound) writeXmlAttr(compAttrs, PROJECT_XML_PROTOCOL.componentRoot.attrs.showSound, showSound);
+  const hideSound = typedComp.getRemovedFromStageSound?.();
+  if (hideSound) writeXmlAttr(compAttrs, PROJECT_XML_PROTOCOL.componentRoot.attrs.hideSound, hideSound);
   const clipSoftness = typedComp.getClipSoftness?.();
   if (clipSoftness && ((clipSoftness.x ?? 0) !== 0 || (clipSoftness.y ?? 0) !== 0)) writeXmlAttr(compAttrs, PROJECT_XML_PROTOCOL.componentRoot.attrs.clipSoftness, formatProjectInt32List([clipSoftness.x ?? 0, clipSoftness.y ?? 0], "component clipSoftness"));
   if (typedComp.getOpaque?.() === false) writeXmlAttr(compAttrs, PROJECT_XML_PROTOCOL.componentRoot.attrs.opaque, "false");
@@ -28110,7 +28448,7 @@ async function writeComponent(fs, comp, pkgDir, sourceRelativePath) {
       case "Button": {
         if ((typedComp.getButtonMode?.() ?? 0) !== 0) writeXmlAttr(extAttrs, extSpecs.mode, formatButtonMode(typedComp.getButtonMode?.() ?? 0));
         if (typedComp.getSound?.()) writeXmlAttr(extAttrs, extSpecs.sound, typedComp.getSound?.());
-        if ((typedComp.getSoundVolumeScale?.() ?? 1) !== 1) writeXmlAttr(extAttrs, extSpecs.soundVolumeScale, String(typedComp.getSoundVolumeScale?.() ?? 1));
+        if ((typedComp.getSoundVolumeScale?.() ?? 1) !== 1) writeXmlAttr(extAttrs, extSpecs.soundVolumeScale, String(Math.round((typedComp.getSoundVolumeScale?.() ?? 1) * 100)));
         const downEffect = typedComp.getDownEffect?.() ?? 0;
         if (downEffect !== 0) {
           writeXmlAttr(extAttrs, extSpecs.downEffect, String(downEffect));
@@ -31607,9 +31945,9 @@ function _writeChildSpecific(buf, child, pkg, version) {
       buf.writeBool(false);
       if (version >= 3) {
         buf.writeBool(child.getStrikethrough?.() ?? false);
-        buf.writeFloat32(0);
-        buf.writeFloat32(0);
-        buf.writeFloat32(0);
+        buf.writeFloat32(child.getFaceDilate?.() ?? 0);
+        buf.writeFloat32(child.getOutlineSoftness?.() ?? 0);
+        buf.writeFloat32(child.getUnderlaySoftness?.() ?? 0);
       }
       break;
     }
@@ -31828,7 +32166,9 @@ function _writeChildAfterAdd(buf, child, comp, pkg, version) {
       }
       buf.writeSEx(child.getTitle?.() ?? null, true);
       buf.writeS(remapLocalUiUrl(pkg, child.getIcon?.() ?? null));
-      buf.writeBool(false);
+      const comboTitleColor = child.getTitleColor?.() ?? null;
+      buf.writeBool(!!comboTitleColor);
+      if (comboTitleColor) buf.writeColor(comboTitleColor, true);
       buf.writeInt32(child.getVisibleItemCount?.() ?? 10);
       buf.writeUint8(child.getPopupDirection?.() ?? 0);
       buf.writeInt16(-1);
@@ -31910,8 +32250,8 @@ function _writeExtensionInstanceData(buf, extType, child, comp, pkg, version) {
       buf.writeInt32(child.getInstanceTitleFontSize?.() ?? 0);
       buf.writeBool(false);
       if (version >= 5) {
-        buf.writeS(null);
-        buf.writeFloat32(1);
+        buf.writeS(remapLocalUiUrl(pkg, child.getInstanceSound?.() ?? null));
+        buf.writeFloat32(child.getInstanceSoundVolumeScale?.() ?? 1);
       }
       break;
     }
@@ -31936,11 +32276,11 @@ function _writeExtensionInstanceData(buf, extType, child, comp, pkg, version) {
       buf.writeBool(!!comboTitleColor);
       if (comboTitleColor) buf.writeColor(comboTitleColor, true);
       buf.writeInt32(child.getInstanceVisibleItemCount?.() ?? 10);
-      buf.writeUint8(0);
+      buf.writeUint8(child.getInstancePopupDirection?.() ?? 0);
       buf.writeInt16(-1);
       if (version >= 5) {
-        buf.writeS(null);
-        buf.writeFloat32(1);
+        buf.writeS(remapLocalUiUrl(pkg, child.getInstanceSound?.() ?? null));
+        buf.writeFloat32(child.getInstanceSoundVolumeScale?.() ?? 1);
       }
       break;
     }
@@ -31950,8 +32290,8 @@ function _writeExtensionInstanceData(buf, extType, child, comp, pkg, version) {
       buf.writeInt32(child.getInstanceMax?.() ?? 100);
       buf.writeInt32(child.getInstanceMin?.() ?? 0);
       if (version >= 5 && extType === "ProgressBar") {
-        buf.writeS(null);
-        buf.writeFloat32(1);
+        buf.writeS(remapLocalUiUrl(pkg, child.getInstanceSound?.() ?? null));
+        buf.writeFloat32(child.getInstanceSoundVolumeScale?.() ?? 1);
       }
       break;
     default:
@@ -31960,7 +32300,7 @@ function _writeExtensionInstanceData(buf, extType, child, comp, pkg, version) {
 }
 function _writeScrollPane(buf, child, pkg) {
   buf.writeUint8(child.getScrollType?.() ?? 1);
-  buf.writeUint8(0);
+  buf.writeUint8(child.getScrollBarDisplay?.() ?? 0);
   buf.writeInt32(child.getScrollBarFlags?.() ?? 0);
   const sbMargin = child.getScrollBarMargin?.();
   buf.writeBool(!!sbMargin);
