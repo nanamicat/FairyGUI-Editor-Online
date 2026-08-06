@@ -158,7 +158,10 @@ export class InspectorController {
         const filter = this.fields.filter?.value ?? selectedNode.filter;
         if (filter !== selectedNode.filter) {
             props.filter = filter;
-            props.filterData = filter === "color" ? selectedNode.filterData : "";
+            const values = selectedNode.filterData.split(",").map((value) => Number(value.trim()));
+            props.filterData = filter === "color"
+                ? values.length === 4 && values.every(Number.isFinite) ? selectedNode.filterData : "0,0,0,0"
+                : "";
         }
         const textEditor = this.fields.textEditor;
         if (textEditor) {
@@ -262,7 +265,9 @@ export class InspectorController {
         });
         if (selectedNode) this.renderLines([]);
         else this.panel.renderSummary(selectedComponent ? "组件" : selectedPackage ? "资源包" : "项目", leadingLines);
-        if (selectedPackage && selectedComponent && selectedNode && selectedNodes.length === 1) {
+        if (selectedPackage && selectedComponent && !selectedNode) {
+            this.panel.appendComponentEditor(selectedComponent, commandSession.liveSession);
+        } else if (selectedPackage && selectedComponent && selectedNode && selectedNodes.length === 1) {
             const inspection = inspectDisplayNode(workingProject, {
                 packageId: selectedPackage.id,
                 componentResourceId: selectedComponent.id,

@@ -219,21 +219,41 @@ export function prepareImportPackage(
     imported.id = packageId;
     imported.name = normalizedName;
     imported.publish = { ...(imported.publish || {}), name: normalizedName };
+    const missingBranches = [...new Set(
+        ((imported as UamPackageLike & { branchNames?: string[] }).branchNames || [])
+            .filter((branch) => !(project.branches || []).includes(branch)),
+    )];
+    const operation = {
+        opId: createOpId("import-package"),
+        kind: "addPackage" as const,
+        package: imported,
+        atIndex: (project.packages || []).length,
+    };
+    const inverseOperation = {
+        opId: createOpId("import-package-undo"),
+        kind: "removePackage" as const,
+        selector: { packageId },
+    };
     return {
         ok: true,
         transaction: {
             summary: `Import FairyGUI package ${normalizedName}`,
-            operation: {
-                opId: createOpId("import-package"),
-                kind: "addPackage",
-                package: imported,
-                atIndex: (project.packages || []).length,
-            },
-            inverseOperation: {
-                opId: createOpId("import-package-undo"),
-                kind: "removePackage",
-                selector: { packageId },
-            },
+            operation,
+            inverseOperation,
+            ...(missingBranches.length ? {
+                operations: [
+                    ...missingBranches.map((branch) => ({ opId: createOpId("import-branch"), kind: "addBranch" as const, branch })),
+                    operation,
+                ],
+                inverseOperations: [
+                    inverseOperation,
+                    ...missingBranches.slice().reverse().map((branch) => ({
+                        opId: createOpId("import-branch-undo"),
+                        kind: "removeBranch" as const,
+                        selector: { branch },
+                    })),
+                ],
+            } : {}),
         },
     };
 }

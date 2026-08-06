@@ -91,18 +91,50 @@ await expectTransferError(
 
 const otherPackage = baseline.packages.find((pkg) => pkg.id !== bag.id);
 assert(otherPackage, "An external package fixture is required.");
+const externalDependency = otherPackage.resources.find((resource) => resource.kind === "component");
+assert(externalDependency, "An external component fixture is required.");
 const externalBag = structuredClone(bag);
-injectExternalReference(externalBag, otherPackage.id);
-await expectTransferError(
-    () => transfer.exportFairyPackage(transferBackend, { ...baseline, packages: [externalBag, otherPackage] }, bag.id),
-    "fairy_package_external_dependencies_unsupported",
+injectExternalReference(externalBag, otherPackage.id, externalDependency.id);
+const externalExport = await transfer.exportFairyPackage(
+    transferBackend,
+    { ...baseline, packages: [externalBag, otherPackage] },
+    bag.id,
 );
+const externalParsed = await transfer.readFairyPackageFiles(transferBackend, await readArchiveFiles(externalExport.blob));
+assert(externalParsed.resources.some((resource) => resource.name === externalDependency.name));
+assert.deepEqual(transfer.findTypedPackageExternalDependencyIds(externalParsed, externalParsed.id), []);
 const externalImported = structuredClone(parsedPackage);
-injectExternalReference(externalImported, otherPackage.id);
+injectExternalReference(externalImported, otherPackage.id, externalDependency.id);
 const externalPreparation = transactions.prepareImportPackage(baseline, externalImported, "BagExternalImport");
 assert.equal(externalPreparation.ok, false);
 assert.equal(externalPreparation.code, "fairy_package_external_dependencies_unsupported");
 assert.equal(hashValue(baseline), baselineHash, "Rejected transfers must not mutate the source project.");
+
+const branchProject = structuredClone(baseline);
+branchProject.branches = [...new Set([...(branchProject.branches || []), "dark"])].sort();
+const branchBag = branchProject.packages.find((pkg) => pkg.id === bag.id);
+const baseImage = branchBag.resources.find((resource) => resource.kind === "image");
+assert(branchBag && baseImage, "Branch resource fixtures are required.");
+branchBag.branchNames = ["dark"];
+const darkImage = structuredClone(baseImage);
+darkImage.id = "darkimg1";
+darkImage.branch = "dark";
+darkImage.branchItemIds = [];
+baseImage.branchItemIds = [darkImage.id];
+branchBag.resources.push(darkImage);
+const branchExport = await transfer.exportFairyPackage(transferBackend, branchProject, branchBag.id);
+assert(branchExport.files.some((file) => file.path === "package_dark.xml"));
+assert(branchExport.files.some((file) => file.path.startsWith("assets_dark/")));
+const parsedBranchPackage = await transfer.readFairyPackageFiles(transferBackend, await readArchiveFiles(branchExport.blob));
+assert.deepEqual(parsedBranchPackage.branchNames, ["dark"]);
+assert(parsedBranchPackage.resources.some((resource) => resource.id === darkImage.id && resource.branch === "dark"));
+const branchImport = transactions.prepareImportPackage(
+    { ...baseline, branches: (baseline.branches || []).filter((branch) => branch !== "dark") },
+    parsedBranchPackage,
+    "BagBranchImport",
+);
+assert.equal(branchImport.ok, true, JSON.stringify(branchImport));
+assert(branchImport.transaction.operations?.some((operation) => operation.kind === "addBranch" && operation.branch === "dark"));
 
 const grammarImported = structuredClone(parsedPackage);
 const grammarComponent = grammarImported.resources.find((resource) => resource.kind === "component" && resource.component);
@@ -240,7 +272,8 @@ console.log(JSON.stringify({
     packageIdChanged: transaction.operation.package.id !== parsedPackage.id,
     undoRedo: true,
     saveReload: true,
-    externalDependencyRejected: true,
+    externalDependencyClosed: true,
+    branchRoundTrip: true,
     invalidArchiveRejected: true,
     opaqueTextPreserved: true,
     typedRichTextRemapped: true,
@@ -256,13 +289,20 @@ async function expectTransferError(run, code) {
     await assert.rejects(run, (error) => error?.code === code);
 }
 
-function injectExternalReference(pkg, packageId) {
+function injectExternalReference(pkg, packageId, resourceId) {
     const node = pkg.resources
         .filter((resource) => resource.kind === "component")
         .flatMap((resource) => resource.component?.displayList || [])
         .find((candidate) => candidate.resource?.resourceId);
     assert(node, "A component resource reference fixture is required.");
     node.resource.packageId = packageId;
+    node.resource.resourceId = resourceId;
+}
+
+async function readArchiveFiles(blob) {
+    return Object.entries(unzipSync(new Uint8Array(await blob.arrayBuffer())))
+        .filter(([name]) => !name.endsWith("/"))
+        .map(([path, data]) => ({ path, data }));
 }
 
 function resourceByteHashes(pkg) {

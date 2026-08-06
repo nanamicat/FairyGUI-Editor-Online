@@ -14,6 +14,7 @@ import {
     createInspectorTextInput,
     createTimelineComboBox,
 } from "../ui/EditorFormControls";
+import type { EditorNumericInput } from "../ui/EditorUiExtensions";
 import type { PropertyEditorContext } from "./PropertyEditorContext";
 
 const BLEND_MODES = ["normal", "none", "add", "multiply", "screen", "erase"] as const;
@@ -32,7 +33,7 @@ export function showCommonDisplayPropertiesEditor(options: PropertyEditorContext
 
     const current = readCommonDisplayProperties(liveNode);
     options.getActiveDialog()?.dispose();
-    const dialog = createDialog(`${selectedNode.name || selectedNode.id} - Common`, 390);
+    const dialog = createDialog(`${selectedNode.name || selectedNode.id} - Common`, 480);
     const content = dialog.contentPane!;
     const pair = (name: string, label: string, y: number, x: number, yValue: number) => {
         addInspectorLine(content, `${name}Label`, label, 20, y + 4, 76, "#bdbdbd");
@@ -67,13 +68,68 @@ export function showCommonDisplayPropertiesEditor(options: PropertyEditorContext
         ["None", "Color"], ["", "color"], current.filter === "color" ? 1 : 0,
     );
     addInspectorLine(content, "commonFilterDataLabel", "Filter data", 20, 272, 70, "#bdbdbd");
-    const filterData = createInspectorTextInput(content, "commonFilterData", 94, 268, 190, current.filterData, true);
-    filterData.promptText = "brightness,contrast,saturation,hue";
+    const filterPanel = fgui.UIPackage.createObject("Builder", "FilterPropsPanel").asCom;
+    filterPanel.name = "commonFilterData";
+    filterPanel.setXY(94, 268);
+    content.addChild(filterPanel);
+    const parsedFilterValues = current.filterData.split(",").map((value) => Number(value.trim()));
+    const initialFilterValues = parsedFilterValues.length === 4 && parsedFilterValues.every(Number.isFinite)
+        ? parsedFilterValues
+        : [0, 0, 0, 0];
+    const filterInputs = (["brightness", "contrast", "saturation", "hue"] as const).map((name, index) => {
+        const input = filterPanel.getChild(name) as EditorNumericInput;
+        input.configure();
+        input.text = String(initialFilterValues[index]);
+        return input;
+    });
+    const readFilterValues = (): number[] => filterInputs.map((input) => input.numberValue);
+    const setFilterValues = (values: number[]): void => {
+        for (let index = 0; index < filterInputs.length; index += 1) filterInputs[index].text = String(values[index]);
+    };
+    const syncFilterPanel = (): void => {
+        const enabled = filter.value === "color";
+        filterPanel.grayed = !enabled;
+        filterPanel.touchable = enabled;
+    };
+    filter.on(fgui.Events.STATE_CHANGED, options.eventOwner, syncFilterPanel);
+    syncFilterPanel();
+    filterPanel.getChild("reset").asButton.onClick(options.eventOwner, () => setFilterValues([0, 0, 0, 0]));
+    filterPanel.getChild("copy").asButton.onClick(options.eventOwner, () => {
+        const values = readFilterValues();
+        if (values.some((value) => !Number.isFinite(value))) {
+            options.setStatus("Color filter values must be finite numbers.");
+            return;
+        }
+        if (!navigator.clipboard) {
+            options.setStatus("Color filter copy is unavailable in this browser context.");
+            return;
+        }
+        void navigator.clipboard.writeText(values.join(",")).then(
+            () => options.setStatus("Color filter copied."),
+            () => options.setStatus("Color filter copy failed: clipboard permission was denied."),
+        );
+    });
+    filterPanel.getChild("paste").asButton.onClick(options.eventOwner, () => {
+        if (!navigator.clipboard) {
+            options.setStatus("Color filter paste is unavailable in this browser context.");
+            return;
+        }
+        void navigator.clipboard.readText().then((text) => {
+            const values = text.split(",").map((value) => Number(value.trim()));
+            if (values.length !== 4 || values.some((value) => !Number.isFinite(value))) {
+                options.setStatus("Clipboard must contain brightness,contrast,saturation,hue.");
+                return;
+            }
+            setFilterValues(values);
+            options.setStatus("Color filter pasted.");
+        }, () => options.setStatus("Color filter paste failed: clipboard permission was denied."));
+    });
     const readPair = (value: { x: fgui.GTextInput; y: fgui.GTextInput }) => ({
         x: Number(value.x.text.trim()),
         y: Number(value.y.text.trim()),
     });
     const readProperties = (): DisplayNodeCommonEditableProperties | null => {
+        const filterValues = readFilterValues();
         const updated: DisplayNodeCommonEditableProperties = {
             locked: locked.button.selected,
             aspect: aspect.button.selected,
@@ -86,13 +142,12 @@ export function showCommonDisplayPropertiesEditor(options: PropertyEditorContext
                 ? blendMode.value as typeof BLEND_MODES[number]
                 : "normal",
             filter: filter.value === "color" ? "color" : "",
-            filterData: filter.value === "color" ? filterData.text.trim() : "",
+            filterData: filter.value === "color" ? filterValues.join(",") : "",
         };
         const numbers = [
             updated.scale.x, updated.scale.y, updated.skew.x, updated.skew.y,
             updated.minSize.width, updated.minSize.height, updated.maxSize.width, updated.maxSize.height,
         ];
-        const filterValues = updated.filterData.split(",").map((value) => Number(value.trim()));
         if (
             numbers.some((value) => !Number.isFinite(value))
             || [updated.minSize.width, updated.minSize.height, updated.maxSize.width, updated.maxSize.height]
@@ -108,7 +163,7 @@ export function showCommonDisplayPropertiesEditor(options: PropertyEditorContext
         }
         return updated;
     };
-    bindDialogActions(options, dialog, "common", 332, async (close) => {
+    bindDialogActions(options, dialog, "common", 442, async (close) => {
         const updated = readProperties();
         const node = findLiveNode();
         if (!updated || !node) return false;

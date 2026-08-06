@@ -22,6 +22,7 @@ export async function loadProjectSnapshot(
 export function normalizeProjectSnapshot(snapshot: EditorProjectSnapshot): EditorProjectSnapshot {
     for (const pkg of snapshot.packages) {
         for (const component of pkg.components) {
+            component.customProperties ??= [];
             for (const node of component.children) {
                 node.pivotX ??= 0;
                 node.pivotY ??= 0;

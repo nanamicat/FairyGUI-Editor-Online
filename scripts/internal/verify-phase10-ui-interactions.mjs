@@ -355,7 +355,39 @@ assert.equal(
     editorPreferences.parseEditorPreferences(JSON.stringify({ componentPreviewEnabled: false })).componentPreviewEnabled,
     false,
 );
+const productPreferences = editorPreferences.parseEditorPreferences(JSON.stringify({
+    language: "en",
+    uiFont: "Inter",
+    saveBeforePublish: false,
+    publishAction: "all",
+}));
+assert.equal(productPreferences.language, "en");
+assert.equal(productPreferences.uiFont, "Inter");
+assert.equal(productPreferences.saveBeforePublish, false);
+assert.equal(productPreferences.publishAction, "all");
+assert(editorPreferences.EDITOR_SHORTCUTS.length >= 27, "Preferences must expose the expanded editor action set.");
 assert.equal(editorPreferences.normalizeEditorShortcut("cmd + shift + tab"), "Ctrl+Shift+Tab");
+for (const snippet of [
+    '"使用指南"',
+    '"快捷键说明"',
+    "this.editorPreferences.publishAction",
+    "this.editorPreferences.saveBeforePublish",
+    "Laya.Config.defaultFont = font",
+]) {
+    assert(editorShellSource.includes(snippet), `Preferences or Help product wiring is missing: ${snippet}`);
+}
+for (const snippet of [
+    "fairygui-editor-online.resource-imports.v1:",
+    '"导入历史与失败重试…"',
+    "private readonly retryImports",
+    "this.retryImports.clear()",
+]) {
+    assert(resourceAuthoringControllerSource.includes(snippet), `Resource import history wiring is missing: ${snippet}`);
+}
+for (const snippet of ["expandedKeys", "collectExpandedKeys()", "restoredExpandedKeys"]) {
+    assert(libraryControllerSource.includes(snippet), `Workspace Library view persistence is missing: ${snippet}`);
+}
+assert(editorShellSource.includes("twoColumn: this.panels.library") && editorShellSource.includes("state.twoColumn === true"));
 
 const testSettings = publishedTestViewport.readPublishedTestAdaptationSettings({
     settings: {
@@ -533,8 +565,11 @@ const shellChecks = [
     "requestAuthoringRemovePackage(): void",
     "async requestAuthoringMoveComponent(): Promise<void>",
     "showComponentProperties(): void",
+    "appendComponentEditor(selectedComponent",
+    '"component:properties"',
     "desktopComponentPropertiesDialog",
     "ComPropsPanel",
+    'pivotPreset.tooltips = "选择轴心预设"',
     "data-fairy-editor-component-properties",
     '"componentMaskTarget"',
     '"componentHitTestTarget"',
@@ -557,6 +592,7 @@ const shellChecks = [
     '"properties:common"',
     '"properties:group"',
     "showCommonDisplayPropertiesEditor(options",
+    'createObject("Builder", "FilterPropsPanel")',
     "showGroupPropertiesEditor(options",
     'panel.name = "commandTextPanel"',
     '"gear", "relation"',
@@ -596,14 +632,14 @@ const shellChecks = [
     "private requestAuthoringRemoveComponent(): void",
     "async applyAuthoringResourceMove(): Promise<void>",
     "async applyAuthoringResourceRename(): Promise<void>",
-    "async importImageResource(): Promise<void>",
+    "async importImageResource(retryFile?: File): Promise<void>",
     "showImageEditor(): void",
     "desktopImageEditDialog",
     "data-fairy-editor-image-edit",
     "data-fairy-editor-image-import",
     "image-resource-import",
-    "async importMovieClipResource(): Promise<void>",
-    "async importMovieClipSpriteSheetResource(): Promise<void>",
+    "async importMovieClipResource(retryFiles?: File[]): Promise<void>",
+    "async importMovieClipSpriteSheetResource(retryFiles?: File[]): Promise<void>",
     "showMovieClipEditor(): void",
     "desktopMenuImportMovieClip",
     "desktopMenuImportMovieClipSpriteSheet",
@@ -612,10 +648,10 @@ const shellChecks = [
     "data-fairy-editor-movieclip-import",
     "data-fairy-editor-movieclip-sprite-sheet-import",
     "data-fairy-editor-movieclip-edit",
-    "async importSoundResource(): Promise<void>",
+    "async importSoundResource(retryFile?: File): Promise<void>",
     "data-fairy-editor-sound-import",
     "sound-resource-import",
-    "async importBitmapFontResource(): Promise<void>",
+    "async importBitmapFontResource(retryFiles?: File[]): Promise<void>",
     "desktopMenuImportBitmapFont",
     "pickBrowserFiles(",
     "bitmap-font-import",
@@ -1703,7 +1739,9 @@ console.log(JSON.stringify({
         "published runtime TestView with device adaptation, popup/tooltips, and Save/Publish boundary",
         "Project Settings device CRUD and browser-workspace AIR-compatible language XML generation",
         "read-only resource health audit with explicit atomic unused/conflict repair",
-        "local Preferences, conflict-safe editable shortcuts, component-preview preference, and layout reset",
+        "complete local Preferences, expanded conflict-safe shortcuts, Help guides, and layout reset",
+        "workspace-isolated Library grouping, filtering, icon size, two-column, and expansion persistence",
+        "resource import history with independent current-session failure retry and explicit GC cleanup",
         "isolated recent browser workspaces with dirty switch guard, explicit close, reauthorization, and external-change checks",
         "sandboxed versioned ESM browser plugins with explicit permissions and selection-only UAM command routing",
         "desktop canvas selection, grouped movement/scaling, resize, rotation, pivot, polygon points, snap, zoom, and pan wiring",

@@ -48,6 +48,7 @@ export class LibraryController {
     private localPackageIds: string[] = [];
     private activeBranch = "";
     private iconSizeStep = 0;
+    private restoredExpandedKeys: Set<string> | null = null;
     private selectedResourceSelectors: EditorResourceSelector[] = [];
     private inspectorSelection: LibraryInspectorSelection = null;
 
@@ -82,14 +83,22 @@ export class LibraryController {
         this.options.onViewStateChanged();
     }
 
-    getViewState(): { filter: string; localPackageIds: string[]; iconSizeStep: number } {
-        return { filter: this.currentFilter, localPackageIds: [...this.localPackageIds], iconSizeStep: this.iconSizeStep };
+    getViewState(): { filter: string; localPackageIds: string[]; iconSizeStep: number; expandedKeys: string[] } {
+        return {
+            filter: this.currentFilter,
+            localPackageIds: [...this.localPackageIds],
+            iconSizeStep: this.iconSizeStep,
+            expandedKeys: this.collectExpandedKeys(),
+        };
     }
 
-    restoreViewState(state: { filter?: unknown; localPackageIds?: unknown; iconSizeStep?: unknown }): void {
+    restoreViewState(state: { filter?: unknown; localPackageIds?: unknown; iconSizeStep?: unknown; expandedKeys?: unknown }): void {
         this.currentFilter = typeof state.filter === "string" ? state.filter : "all";
         this.localPackageIds = Array.isArray(state.localPackageIds) ? state.localPackageIds.filter((id): id is string => typeof id === "string") : [];
         this.iconSizeStep = Math.max(0, Math.min(5, Number(state.iconSizeStep) || 0));
+        this.restoredExpandedKeys = Array.isArray(state.expandedKeys)
+            ? new Set(state.expandedKeys.filter((key): key is string => typeof key === "string"))
+            : null;
     }
 
     getInspectorSelection(): LibraryInspectorSelection {
@@ -189,7 +198,7 @@ export class LibraryController {
                 "icon_package_open",
             );
             packageNode.data = { kind: "package", packageId: pkg.id } as LibraryItemData;
-            packageNode.expanded = pkg.id === this.currentPackageId;
+            packageNode.expanded = this.isExpanded(packageNode.data as LibraryItemData, pkg.id === this.currentPackageId);
 
             const folderPathKey = (path: string): string => {
                 const segments = path.split("/").filter(Boolean);
@@ -224,7 +233,7 @@ export class LibraryController {
                     branch: folder.branch,
                     path: folder.path,
                 } as LibraryItemData;
-                node.expanded = pkg.id === this.currentPackageId;
+                node.expanded = this.isExpanded(node.data as LibraryItemData, pkg.id === this.currentPackageId);
                 const folderKey = folderPathKey(folder.path);
                 for (const child of (pkg.folders || []).filter((candidate) => (
                     candidate.branch === folder.branch && parentFolderPathKey(candidate.path) === folderKey
@@ -450,7 +459,14 @@ export class LibraryController {
 
     collapseLibrary(): void {
         this.libraryView.getChild("treeView").asTree.collapseAll();
+        this.restoredExpandedKeys = new Set();
+        this.options.onViewStateChanged();
         this.options.setDebugAttribute("data-fairy-editor-library-collapse", "collapsed");
+    }
+
+    captureExpansionState(): void {
+        this.restoredExpandedKeys = new Set(this.collectExpandedKeys());
+        this.options.onViewStateChanged();
     }
 
     collapseFavorites(): void {
@@ -491,6 +507,29 @@ export class LibraryController {
 
     private createTreeLeaf(text: string, icon = "icon_folder"): fgui.GTreeNode {
         return this.createTreeNode(false, text, icon);
+    }
+
+    private isExpanded(data: LibraryItemData, fallback: boolean): boolean {
+        return this.restoredExpandedKeys?.has(this.getExpansionKey(data)) ?? fallback;
+    }
+
+    private collectExpandedKeys(): string[] {
+        const keys: string[] = [];
+        const visit = (node: fgui.GTreeNode): void => {
+            if (!node.isFolder) return;
+            const data = node.data as LibraryItemData | null;
+            if (node.expanded && data) keys.push(this.getExpansionKey(data));
+            for (let index = 0; index < node.numChildren; index += 1) visit(node.getChildAt(index));
+        };
+        const root = this.libraryView.getChild("treeView").asTree.rootNode;
+        for (let index = 0; index < root.numChildren; index += 1) visit(root.getChildAt(index));
+        return keys.sort();
+    }
+
+    private getExpansionKey(data: LibraryItemData): string {
+        if (data.kind === "package") return `package:${data.packageId}`;
+        if (data.kind === "folder") return `folder:${data.packageId}:${data.branch}:${data.path}`;
+        return `${data.kind}:${data.packageId}:${data.kind === "component" ? data.componentId : data.resourceId}`;
     }
 
     private resourceIcon(resource: ProjectSnapshotResource): string {

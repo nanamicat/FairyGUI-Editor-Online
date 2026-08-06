@@ -104,6 +104,7 @@ export type FairyPackageResourceImportPreparation = {
 interface TransferPackage extends Record<string, unknown> {
     id?: string;
     name?: string;
+    branchNames?: string[];
     folders?: Array<Record<string, unknown>>;
     resources?: Array<Record<string, unknown>>;
 }
@@ -132,12 +133,6 @@ export async function readFairyPackageFiles(
 ): Promise<unknown> {
     try {
         const files = normalizeArchiveFiles(archiveFiles);
-        if (files.some((file) => isBranchArchivePath(file.path))) {
-            throw transferError(
-                "fairy_package_branch_archive_unsupported",
-                "Branch package files are not supported by the current .fairypackage archive contract.",
-            );
-        }
         if (!files.some((file) => file.path === "package.xml")) {
             throw transferError("fairy_package_invalid_archive", "The archive root does not contain package.xml.");
         }
@@ -147,8 +142,14 @@ export async function readFairyPackageFiles(
             '<?xml version="1.0" encoding="utf-8"?>\n'
             + '<projectDescription id="fairy-package-import" type="Layabox" version="3.0"/>\n',
         );
+        const projectPaths = new Set<string>();
         for (const file of files) {
-            await storage.writeFileRaw(`assets/Imported/${file.path}`, file.data);
+            const projectPath = getImportedArchiveProjectPath(file.path);
+            if (projectPaths.has(projectPath)) {
+                throw transferError("fairy_package_invalid_archive", `Archive paths collide at ${projectPath}.`);
+            }
+            projectPaths.add(projectPath);
+            await storage.writeFileRaw(projectPath, file.data);
         }
         const fileSystem = backend.createBackendStorageFileSystem(storage);
         const document = await new backend.ProjectReader(fileSystem).read(SYNTHETIC_PROJECT_FILE, {
@@ -160,8 +161,6 @@ export async function readFairyPackageFiles(
             throw transferError("fairy_package_invalid_archive", "The archive did not resolve to exactly one FairyGUI package.");
         }
         assertHydratedResources(project.packages[0]);
-        assertMainBranchResources(project.packages[0]);
-        assertPortableSkeletonMetadata(project.packages[0]);
         return structuredClone(project.packages[0]);
     } catch (error) {
         if (error instanceof FairyPackageTransferError) throw error;
@@ -181,20 +180,22 @@ export async function exportFairyPackage(
     const pkg = project?.packages?.find((candidate) => candidate.id === packageId);
     if (!pkg) throw transferError("fairy_package_not_found", `Package ${packageId} was not found.`);
     const externalPackageIds = findTypedPackageExternalDependencyIds(pkg, packageId);
-    if (externalPackageIds.length > 0) {
-        throw transferError(
-            "fairy_package_external_dependencies_unsupported",
-            `Package ${String(pkg.name || packageId)} references external package ids: ${externalPackageIds.join(", ")}.`,
-        );
-    }
-    assertHydratedResources(pkg);
-    assertMainBranchResources(pkg);
-    assertPortableSkeletonMetadata(pkg);
+    const portablePackage = externalPackageIds.length > 0
+        ? createFairyPackageResourceSubset(
+            project as TransferProject,
+            (Array.isArray(pkg.resources) ? pkg.resources : []).map((resource) => ({
+                packageId,
+                resourceId: String(resource.id || ""),
+            })),
+            true,
+        )
+        : structuredClone(pkg) as TransferPackage;
+    assertHydratedResources(portablePackage);
 
     return materializeFairyPackage(
         backend,
-        project,
-        structuredClone(pkg) as TransferPackage,
+        project as TransferProject,
+        portablePackage,
         `${String(pkg.name || packageId)}.fairypackage`,
     );
 }
@@ -226,16 +227,7 @@ async function materializeFairyPackage(
     if (!/^[A-Za-z0-9]{8}$/.test(packageId) || !packageName) {
         throw transferError("fairy_package_invalid_snapshot", "The FairyGUI package export snapshot is missing its package id or name.");
     }
-    const externalPackageIds = findTypedPackageExternalDependencyIds(pkg, packageId);
-    if (externalPackageIds.length > 0) {
-        throw transferError(
-            "fairy_package_external_dependencies_unsupported",
-            `Package ${packageName} references external package ids: ${externalPackageIds.join(", ")}.`,
-        );
-    }
     assertHydratedResources(pkg);
-    assertMainBranchResources(pkg);
-    assertPortableSkeletonMetadata(pkg);
 
     const portableProject = structuredClone(projectValue) as TransferProject & { packages: TransferPackage[] };
     portableProject.packages = [structuredClone(pkg)];
@@ -265,10 +257,7 @@ async function materializeFairyPackage(
         );
     }
 
-    const prefix = `assets/${packageName}/`;
-    const files = storage.listFiles()
-        .filter((file) => file.path.startsWith(prefix))
-        .map((file) => ({ path: file.path.slice(prefix.length), data: file.data }));
+    const files = collectMaterializedArchiveFiles(storage.listFiles(), packageName, pkg);
     if (!files.some((file) => file.path === "package.xml")) {
         throw transferError("fairy_package_materialize_failed", "The materialized package is missing package.xml.");
     }
@@ -284,6 +273,7 @@ async function materializeFairyPackage(
 function createFairyPackageResourceSubset(
     project: TransferProject,
     selectors: FairyPackageResourceSelector[],
+    preserveSourcePackageId = false,
 ): TransferPackage {
     if (!Array.isArray(selectors) || selectors.length === 0) {
         throw transferError("fairy_package_resource_selection_empty", "Select at least one FairyGUI resource to export.");
@@ -371,12 +361,6 @@ function createFairyPackageResourceSubset(
         const entry = queue.shift()!;
         const resourceId = String(entry.resource.id || "");
         const sourceLabel = `${entry.packageName}/${String(entry.resource.name || resourceId)}`;
-        if (String(entry.resource.branch || "")) {
-            throw transferError(
-                "fairy_package_branch_resource_unsupported",
-                `${sourceLabel} belongs to a package branch, which the current .fairypackage archive cannot preserve.`,
-            );
-        }
         const branchItemIds = Array.isArray(entry.resource.branchItemIds)
             ? entry.resource.branchItemIds
             : [];
@@ -389,7 +373,20 @@ function createFairyPackageResourceSubset(
             const metadata = entry.resource.metadata as { textureId?: unknown } | null | undefined;
             if (typeof metadata?.textureId === "string" && metadata.textureId) {
                 enqueue(entry.packageId, metadata.textureId, sourceLabel);
-            } else {
+            }
+            const pageFileNames = parseBitmapFontPageFileNames(entry.resource);
+            const portablePageFileNames = pageFileNames.length > 1 || !metadata?.textureId ? pageFileNames : [];
+            for (const pageFileName of portablePageFileNames) {
+                const pageResource = findTransferResourceByFileName(entry.pkg, entry.resource, pageFileName);
+                if (!pageResource) {
+                    throw transferError(
+                        "fairy_package_dependency_not_found",
+                        `${sourceLabel} references missing bitmap-font page ${pageFileName}.`,
+                    );
+                }
+                enqueue(entry.packageId, String(pageResource.id || ""), sourceLabel);
+            }
+            if (!(typeof metadata?.textureId === "string" && metadata.textureId) && portablePageFileNames.length === 0) {
                 for (const glyphResourceId of parseImageBasedFontGlyphResourceIds(entry.resource, sourceLabel)) {
                     enqueue(entry.packageId, glyphResourceId, sourceLabel);
                 }
@@ -418,12 +415,10 @@ function createFairyPackageResourceSubset(
     if (orderedEntries.length === 0) {
         throw transferError("fairy_package_resource_selection_empty", "The selected resources did not resolve to an exportable subset.");
     }
-    assertSubsetFolderPublishCompatibility(sourcePackage, orderedEntries);
 
-    const syntheticPackageId = createSyntheticPackageId(
-        packages,
-        `${sourcePackageId}:${[...includedKeys].sort().join(":")}`,
-    );
+    const syntheticPackageId = preserveSourcePackageId
+        ? sourcePackageId
+        : createSyntheticPackageId(packages, `${sourcePackageId}:${[...includedKeys].sort().join(":")}`);
     const occupiedIds = new Set<string>();
     const targetIds = new Map<string, string>();
     for (const entry of orderedEntries) {
@@ -435,6 +430,10 @@ function createFairyPackageResourceSubset(
         occupiedIds.add(targetId);
         targetIds.set(keyOf(entry.packageId, sourceId), targetId);
     }
+    const targetBranchNames = [...new Set(orderedEntries.flatMap((entry) => [
+        ...(Array.isArray(entry.pkg.branchNames) ? entry.pkg.branchNames : []),
+        String(entry.resource.branch || ""),
+    ]).filter(Boolean))];
 
     const includedPackageIds = new Set(orderedEntries.map((entry) => entry.packageId));
     const rewriteReferences = (value: unknown, ownerPackageId: string, sourceLabel: string): unknown => {
@@ -466,8 +465,11 @@ function createFairyPackageResourceSubset(
             if (typeof record.packageId === "string" && record.packageId) record.packageId = syntheticPackageId;
         }
         if (Array.isArray(record.branchItemIds)) {
-            record.branchItemIds = record.branchItemIds.map((branchItemId) => {
-                if (typeof branchItemId !== "string" || !branchItemId) return branchItemId;
+            const sourceBranchItemIds = record.branchItemIds;
+            const ownerBranchNames = packageIndex.get(ownerPackageId)?.branchNames || [];
+            record.branchItemIds = targetBranchNames.map((branchName) => {
+                const branchItemId = sourceBranchItemIds[ownerBranchNames.indexOf(branchName)];
+                if (typeof branchItemId !== "string" || !branchItemId) return "";
                 const targetId = targetIds.get(keyOf(ownerPackageId, branchItemId));
                 if (!targetId) {
                     throw transferError("fairy_package_dependency_not_found", `${sourceLabel} has an unmapped branch resource reference.`);
@@ -509,12 +511,22 @@ function createFairyPackageResourceSubset(
     };
 
     const occupiedFiles = new Set<string>();
-    const resources = orderedEntries.map((entry) => {
+    const clonedEntries = orderedEntries.map((entry) => {
         const sourceId = String(entry.resource.id || "");
-        const sourceLabel = `${entry.packageName}/${String(entry.resource.name || sourceId)}`;
         const clone = structuredClone(entry.resource);
         clone.id = targetIds.get(keyOf(entry.packageId, sourceId));
         delete clone.sourcePath;
+        ensureUniqueTransferFileIdentity(clone, entry.packageName, occupiedFiles);
+        return { entry, clone };
+    });
+    relocateConflictingDependencyFolders(clonedEntries, sourcePackageId);
+    const cloneByKey = new Map(clonedEntries.map(({ entry, clone }) => [
+        keyOf(entry.packageId, String(entry.resource.id || "")),
+        clone,
+    ]));
+    const resources = clonedEntries.map(({ entry, clone }) => {
+        const sourceId = String(entry.resource.id || "");
+        const sourceLabel = `${entry.packageName}/${String(entry.resource.name || sourceId)}`;
         if (clone.kind === "font") {
             const metadata = clone.metadata as Record<string, unknown> | null | undefined;
             if (typeof metadata?.textureId === "string" && metadata.textureId) {
@@ -523,7 +535,20 @@ function createFairyPackageResourceSubset(
                     throw transferError("fairy_package_dependency_not_found", `${sourceLabel} has an unmapped font texture reference.`);
                 }
                 metadata.textureId = targetTextureId;
-            } else {
+            }
+            const pageFileNames = parseBitmapFontPageFileNames(entry.resource);
+            const portablePageFileNames = pageFileNames.length > 1 || !metadata?.textureId ? pageFileNames : [];
+            if (portablePageFileNames.length > 0) {
+                clone.sourceBytes = rewriteBitmapFontPageFileNames(clone, sourceLabel, (pageFileName) => {
+                    const sourcePage = findTransferResourceByFileName(entry.pkg, entry.resource, pageFileName);
+                    const targetPage = sourcePage && cloneByKey.get(keyOf(entry.packageId, String(sourcePage.id || "")));
+                    const targetFileName = targetPage && getTransferResourceFileName(targetPage);
+                    if (!targetFileName) {
+                        throw transferError("fairy_package_dependency_not_found", `${sourceLabel} has an unmapped bitmap-font page ${pageFileName}.`);
+                    }
+                    return targetFileName;
+                });
+            } else if (!(typeof metadata?.textureId === "string" && metadata.textureId)) {
                 clone.sourceBytes = rewriteImageBasedFontGlyphResourceIds(clone, sourceLabel, (sourceGlyphId) => {
                     const targetGlyphId = targetIds.get(keyOf(entry.packageId, sourceGlyphId));
                     if (!targetGlyphId) {
@@ -537,6 +562,7 @@ function createFairyPackageResourceSubset(
             }
         }
         const metadata = clone.metadata as Record<string, unknown> | null | undefined;
+        const sourceRequireIds = Array.isArray(metadata?.requireIds) ? [...metadata.requireIds] : [];
         if (Array.isArray(metadata?.requireIds)) {
             metadata.requireIds = metadata.requireIds.map((requireId) => {
                 if (typeof requireId !== "string" || !requireId) return requireId;
@@ -547,27 +573,76 @@ function createFairyPackageResourceSubset(
                 return targetRequireId;
             });
         }
+        if (Array.isArray(metadata?.atlasNames)) {
+            metadata.atlasNames = rewriteSkeletonAtlasNames(
+                metadata.atlasNames,
+                sourceRequireIds,
+                entry,
+                cloneByKey,
+                keyOf,
+            );
+        }
         rewriteReferences(clone, entry.packageId, sourceLabel);
-        ensureUniqueTransferFileIdentity(clone, entry.packageName, occupiedFiles);
         return clone;
     });
 
     const syntheticPackage = structuredClone(sourcePackage);
     syntheticPackage.id = syntheticPackageId;
+    syntheticPackage.branchNames = targetBranchNames;
     syntheticPackage.resources = resources;
-    syntheticPackage.folders = collectSubsetFolders(orderedEntries);
+    syntheticPackage.folders = collectSubsetFolders(clonedEntries);
     return syntheticPackage;
 }
 
-function collectSubsetFolders(entries: TransferResourceEntry[]): Array<Record<string, unknown>> {
+function relocateConflictingDependencyFolders(
+    entries: Array<{ entry: TransferResourceEntry; clone: Record<string, unknown> }>,
+    sourcePackageId: string,
+): void {
+    const settings = new Map<string, string>();
+    const relocate = new Set<string>();
+    for (const packageId of [...new Set(entries.map(({ entry }) => entry.packageId))]) {
+        const packageEntries = entries.filter(({ entry }) => entry.packageId === packageId);
+        const folders = packageEntries.flatMap(({ entry }) => (entry.pkg.folders || []).filter((folder) => (
+            String(folder.branch || "") === String(entry.resource.branch || "")
+            && String(entry.resource.path || "/").startsWith(String(folder.path || ""))
+        )));
+        const conflict = folders.some((folder) => {
+            const key = `${String(folder.branch || "")}\0${String(folder.path || "")}`;
+            const signature = `${Boolean(folder.favorite)}\0${String(folder.atlas || "")}`;
+            return settings.has(key) && settings.get(key) !== signature;
+        });
+        if (conflict && packageId !== sourcePackageId) {
+            relocate.add(packageId);
+            continue;
+        }
+        for (const folder of folders) {
+            const key = `${String(folder.branch || "")}\0${String(folder.path || "")}`;
+            settings.set(key, `${Boolean(folder.favorite)}\0${String(folder.atlas || "")}`);
+        }
+    }
+    for (const { entry, clone } of entries) {
+        if (!relocate.has(entry.packageId)) continue;
+        const prefix = entry.packageName.replace(/[^A-Za-z0-9_-]+/g, "_") || "dependency";
+        clone.path = `/${prefix}/${String(clone.path || "/").replace(/^\/+/, "")}`.replace(/\/+$/g, "/");
+    }
+}
+
+function collectSubsetFolders(
+    entries: Array<{ entry: TransferResourceEntry; clone: Record<string, unknown> }>,
+): Array<Record<string, unknown>> {
     const folders = new Map<string, Record<string, unknown>>();
-    for (const entry of entries) {
-        const resourcePath = String(entry.resource.path || "/");
+    for (const { entry, clone } of entries) {
+        const sourceResourcePath = String(entry.resource.path || "/");
+        const resourcePath = String(clone.path || "/");
         const resourceBranch = String(entry.resource.branch || "");
         for (const folder of Array.isArray(entry.pkg.folders) ? entry.pkg.folders : []) {
-            const folderPath = String(folder.path || "");
+            const sourceFolderPath = String(folder.path || "");
             const folderBranch = String(folder.branch || "");
-            if (!folderPath || folderBranch !== resourceBranch || !resourcePath.startsWith(folderPath)) continue;
+            if (!sourceFolderPath || folderBranch !== resourceBranch || !sourceResourcePath.startsWith(sourceFolderPath)) continue;
+            const prefix = resourcePath.endsWith(sourceResourcePath)
+                ? resourcePath.slice(0, resourcePath.length - sourceResourcePath.length)
+                : "";
+            const folderPath = `${prefix ? `${prefix}/` : "/"}${sourceFolderPath.replace(/^\/+/, "")}`.replace(/\/+/g, "/");
             const key = `${folderBranch}\0${folderPath}`;
             const existing = folders.get(key);
             if (existing) {
@@ -582,6 +657,16 @@ function collectSubsetFolders(entries: TransferResourceEntry[]): Array<Record<st
                 continue;
             }
             folders.set(key, structuredClone(folder));
+            folders.get(key)!.path = folderPath;
+            if (prefix) {
+                const prefixPath = `${prefix}/`.replace(/\/+/g, "/");
+                folders.set(`${folderBranch}\0${prefixPath}`, {
+                    path: prefixPath,
+                    branch: folderBranch,
+                    favorite: false,
+                    atlas: "",
+                });
+            }
         }
     }
     return [...folders.values()].sort((left, right) => (
@@ -792,12 +877,16 @@ export function prepareImportFairyPackageResources(
             planned.push({ source, target, mode, existing, existingIndex });
         }
 
+        const targetBySourceId = new Map(planned.map((entry) => [String(entry.source.id || ""), entry.target]));
         for (const entry of planned) {
             rewriteImportedResourceReferences(
                 entry.target,
+                entry.source,
+                context.incomingPackage,
                 context.incomingPackageId,
                 context.targetPackageId,
                 targetIds,
+                targetBySourceId,
             );
         }
 
@@ -889,7 +978,6 @@ function createResourceImportContext(
     }
     assertHydratedResources(incomingPackage);
     assertMainBranchResources(incomingPackage);
-    assertPortableSkeletonMetadata(incomingPackage);
     const externalPackageIds = findTypedPackageExternalDependencyIds(incomingPackage, incomingPackageId);
     if (externalPackageIds.length > 0) {
         throw transferError(
@@ -905,13 +993,6 @@ function createResourceImportContext(
     const targetResources = Array.isArray(targetPackage.resources) ? targetPackage.resources : [];
     const targetPath = normalizeTransferResourcePath(options.targetPath);
     const targetBranch = String(options.targetBranch || "");
-    if (targetBranch) {
-        throw transferError(
-            "fairy_package_target_branch_unsupported",
-            "Importing FairyGUI resources into a package branch is not supported by the current transfer contract.",
-        );
-    }
-    assertImportFolderPublishCompatibility(incomingPackage, targetPackage);
     if (targetPath !== "/" && !(targetPackage.folders || []).some((folder) => (
         String(folder.branch || "") === targetBranch && String(folder.path || "") === targetPath
     ))) {
@@ -1072,9 +1153,12 @@ function createRemoveTransferResourceOperation(
 
 function rewriteImportedResourceReferences(
     resource: Record<string, unknown>,
+    sourceResource: Record<string, unknown>,
+    incomingPackage: TransferPackage,
     incomingPackageId: string,
     targetPackageId: string,
     targetIds: Map<string, string>,
+    targetBySourceId: Map<string, Record<string, unknown>>,
 ): void {
     const rewrite = (value: unknown): unknown => {
         if (!value || typeof value !== "object" || ArrayBuffer.isView(value)) return value;
@@ -1156,7 +1240,18 @@ function rewriteImportedResourceReferences(
             const targetId = targetIds.get(metadata.textureId);
             if (!targetId) throw transferError("fairy_package_dependency_not_found", "Imported font texture is unmapped.");
             metadata.textureId = targetId;
-        } else {
+        }
+        const pageFileNames = parseBitmapFontPageFileNames(sourceResource);
+        const portablePageFileNames = pageFileNames.length > 1 || !metadata?.textureId ? pageFileNames : [];
+        if (portablePageFileNames.length > 0) {
+            resource.sourceBytes = rewriteBitmapFontPageFileNames(resource, String(resource.name || resource.id || "font"), (pageFileName) => {
+                const sourcePage = findTransferResourceByFileName(incomingPackage, sourceResource, pageFileName);
+                const targetPage = sourcePage && targetBySourceId.get(String(sourcePage.id || ""));
+                const targetFileName = targetPage && getTransferResourceFileName(targetPage);
+                if (!targetFileName) throw transferError("fairy_package_dependency_not_found", "Imported bitmap-font page is unmapped.");
+                return targetFileName;
+            });
+        } else if (!(typeof metadata?.textureId === "string" && metadata.textureId)) {
             resource.sourceBytes = rewriteImageBasedFontGlyphResourceIds(resource, String(resource.name || resource.id || "font"), (sourceGlyphId) => {
                 const targetId = targetIds.get(sourceGlyphId);
                 if (!targetId) {
@@ -1167,6 +1262,7 @@ function rewriteImportedResourceReferences(
         }
     }
     const metadata = resource.metadata as Record<string, unknown> | null | undefined;
+    const sourceRequireIds = Array.isArray(metadata?.requireIds) ? [...metadata.requireIds] : [];
     if (Array.isArray(metadata?.requireIds)) {
         metadata.requireIds = metadata.requireIds.map((sourceId) => {
             if (typeof sourceId !== "string" || !sourceId) return sourceId;
@@ -1174,6 +1270,15 @@ function rewriteImportedResourceReferences(
             if (!targetId) throw transferError("fairy_package_dependency_not_found", "Imported skeleton dependency is unmapped.");
             return targetId;
         });
+    }
+    if (Array.isArray(metadata?.atlasNames)) {
+        metadata.atlasNames = rewriteSkeletonAtlasNames(
+            metadata.atlasNames,
+            sourceRequireIds,
+            { packageId: incomingPackageId, packageName: String(incomingPackage.name || incomingPackageId), pkg: incomingPackage, resource: sourceResource },
+            new Map([...targetBySourceId].map(([resourceId, target]) => [`${incomingPackageId}\0${resourceId}`, target])),
+            (packageId, resourceId) => `${packageId}\0${resourceId}`,
+        );
     }
     rewrite(resource);
 }
@@ -1456,6 +1561,126 @@ function collectHtmlImageTagSourceRange(
     }
 }
 
+function parseBitmapFontPageFileNames(resource: Record<string, unknown>): string[] {
+    if (!(resource.sourceBytes instanceof Uint8Array)) return [];
+    let text: string;
+    try {
+        text = FNT_DECODER.decode(resource.sourceBytes);
+    } catch {
+        return [];
+    }
+    const files: string[] = [];
+    const append = (line: string): void => {
+        const match = /(?:^|\s)file=(?:"([^"]+)"|'([^']+)'|([^\s/>]+))/i.exec(line);
+        const fileName = match?.slice(1).find((value) => value !== undefined);
+        if (fileName) files.push(fileName);
+    };
+    for (const line of text.split(/\r?\n/)) if (/^\s*page\s+id=/i.test(line)) append(line);
+    for (const match of text.matchAll(/<page\b[^>]*>/gi)) append(match[0]);
+    return [...new Set(files)];
+}
+
+function rewriteBitmapFontPageFileNames(
+    resource: Record<string, unknown>,
+    sourceLabel: string,
+    rewrite: (fileName: string) => string,
+): Uint8Array {
+    if (!(resource.sourceBytes instanceof Uint8Array)) {
+        throw transferError("fairy_package_bytes_unavailable", `Bitmap font ${sourceLabel} has no hydrated source bytes.`);
+    }
+    const text = FNT_DECODER.decode(resource.sourceBytes);
+    let changed = false;
+    const rewritten = text.replace(/^[ \t]*page\s+id=[^\r\n]*|<page\b[^>]*>/gmi, (page) => (
+        page.replace(
+            /(^|\s)file=(?:"([^"]+)"|'([^']+)'|([^\s/>]+))/i,
+            (whole, spacing, doubleQuoted, singleQuoted, bare) => {
+                const sourceName = String(doubleQuoted ?? singleQuoted ?? bare ?? "");
+                const targetName = rewrite(sourceName);
+                if (targetName === sourceName) return whole;
+                changed = true;
+                if (doubleQuoted !== undefined) return `${spacing}file="${targetName}"`;
+                if (singleQuoted !== undefined) return `${spacing}file='${targetName}'`;
+                return `${spacing}file=${targetName}`;
+            },
+        )
+    ));
+    return changed ? ENCODER.encode(rewritten) : resource.sourceBytes;
+}
+
+function findTransferResourceByFileName(
+    pkg: TransferPackage,
+    owner: Record<string, unknown>,
+    relativeFileName: string,
+): Record<string, unknown> | null {
+    const parts = [
+        ...String(owner.path || "/").replace(/\\/g, "/").split("/").filter(Boolean),
+        ...relativeFileName.replace(/\\/g, "/").split("/").filter(Boolean),
+    ];
+    if (parts.some((part) => part === "." || part === "..")) return null;
+    const fileName = parts.pop();
+    const path = parts.length ? `/${parts.join("/")}/` : "/";
+    const matches = (pkg.resources || []).filter((resource) => (
+        String(resource.branch || "") === String(owner.branch || "")
+        && String(resource.path || "/") === path
+        && getTransferResourceFileName(resource).toLowerCase() === String(fileName || "").toLowerCase()
+    ));
+    return matches.length === 1 ? matches[0] : null;
+}
+
+function rewriteSkeletonAtlasNames(
+    atlasNames: unknown[],
+    requireIds: unknown[],
+    entry: TransferResourceEntry,
+    cloneByKey: Map<string, Record<string, unknown>>,
+    keyOf: (packageId: string, resourceId: string) => string,
+): unknown[] {
+    return atlasNames.map((value) => {
+        if (typeof value !== "string" || !value) return value;
+        const targetStems = new Set<string>();
+        const targets: Record<string, unknown>[] = [];
+        for (const requireId of requireIds) {
+            if (typeof requireId !== "string" || !requireId) continue;
+            const source = (entry.pkg.resources || []).find((resource) => String(resource.id || "") === requireId);
+            const sourceFileName = source && getTransferResourceFileName(source);
+            if (!sourceFileName || sourceFileName.replace(/\.[^.]+$/, "") !== value) continue;
+            const target = cloneByKey.get(keyOf(entry.packageId, requireId));
+            const targetFileName = target && getTransferResourceFileName(target);
+            if (target && targetFileName) {
+                targets.push(target);
+                targetStems.add(targetFileName.replace(/\.[^.]+$/, ""));
+            }
+        }
+        if (targetStems.size > 1) {
+            const renamedStems = [...targetStems].filter((stem) => stem !== value);
+            if (renamedStems.length === 1) {
+                for (const target of targets) {
+                    if (getTransferResourceFileName(target).replace(/\.[^.]+$/, "") === value) {
+                        renameTransferResourceStem(target, renamedStems[0]);
+                    }
+                }
+                return renamedStems[0];
+            }
+            throw transferError(
+                "fairy_package_skeleton_atlas_names_ambiguous",
+                `Skeleton atlas ${value} resolves to inconsistent renamed files.`,
+            );
+        }
+        return [...targetStems][0] || value;
+    });
+}
+
+function renameTransferResourceStem(resource: Record<string, unknown>, stem: string): void {
+    const fileName = getTransferResourceFileName(resource);
+    const extensionIndex = fileName.lastIndexOf(".");
+    const extension = extensionIndex > 0 ? fileName.slice(extensionIndex) : "";
+    resource.name = stem;
+    if (resource.kind !== "component") {
+        const renamed = `${stem}${extension}`;
+        if (typeof resource.fileName === "string") resource.fileName = renamed;
+        else resource.file = renamed;
+    }
+}
+
 function parseImageBasedFont(
     resource: Record<string, unknown>,
     sourceLabel: string,
@@ -1628,65 +1853,56 @@ function assertMainBranchResources(packageValue: unknown): void {
     }
 }
 
-function assertPortableSkeletonMetadata(packageValue: unknown): void {
-    const pkg = packageValue as TransferPackage;
-    const skeleton = (pkg.resources || []).find((resource) => {
-        const atlasNames = (resource.metadata as { atlasNames?: unknown } | null | undefined)?.atlasNames;
-        return Array.isArray(atlasNames) && atlasNames.length > 0;
-    });
-    if (skeleton) {
-        throw transferError(
-            "fairy_package_skeleton_atlas_names_unsupported",
-            `Skeleton resource ${String(skeleton.name || skeleton.id || "unknown")} uses atlasNames external-file semantics that the current .fairypackage transfer cannot safely rewrite.`,
-        );
+function getImportedArchiveProjectPath(path: string): string {
+    const descriptor = /^package_([^/]+)\.xml$/i.exec(path);
+    if (descriptor) {
+        assertSafeTransferBranchName(descriptor[1]);
+        return `assets_${descriptor[1]}/Imported/package_branch.xml`;
     }
+    const branchAsset = /^assets_([^/]+)\/(.+)$/i.exec(path);
+    if (branchAsset) {
+        assertSafeTransferBranchName(branchAsset[1]);
+        return `assets_${branchAsset[1]}/Imported/${branchAsset[2]}`;
+    }
+    return `assets/Imported/${path}`;
 }
 
-function assertSubsetFolderPublishCompatibility(
-    sourcePackage: TransferPackage,
-    entries: TransferResourceEntry[],
-): void {
-    for (const entry of entries) {
-        if (entry.pkg === sourcePackage) continue;
-        const resourcePath = String(entry.resource.path || "/");
-        const resourceBranch = String(entry.resource.branch || "");
-        const usesNamedAtlas = (entry.pkg.folders || []).some((folder) => (
-            String(folder.branch || "") === resourceBranch
-            && resourcePath.startsWith(String(folder.path || ""))
-            && Boolean(String(folder.atlas || ""))
-        ));
-        if (usesNamedAtlas && !hasCompatiblePackagePublishConfiguration(entry.pkg, sourcePackage)) {
-            throw transferError(
-                "fairy_package_folder_atlas_publish_incompatible",
-                `Dependency ${entry.packageName}/${String(entry.resource.name || entry.resource.id || "unknown")} uses donor folder atlas settings with incompatible package publish configuration.`,
+function collectMaterializedArchiveFiles(
+    projectFiles: BrowserWorkspaceFile[],
+    packageName: string,
+    pkg: TransferPackage,
+): BrowserWorkspaceFile[] {
+    const archive = new Map<string, Uint8Array>();
+    const append = (path: string, data: Uint8Array): void => {
+        if (archive.has(path)) throw transferError("fairy_package_materialize_failed", `Materialized archive path ${path} is duplicated.`);
+        archive.set(path, data);
+    };
+    const mainPrefix = `assets/${packageName}/`;
+    for (const file of projectFiles) {
+        if (file.path.startsWith(mainPrefix)) append(file.path.slice(mainPrefix.length), file.data);
+    }
+    const branchNames = new Set<string>(Array.isArray(pkg.branchNames) ? pkg.branchNames : []);
+    for (const folder of pkg.folders || []) if (folder.branch) branchNames.add(String(folder.branch));
+    for (const resource of pkg.resources || []) if (resource.branch) branchNames.add(String(resource.branch));
+    for (const branch of branchNames) {
+        assertSafeTransferBranchName(branch);
+        const prefix = `assets_${branch}/${packageName}/`;
+        for (const file of projectFiles) {
+            if (!file.path.startsWith(prefix)) continue;
+            const relativePath = file.path.slice(prefix.length);
+            append(
+                relativePath === "package_branch.xml" ? `package_${branch}.xml` : `assets_${branch}/${relativePath}`,
+                file.data,
             );
         }
     }
+    return [...archive].map(([path, data]) => ({ path, data })).sort((left, right) => left.path.localeCompare(right.path));
 }
 
-function assertImportFolderPublishCompatibility(
-    incomingPackage: TransferPackage,
-    targetPackage: TransferPackage,
-): void {
-    const namedAtlasFolder = (incomingPackage.folders || []).find((folder) => Boolean(String(folder.atlas || "")));
-    if (namedAtlasFolder && !hasCompatiblePackagePublishConfiguration(incomingPackage, targetPackage)) {
-        throw transferError(
-            "fairy_package_folder_atlas_publish_incompatible",
-            `Imported folder ${String(namedAtlasFolder.path || "/")} uses named atlas settings with incompatible target package publish configuration.`,
-        );
+function assertSafeTransferBranchName(value: string): void {
+    if (!value || value === "." || value === ".." || /[\\/:]/.test(value)) {
+        throw transferError("fairy_package_invalid_archive", `Invalid FairyGUI branch name: ${value || "(empty)"}.`);
     }
-}
-
-function hasCompatiblePackagePublishConfiguration(left: TransferPackage, right: TransferPackage): boolean {
-    if (!left.publish || typeof left.publish !== "object" || !right.publish || typeof right.publish !== "object") {
-        return false;
-    }
-    return JSON.stringify(left.publish) === JSON.stringify(right.publish);
-}
-
-function isBranchArchivePath(path: string): boolean {
-    return /^package_.+\.xml$/i.test(path)
-        || /(^|\/)assets_[^/]+\//i.test(path);
 }
 
 function normalizeArchiveFiles(files: BrowserWorkspaceFile[]): BrowserWorkspaceFile[] {

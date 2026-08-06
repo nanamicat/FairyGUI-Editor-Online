@@ -234,11 +234,32 @@ export function showComponentPropertiesEditor(options: ComponentPropertyEditorCo
     overflow.values = ["visible", "hidden", "scroll-horizontal", "scroll-vertical", "scroll-both"];
     overflow.selectedIndex = current.overflow === 2 ? current.scrollType + 2 : current.overflow;
 
-    for (const name of ["n92", "extentionId"]) {
-        const child = panel.getChild(name);
-        child.enabled = false;
-        child.tooltips = "This field needs a dedicated validated editor; its current value is preserved.";
-    }
+    const extensionType = panel.getChild("extentionId").asComboBox;
+    extensionType.items = [current.extensionType || "None"];
+    extensionType.values = [current.extensionType];
+    extensionType.selectedIndex = 0;
+    extensionType.enabled = false;
+    extensionType.tooltips = "Changing a component extension type requires a structural migration; its current value is preserved.";
+    let pivotPresetMenu: fgui.PopupMenu | null = null;
+    const pivotPreset = panel.getChild("n92").asButton;
+    pivotPreset.enabled = true;
+    pivotPreset.tooltips = "选择轴心预设";
+    pivotPreset.onClick(options.eventOwner, () => {
+        pivotPresetMenu?.dispose();
+        const menu = new fgui.PopupMenu();
+        pivotPresetMenu = menu;
+        for (const [title, x, y] of [
+            ["左上", 0, 0], ["上中", 0.5, 0], ["右上", 1, 0],
+            ["左中", 0, 0.5], ["中心", 0.5, 0.5], ["右中", 1, 0.5],
+            ["左下", 0, 1], ["下中", 0.5, 1], ["右下", 1, 1],
+        ] as const) {
+            menu.addItem(title, () => {
+                label("pivotX").title = String(x);
+                label("pivotY").title = String(y);
+            });
+        }
+        menu.show(pivotPreset);
+    });
     panel.getChild("fitSize").enabled = true;
     panel.getChild("fitSize").asButton.onClick(options.eventOwner, () => {
         const bounds = (resource.component?.displayList || []).reduce((value, node) => ({
@@ -523,6 +544,8 @@ export function showComponentPropertiesEditor(options: ComponentPropertyEditorCo
     };
     const cleanup = (): void => {
         removeColorPicker();
+        pivotPresetMenu?.dispose();
+        pivotPresetMenu = null;
         if (options.getActiveDialog() === dialog) options.setActiveDialog(null);
     };
     dialog.on(Laya.Event.UNDISPLAY, options.eventOwner, cleanup);

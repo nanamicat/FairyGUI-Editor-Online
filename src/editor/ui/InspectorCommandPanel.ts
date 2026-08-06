@@ -1,4 +1,8 @@
-import type { ProjectSnapshotDisplayNode, ProjectSnapshotPackage } from "../model/ProjectSnapshot";
+import type {
+    ProjectSnapshotComponent,
+    ProjectSnapshotDisplayNode,
+    ProjectSnapshotPackage,
+} from "../model/ProjectSnapshot";
 import { resolveDesktopCanvasSharedValue } from "../runtime/DesktopCanvasInteraction";
 import {
     addInspectorLine,
@@ -23,6 +27,9 @@ export type InspectorPanelAction =
     | "properties:list"
     | "properties:componentInstance"
     | "properties:componentCustomValues"
+    | "component:properties"
+    | "component:extension"
+    | "component:customProperties"
     | "display:relations"
     | "display:gears";
 
@@ -198,6 +205,37 @@ export class InspectorCommandPanel {
         this.appendSection("Summary", title, panel, lineWidth);
     }
 
+    appendComponentEditor(component: ProjectSnapshotComponent, editable: boolean): void {
+        const lineWidth = Math.max(120, this.list.width - 16);
+        this.appendActionSection(
+            "ComponentProperties",
+            "组件属性",
+            `${component.width} × ${component.height}`,
+            "编辑…",
+            "component:properties",
+            editable,
+            lineWidth,
+        );
+        this.appendActionSection(
+            "ComponentExtension",
+            "扩展属性",
+            "类型与定义",
+            "编辑…",
+            "component:extension",
+            editable,
+            lineWidth,
+        );
+        this.appendActionSection(
+            "ComponentCustomProperties",
+            "自定义属性",
+            `${component.customProperties?.length || 0} 项定义`,
+            "编辑…",
+            "component:customProperties",
+            editable,
+            lineWidth,
+        );
+    }
+
     private appendLinesTo(panel: fgui.GComponent, details: string[]): void {
         for (let index = 0; index < details.length; index += 1) {
             addInspectorLine(
@@ -304,6 +342,7 @@ export class InspectorCommandPanel {
         panel.setSize(lineWidth, 32);
         addInspectorLine(panel, "label", label, 4, 9, 76, "#bdbdbd");
         const button = createInspectorButton(panel, "action", actionTitle, 87, 5, Math.max(72, lineWidth - 97));
+        button.tooltips = actionTitle;
         setActionEnabled(button, enabled);
         this.bind(button, action);
         this.appendSection(name, title, panel, lineWidth);
@@ -412,18 +451,38 @@ export class InspectorCommandPanel {
             const textPanel = this.appendTextEditor(selectedPackage, selectedNode, liveSession, lineWidth);
             this.appendSection("Text", "文本", textPanel, lineWidth);
         } else if (graphEditable) {
-            this.appendActionSection("Graph", "图形", "形状与颜色", "编辑…", "properties:graph", liveSession, lineWidth);
+            const graph = selectedNode.graphProperties;
+            const shape = graph ? ["空白", "矩形", "椭圆", "多边形", "正多边形"][graph.graphType] || `类型 ${graph.graphType}` : "";
+            this.appendActionSection("Graph", "图形", "形状与颜色", graph ? `${shape} · ${graph.fillColor} · 编辑…` : "编辑…", "properties:graph", liveSession, lineWidth);
         } else if (groupEditable) {
-            this.appendActionSection("Group", "组", "布局与包围", "编辑…", "properties:group", liveSession, lineWidth);
+            const group = selectedNode.groupProperties;
+            const layout = group ? ["无布局", "水平", "垂直"][group.layout] || `布局 ${group.layout}` : "";
+            this.appendActionSection("Group", "组", "布局与包围", group ? `${layout} · ${group.lineGap}/${group.columnGap} · 编辑…` : "编辑…", "properties:group", liveSession, lineWidth);
         } else if (loaderEditable) {
-            this.appendActionSection("Loader", "装载器", "内容与填充", "编辑…", "properties:loader", liveSession, lineWidth);
+            const loader = selectedNode.loaderProperties;
+            const fill = loader ? ["无", "缩放", "适配高", "适配宽", "自由", "无边框"][loader.fill] || `填充 ${loader.fill}` : "";
+            this.appendActionSection("Loader", "装载器", "内容与填充", loader ? `${fill} · ${loader.autoSize ? "自动尺寸" : "固定尺寸"} · 编辑…` : "编辑…", "properties:loader", liveSession, lineWidth);
         } else if (loader3DEditable) {
-            this.appendActionSection("Loader3D", "3D 装载器", "播放与填充", "编辑…", "properties:loader3d", liveSession, lineWidth);
+            const loader = selectedNode.loader3DProperties;
+            const animation = loader?.animationName || "默认动画";
+            this.appendActionSection("Loader3D", "3D 装载器", "播放与填充", loader ? `${animation} · ${loader.playing ? "播放" : `帧 ${loader.frame}`} · 编辑…` : "编辑…", "properties:loader3d", liveSession, lineWidth);
         } else if (listEditable) {
-            this.appendActionSection("List", selectedNode.type === "GTree" ? "树" : "列表", "内容与滚动", "编辑…", "properties:list", liveSession, lineWidth);
+            const list = selectedNode.listProperties;
+            const layout = list ? ["单列", "单行", "横向流", "纵向流", "分页"][list.layout] || `布局 ${list.layout}` : "";
+            const treeMode = list && "clickToExpand" in list
+                ? ` · ${["不展开", "单击展开", "双击展开"][list.clickToExpand] || `展开 ${list.clickToExpand}`}`
+                : "";
+            this.appendActionSection("List", selectedNode.type === "GTree" ? "树" : "列表", "内容与滚动", list ? `${layout} · ${list.listItems?.length || 0} 项${treeMode} · 编辑…` : "编辑…", "properties:list", liveSession, lineWidth);
         } else if (componentInstanceEditable) {
-            const extensionType = selectedNode.componentInstanceProperties!.extensionType;
-            this.appendActionSection("ComponentInstance", extensionType, "实例属性", "编辑…", "properties:componentInstance", liveSession, lineWidth);
+            const instance = selectedNode.componentInstanceProperties!;
+            const summary = instance.extensionType === "ComboBox"
+                ? `${instance.items?.length || 0} 项`
+                : instance.extensionType === "ProgressBar" || instance.extensionType === "Slider"
+                    ? `${instance.value} / ${instance.max}`
+                    : "title" in instance
+                        ? instance.title || "无标题"
+                        : "滚动条";
+            this.appendActionSection("ComponentInstance", instance.extensionType, "实例属性", `${summary} · 编辑…`, "properties:componentInstance", liveSession, lineWidth);
         }
 
         if (componentCustomPropertiesEditable) {

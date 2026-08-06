@@ -42,7 +42,10 @@ export function showPreferencesDialog(context: PreferencesDialogContext): void {
                 if (child) child.visible = visible;
             }
         };
-        setVisible(["n37", "language", "n39", "checkNewVersion", "n45"], pageController.selectedIndex === 0);
+        setVisible(
+            ["n37", "language", "n39", "checkNewVersion", "n63", "publishAction", "n65", "saveBeforePublish", "n71", "editorFont", "n45"],
+            pageController.selectedIndex === 0,
+        );
         setVisible(
             ["n47", "functionList", "resetHotkeys", "n57", "n58", "n59", "n60", "n61", "n52"],
             pageController.selectedIndex === 1,
@@ -50,16 +53,20 @@ export function showPreferencesDialog(context: PreferencesDialogContext): void {
         setVisible(["n67", "pngTool", "browseTool", "n70"], pageController.selectedIndex === 2);
     };
     pageController.on(fgui.Events.STATE_CHANGED, context.eventOwner, syncPageVisibility);
-    const preview = content.getChild("language").asComboBox;
-    content.getChild("n37").text = "组件预览";
+    const language = content.getChild("language").asComboBox;
+    language.items = ["跟随浏览器", "简体中文", "English"];
+    language.values = ["system", "zh-CN", "en"];
+    const preview = content.getChild("checkNewVersion").asComboBox;
+    content.getChild("n39").text = "组件预览";
     preview.items = ["启用", "停用"];
     preview.values = ["enabled", "disabled"];
-    const conflictStatus = content.getChild("checkNewVersion").asComboBox;
-    content.getChild("n39").text = "快捷键冲突";
-    conflictStatus.enabled = false;
-    for (const name of ["n63", "publishAction", "n65", "saveBeforePublish", "n71", "editorFont"]) {
-        content.getChild(name).visible = false;
-    }
+    const publishAction = content.getChild("publishAction").asComboBox;
+    publishAction.items = ["发布当前包", "发布所有修改过的包", "发布所有包"];
+    publishAction.values = ["current", "modified", "all"];
+    const saveBeforePublish = content.getChild("saveBeforePublish").asComboBox;
+    saveBeforePublish.items = ["是", "否"];
+    saveBeforePublish.values = ["yes", "no"];
+    const editorFont = content.getChild("editorFont").asCom.getChild("title").asTextInput;
 
     const shortcutList = content.getChild("functionList").asList;
     const resetShortcuts = content.getChild("resetHotkeys").asButton;
@@ -78,10 +85,11 @@ export function showPreferencesDialog(context: PreferencesDialogContext): void {
         rendering = true;
         const preferences = context.getPreferences();
         const conflicts = findEditorShortcutConflicts(preferences);
+        language.value = preferences.language;
         preview.value = preferences.componentPreviewEnabled ? "enabled" : "disabled";
-        conflictStatus.items = [conflicts.length ? `${conflicts.length} 项冲突` : "无冲突"];
-        conflictStatus.values = [String(conflicts.length)];
-        conflictStatus.selectedIndex = 0;
+        publishAction.value = preferences.publishAction;
+        saveBeforePublish.value = preferences.saveBeforePublish ? "yes" : "no";
+        editorFont.text = preferences.uiFont;
         shortcutList.removeChildrenToPool();
         for (const entry of EDITOR_SHORTCUTS) {
             const item = shortcutList.addItemFromPool().asButton;
@@ -96,7 +104,7 @@ export function showPreferencesDialog(context: PreferencesDialogContext): void {
         }
         context.setDebugAttribute(
             "data-fairy-editor-preferences",
-            `preview=${preferences.componentPreviewEnabled ? "enabled" : "disabled"},conflicts=${conflicts.length}`,
+            `language=${preferences.language},font=${preferences.uiFont},saveBeforePublish=${preferences.saveBeforePublish},publish=${preferences.publishAction},preview=${preferences.componentPreviewEnabled ? "enabled" : "disabled"},conflicts=${conflicts.length}`,
         );
         rendering = false;
     };
@@ -105,6 +113,27 @@ export function showPreferencesDialog(context: PreferencesDialogContext): void {
         if (rendering) return;
         const current = context.getPreferences();
         context.updatePreferences({ ...current, componentPreviewEnabled: preview.value !== "disabled" });
+        render();
+    });
+    language.on(fgui.Events.STATE_CHANGED, context.eventOwner, () => {
+        if (rendering) return;
+        context.updatePreferences({ ...context.getPreferences(), language: language.value as EditorPreferences["language"] });
+        render();
+    });
+    publishAction.on(fgui.Events.STATE_CHANGED, context.eventOwner, () => {
+        if (rendering) return;
+        context.updatePreferences({ ...context.getPreferences(), publishAction: publishAction.value as EditorPreferences["publishAction"] });
+        render();
+    });
+    saveBeforePublish.on(fgui.Events.STATE_CHANGED, context.eventOwner, () => {
+        if (rendering) return;
+        context.updatePreferences({ ...context.getPreferences(), saveBeforePublish: saveBeforePublish.value === "yes" });
+        render();
+    });
+    editorFont.on(Laya.Event.BLUR, context.eventOwner, () => {
+        if (rendering) return;
+        const uiFont = editorFont.text.trim() || createDefaultEditorPreferences().uiFont;
+        context.updatePreferences({ ...context.getPreferences(), uiFont });
         render();
     });
     shortcutList.on(fgui.Events.CLICK_ITEM, context.eventOwner, (itemObject: fgui.GObject) => {

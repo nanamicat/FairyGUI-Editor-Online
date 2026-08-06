@@ -3,18 +3,43 @@ export const EDITOR_PREFERENCES_STORAGE_KEY = "fairygui-editor-online.preference
 export const EDITOR_SHORTCUTS = [
     { id: "projectSearch", label: "搜索项目", defaultShortcut: "Ctrl+F" },
     { id: "save", label: "保存工作区", defaultShortcut: "Ctrl+S" },
+    { id: "publish", label: "发布资源", defaultShortcut: "Ctrl+Shift+P" },
+    { id: "preferences", label: "偏好设置", defaultShortcut: "Ctrl+," },
     { id: "undo", label: "撤销", defaultShortcut: "Ctrl+Z" },
     { id: "redo", label: "重做", defaultShortcut: "Ctrl+Y" },
+    { id: "cut", label: "剪切", defaultShortcut: "Ctrl+X" },
+    { id: "copy", label: "复制", defaultShortcut: "Ctrl+C" },
+    { id: "paste", label: "粘贴", defaultShortcut: "Ctrl+V" },
+    { id: "duplicate", label: "创建副本", defaultShortcut: "Ctrl+D" },
+    { id: "delete", label: "删除", defaultShortcut: "Delete" },
+    { id: "selectAll", label: "全选", defaultShortcut: "Ctrl+A" },
+    { id: "selectNone", label: "取消选择", defaultShortcut: "Ctrl+Shift+A" },
+    { id: "group", label: "成组", defaultShortcut: "Ctrl+G" },
+    { id: "ungroup", label: "取消成组", defaultShortcut: "Ctrl+Shift+G" },
+    { id: "moveForward", label: "上移一层", defaultShortcut: "Ctrl+]" },
+    { id: "moveBackward", label: "下移一层", defaultShortcut: "Ctrl+[" },
+    { id: "openReferenced", label: "进入组或打开引用组件", defaultShortcut: "Enter" },
+    { id: "toggleGrid", label: "切换网格吸附", defaultShortcut: "G" },
     { id: "nextDocument", label: "下一个文档", defaultShortcut: "Ctrl+Tab" },
     { id: "previousDocument", label: "上一个文档", defaultShortcut: "Ctrl+Shift+Tab" },
     { id: "closeDocument", label: "关闭文档", defaultShortcut: "Ctrl+W" },
+    { id: "showLibrary", label: "显示资源库", defaultShortcut: "" },
+    { id: "showFavorites", label: "显示收藏", defaultShortcut: "" },
+    { id: "toggleTimeline", label: "显示或隐藏时间轴", defaultShortcut: "" },
+    { id: "toggleConsole", label: "显示或隐藏控制台", defaultShortcut: "" },
     { id: "test", label: "启动或重新载入测试视图", defaultShortcut: "F5" },
 ] as const;
 
 export type EditorShortcutId = typeof EDITOR_SHORTCUTS[number]["id"];
+export type EditorLanguage = "system" | "zh-CN" | "en";
+export type EditorPublishAction = "current" | "modified" | "all";
 
 export interface EditorPreferences {
     componentPreviewEnabled: boolean;
+    language: EditorLanguage;
+    uiFont: string;
+    saveBeforePublish: boolean;
+    publishAction: EditorPublishAction;
     shortcuts: Record<EditorShortcutId, string>;
 }
 
@@ -32,25 +57,18 @@ interface ShortcutEventLike {
 }
 
 const RESERVED_SHORTCUTS: ReadonlyArray<{ label: string; shortcut: string }> = [
-    { label: "复制", shortcut: "Ctrl+C" },
-    { label: "剪切", shortcut: "Ctrl+X" },
-    { label: "粘贴", shortcut: "Ctrl+V" },
-    { label: "创建副本", shortcut: "Ctrl+D" },
-    { label: "全选", shortcut: "Ctrl+A" },
-    { label: "取消选择", shortcut: "Ctrl+Shift+A" },
-    { label: "成组", shortcut: "Ctrl+G" },
-    { label: "取消成组", shortcut: "Ctrl+Shift+G" },
-    { label: "上移一层", shortcut: "Ctrl+]" },
-    { label: "下移一层", shortcut: "Ctrl+[" },
     { label: "重做（备用）", shortcut: "Ctrl+Shift+Z" },
-    { label: "删除", shortcut: "Delete" },
-    { label: "进入组或打开引用组件", shortcut: "Enter" },
-    { label: "切换网格吸附", shortcut: "G" },
+    { label: "层级重命名", shortcut: "F2" },
+    { label: "复制时间轴项目", shortcut: "Insert" },
 ];
 
 export function createDefaultEditorPreferences(): EditorPreferences {
     return {
         componentPreviewEnabled: true,
+        language: "system",
+        uiFont: "Arial",
+        saveBeforePublish: true,
+        publishAction: "modified",
         shortcuts: Object.fromEntries(
             EDITOR_SHORTCUTS.map((entry) => [entry.id, entry.defaultShortcut]),
         ) as Record<EditorShortcutId, string>,
@@ -103,10 +121,22 @@ export function parseEditorPreferences(raw: string | null): EditorPreferences {
     try {
         const value = JSON.parse(raw) as {
             componentPreviewEnabled?: unknown;
+            language?: unknown;
+            uiFont?: unknown;
+            saveBeforePublish?: unknown;
+            publishAction?: unknown;
             shortcuts?: Record<string, unknown>;
         };
         if (typeof value.componentPreviewEnabled === "boolean") {
             defaults.componentPreviewEnabled = value.componentPreviewEnabled;
+        }
+        if (["system", "zh-CN", "en"].includes(String(value.language))) {
+            defaults.language = value.language as EditorLanguage;
+        }
+        if (typeof value.uiFont === "string" && value.uiFont.trim()) defaults.uiFont = value.uiFont.trim();
+        if (typeof value.saveBeforePublish === "boolean") defaults.saveBeforePublish = value.saveBeforePublish;
+        if (["current", "modified", "all"].includes(String(value.publishAction))) {
+            defaults.publishAction = value.publishAction as EditorPublishAction;
         }
         for (const entry of EDITOR_SHORTCUTS) {
             const shortcut = value.shortcuts?.[entry.id];

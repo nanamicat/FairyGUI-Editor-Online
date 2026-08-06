@@ -190,6 +190,7 @@ for (const strategy of ["replace", "skip"]) {
 const skeletonImportedPackage = structuredClone(importedPackage);
 const skeletonRequiredResource = skeletonImportedPackage.resources.find((resource) => resource.kind !== "component");
 assert(skeletonRequiredResource, "A skeleton dependency fixture resource is required.");
+const skeletonAtlasName = String(skeletonRequiredResource.fileName || skeletonRequiredResource.file).replace(/\.[^.]+$/, "");
 const skeletonImportedResource = {
     kind: "dragonBones",
     id: "skelimp1",
@@ -202,7 +203,7 @@ const skeletonImportedResource = {
     file: "import_skeleton_fixture.json",
     sourceBytes: new TextEncoder().encode('{"armature":[]}'),
     dimensions: { width: 0, height: 0 },
-    metadata: { requireIds: [skeletonRequiredResource.id], atlasNames: [], anchorX: 0, anchorY: 0 },
+    metadata: { requireIds: [skeletonRequiredResource.id], atlasNames: [skeletonAtlasName], anchorX: 0, anchorY: 0 },
 };
 skeletonImportedPackage.resources.push(skeletonImportedResource);
 skeletonImportedPackage.folders.push({ path: "/skeleton/", branch: "", favorite: false, atlas: "" });
@@ -240,16 +241,27 @@ const addedRequiredResource = skeletonPreparation.transaction.operations
 assert(addedSkeleton && addedRequiredResource, "Skeleton import operations are incomplete.");
 assert.notEqual(addedRequiredResource.id, skeletonRequiredResource.id, "Incoming dependency id collision was not remapped.");
 assert.deepEqual(addedSkeleton.metadata.requireIds, [addedRequiredResource.id], "Skeleton requireIds did not use the prebuilt target id map.");
+assert.deepEqual(
+    addedSkeleton.metadata.atlasNames,
+    [String(addedRequiredResource.fileName || addedRequiredResource.file).replace(/\.[^.]+$/, "")],
+    "Skeleton atlasNames did not follow the imported dependency rename.",
+);
 uam.applyUamTransaction(skeletonTargetFixture.project, skeletonPreparation.transaction.operations);
 
-const branchRejected = transfer.prepareImportFairyPackageResources(baseline, importedPackage, {
+const branchTargetProject = structuredClone(baseline);
+branchTargetProject.branches = [...new Set([...(branchTargetProject.branches || []), "dark"])].sort();
+const branchTargetPackage = branchTargetProject.packages.find((pkg) => pkg.id === basics.id);
+branchTargetPackage.branchNames = [...new Set([...(branchTargetPackage.branchNames || []), "dark"])];
+const branchPreparation = transfer.prepareImportFairyPackageResources(branchTargetProject, importedPackage, {
     targetPackageId: basics.id,
     targetPath: "/",
     targetBranch: "dark",
     conflictStrategy: "rename",
 });
-assert.equal(branchRejected.ok, false);
-assert.equal(branchRejected.code, "fairy_package_target_branch_unsupported");
+assert.equal(branchPreparation.ok, true, JSON.stringify(branchPreparation));
+assert(branchPreparation.transaction.operations
+    .filter((operation) => operation.kind === "addResource" || operation.kind === "addComponent")
+    .every((operation) => (operation.resource || operation.component).branch === "dark"));
 
 const incompatibleAtlasPackage = structuredClone(importedPackage);
 const namedAtlasFolder = incompatibleAtlasPackage.folders.find((folder) => !folder.branch)
@@ -257,14 +269,13 @@ const namedAtlasFolder = incompatibleAtlasPackage.folders.find((folder) => !fold
 if (!incompatibleAtlasPackage.folders.includes(namedAtlasFolder)) incompatibleAtlasPackage.folders.push(namedAtlasFolder);
 namedAtlasFolder.atlas = "incoming-named-atlas";
 incompatibleAtlasPackage.publish = { ...(incompatibleAtlasPackage.publish || {}), name: "incompatible-import-publish" };
-const atlasRejected = transfer.prepareImportFairyPackageResources(baseline, incompatibleAtlasPackage, {
+const atlasPreparation = transfer.prepareImportFairyPackageResources(baseline, incompatibleAtlasPackage, {
     targetPackageId: basics.id,
     targetPath: "/",
     targetBranch: "",
     conflictStrategy: "rename",
 });
-assert.equal(atlasRejected.ok, false);
-assert.equal(atlasRejected.code, "fairy_package_folder_atlas_publish_incompatible");
+assert.equal(atlasPreparation.ok, true, JSON.stringify(atlasPreparation));
 
 const portableDemoText = basics.resources.find((resource) => resource.kind === "component" && resource.name === "Demo_Text");
 const portableImageFont = basics.resources.find((resource) => resource.kind === "font" && resource.name === "HitNumber");
@@ -333,8 +344,9 @@ console.log(JSON.stringify({
     strategies,
     kindMismatchRejected: true,
     skeletonRequireIdsRemapped: true,
-    targetBranchRejected: true,
-    incompatibleAtlasPublishRejected: true,
+    targetBranchSupported: true,
+    namedAtlasFolderSupported: true,
+    skeletonAtlasNamesSupported: true,
     richTextImportRemapped: true,
     imageBasedFontImportRemapped: true,
     actualCountsReported: true,

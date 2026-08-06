@@ -118,6 +118,7 @@ import {
     type DesktopProjectSearchResult,
 } from "./runtime/DesktopProjectSearch";
 import {
+    EDITOR_SHORTCUTS,
     EDITOR_PREFERENCES_STORAGE_KEY,
     createDefaultEditorPreferences,
     parseEditorPreferences,
@@ -465,6 +466,7 @@ export class EditorShell {
                 this.libraryController.setInspectorSelection(selector ? { kind: "folder", ...selector } : null);
             },
             getSelectedPackageId: () => this.selectedPackageId,
+            getWorkspaceId: () => this.projectStorage.getWorkspaceName(),
             getLibraryPackageId: () => this.libraryPackageId,
             setLibraryPackageId: (packageId) => { this.libraryPackageId = packageId; },
             getSelectedLibraryResourceSelectors: () => this.libraryController.getSelectedResourceSelectors(this.leftTopPanelMode),
@@ -695,6 +697,7 @@ export class EditorShell {
         Laya.stage.off(Laya.Event.KEY_UP, this, this.onStageKeyUp);
         this.controllerTimeline.dispose();
         this.documentWorkspace.dispose();
+        this.resourceAuthoring.dispose();
         this.unbindActions();
         const closeLiveSession = this.authoringOperationQueue.then(() => this.liveSessionBridge.reset());
         pendingEditorShellDisposal = closeLiveSession.then(
@@ -776,6 +779,7 @@ export class EditorShell {
 
     private saveResourceViewState(): void {
         try {
+            const workspace = this.projectStorage.getWorkspaceName();
             localStorage.setItem(this.getWorkspaceLocalStorageKey("fairygui-editor-online.resource-view.v1"), JSON.stringify({
                 ...this.libraryController.getViewState(),
                 linked: this.libraryLinked,
@@ -784,8 +788,17 @@ export class EditorShell {
                 canvas: this.canvasSettings,
                 canvasPerDocumentZoom: this.canvasPerDocumentZoom,
                 snapToGrid: this.desktopSnapEnabled,
+                twoColumn: this.panels.library.getChild("btnTwoColumn").asButton.selected,
             }));
-        } catch {
+            this.setDebugAttribute(
+                "data-fairy-editor-resource-view-save",
+                `${workspace}:${this.panels.library.getChild("btnTwoColumn").asButton.selected ? "two" : "one"}`,
+            );
+        } catch (error) {
+            this.setDebugAttribute(
+                "data-fairy-editor-resource-view-save",
+                `error:${error instanceof Error ? error.message : String(error)}`,
+            );
             // View preferences are optional and never block authoring.
         }
     }
@@ -805,6 +818,11 @@ export class EditorShell {
             this.canvasPerDocumentZoom = state.canvasPerDocumentZoom === true;
             this.desktopSnapEnabled = state.snapToGrid === true;
             this.panels.library.getChild("btnSync").asButton.selected = this.libraryLinked;
+            this.panels.library.getChild("btnTwoColumn").asButton.selected = state.twoColumn === true;
+            this.setDebugAttribute(
+                "data-fairy-editor-resource-view-restore",
+                `${this.projectStorage.getWorkspaceName()}:${state.twoColumn === true ? "two" : "one"}`,
+            );
             const slider = this.panels.library.getChild("iconSize").asCom.getChild("slider").asSlider;
             slider.value = this.libraryController.getViewState().iconSizeStep;
             this.runtimePreview?.setCanvasSettings(this.canvasSettings);
@@ -838,6 +856,7 @@ export class EditorShell {
         } catch {
             this.editorPreferences = createDefaultEditorPreferences();
         }
+        this.applyEditorPreferences();
     }
 
     private updateEditorPreferences(preferences: EditorPreferences): void {
@@ -847,8 +866,29 @@ export class EditorShell {
         } catch {
             // Preferences persistence is optional and must not block authoring.
         }
+        this.applyEditorPreferences();
         this.layout();
         this.setStatus("Editor preferences saved in this browser.");
+    }
+
+    private applyEditorPreferences(): void {
+        const language = this.editorPreferences.language === "system"
+            ? (navigator.language.toLowerCase().startsWith("zh") ? "zh-CN" : "en")
+            : this.editorPreferences.language;
+        document.documentElement.lang = language;
+        const font = this.editorPreferences.uiFont.trim() || "Arial";
+        Laya.Config.defaultFont = font;
+        const applyFont = (object: fgui.GObject): void => {
+            if (object.name === "docContainer" || object === this.testView) return;
+            if (object instanceof fgui.GTextField) object.font = font;
+            if (!(object instanceof fgui.GComponent)) return;
+            for (let index = 0; index < object.numChildren; index += 1) applyFont(object.getChildAt(index));
+        };
+        for (const root of [this.menuBar, this.toolbar, this.startScene, this.statusLine, ...Object.values(this.panels)]) {
+            applyFont(root);
+        }
+        this.setDebugAttribute("data-fairy-editor-language", language);
+        this.setDebugAttribute("data-fairy-editor-ui-font", font);
     }
 
     private createPanel(componentName: string, objectName: string): fgui.GComponent {
@@ -1405,6 +1445,9 @@ export class EditorShell {
             case "properties:list": this.authoringDialogs.showListProperties(); return;
             case "properties:componentInstance": this.authoringDialogs.showComponentInstanceProperties(); return;
             case "properties:componentCustomValues": this.authoringDialogs.showComponentCustomPropertyValues(); return;
+            case "component:properties": this.authoringDialogs.showComponentProperties(); return;
+            case "component:extension": this.authoringDialogs.showComponentExtensionProperties(); return;
+            case "component:customProperties": this.authoringDialogs.showComponentCustomPropertyDefinitions(); return;
             case "display:relations": this.authoringDialogs.showRelationEditor(); return;
             case "display:gears": this.authoringDialogs.showGearEditor(); return;
         }
@@ -2294,7 +2337,9 @@ export class EditorShell {
         register(["menu:resource"], () => this.showSelectedResourceInspector());
         register(["menu:tools"], () => this.openProjectSettingsDialog());
         register(["menu:view", "hierarchy:expand"], () => this.toggleHierarchyExpansion());
-        register(["toolbar:publish", "menu:publish"], () => { void this.publishBrowserRuntimeBundle(); });
+        register(["toolbar:publish", "menu:publish", "publish"], () => {
+            void this.publishBrowserRuntimeBundle(this.editorPreferences.publishAction);
+        });
         register(["toolbar:publishSettings"], () => {
             openPublishSettingsEditor({
                 getWorkingProject: () => this.liveSessionBridge.getWorkingProject(),
@@ -2340,6 +2385,34 @@ export class EditorShell {
         register(["test"], () => {
             this.publishedTest.isActive() ? this.publishedTest.reload() : this.publishedTest.start();
         });
+        register(["preferences"], () => this.showPreferencesDialog());
+        register(["cut"], () => this.cutSelectedDisplayNodes());
+        register(["copy"], () => this.copySelectedDisplayNodes());
+        register(["paste"], () => { void this.pasteDisplayNodes(); });
+        register(["duplicate"], () => {
+            if (!this.controllerTimeline.isTimelineFocused() && this.selectedDisplayNodeIds.length > 0) {
+                void this.duplicateSelectedDisplayNodes();
+            }
+        });
+        register(["delete"], () => {
+            if (this.controllerTimeline.isTimelineFocused()) void this.controllerTimeline.removeSelectedTimelineItem();
+            else if (this.selectedDisplayNodeIds.length > 0) void this.deleteSelectedDisplayNodes();
+        });
+        register(["selectAll"], () => { if (this.runtimePreview.hasCanvasFocus()) this.selectAllDisplayNodes(); });
+        register(["selectNone"], () => { if (this.runtimePreview.hasCanvasFocus()) this.selectNoDisplayNodes(); });
+        register(["group"], () => { if (this.runtimePreview.hasCanvasFocus()) void this.groupSelectedDisplayNodes(); });
+        register(["ungroup"], () => { if (this.runtimePreview.hasCanvasFocus()) void this.ungroupSelectedDisplayNodes(); });
+        register(["moveForward"], () => { if (this.runtimePreview.hasCanvasFocus()) void this.adjustSelectedDisplayNodeDepth("forward"); });
+        register(["moveBackward"], () => { if (this.runtimePreview.hasCanvasFocus()) void this.adjustSelectedDisplayNodeDepth("backward"); });
+        register(["openReferenced"], () => {
+            if (this.controllerTimeline.isTimelineFocused()) this.controllerTimeline.showSelectedTimelineItemEditor();
+            else this.openSelectedGroup() || this.openReferencedComponent();
+        });
+        register(["toggleGrid"], () => this.toggleDesktopGridSnap());
+        register(["showLibrary"], () => this.showLibraryPanel());
+        register(["showFavorites"], () => this.showFavoritesPanel());
+        register(["toggleTimeline"], () => this.toggleTimeline());
+        register(["toggleConsole"], () => this.toggleDesktopConsole());
     }
 
     private runEditorAction(action: EditorActionId): boolean {
@@ -2403,7 +2476,7 @@ export class EditorShell {
         this.listenEvent(this.panels.library.getChild("listView"), Laya.Event.RIGHT_MOUSE_DOWN, this.onLibraryBackgroundRightClick);
         this.listenEvent(this.panels.library.getChild("treeView"), Laya.Event.RIGHT_MOUSE_DOWN, this.onLibraryBackgroundRightClick);
         this.listenClick(this.panels.library.getChild("btnCollapseAll"), this.collapseLibrary);
-        this.listenEvent(this.panels.library.getChild("btnTwoColumn"), fgui.Events.STATE_CHANGED, this.layout);
+        this.listenEvent(this.panels.library.getChild("btnTwoColumn"), fgui.Events.STATE_CHANGED, this.onLibraryTwoColumnChanged);
         this.listenEvent(
             this.panels.library.getChild("iconSize").asCom.getChild("slider"),
             fgui.Events.STATE_CHANGED,
@@ -2502,7 +2575,7 @@ export class EditorShell {
             this.handleModifiedEditorKey(event);
             return;
         }
-        if (this.handleTimelineKey(event) || this.handleSelectionKey(event)) return;
+        if (this.handleTimelineKey(event)) return;
         this.handleCanvasKey(event);
     }
 
@@ -2562,28 +2635,7 @@ export class EditorShell {
     private handleModifiedEditorKey(event: Laya.Event): void {
         const key = event.key.toLowerCase();
         const canvasFocused = this.runtimePreview.hasCanvasFocus();
-        if (key === "a" && canvasFocused) {
-            event.preventDefault();
-            event.shiftKey ? this.selectNoDisplayNodes() : this.selectAllDisplayNodes();
-        } else if ((key === "]" || key === "[") && canvasFocused) {
-            event.preventDefault();
-            void this.adjustSelectedDisplayNodeDepth(key === "]" ? "forward" : "backward");
-        } else if (key === "c") {
-            event.preventDefault();
-            this.copySelectedDisplayNodes();
-        } else if (key === "x") {
-            event.preventDefault();
-            this.cutSelectedDisplayNodes();
-        } else if (key === "v") {
-            event.preventDefault();
-            void this.pasteDisplayNodes();
-        } else if (key === "d" && !this.controllerTimeline.isTimelineFocused() && this.selectedDisplayNodeIds.length > 0) {
-            event.preventDefault();
-            void this.duplicateSelectedDisplayNodes();
-        } else if (key === "g" && canvasFocused) {
-            event.preventDefault();
-            void (event.shiftKey ? this.ungroupSelectedDisplayNodes() : this.groupSelectedDisplayNodes());
-        } else if (canvasFocused && (key === "=" || key === "+" || key === "-" || key === "0")) {
+        if (canvasFocused && (key === "=" || key === "+" || key === "-" || key === "0")) {
             event.preventDefault();
             if (key === "0") this.runtimePreview.resetView();
             else this.runtimePreview.adjustZoom(key === "-" ? 0.8 : 1.25);
@@ -2598,44 +2650,30 @@ export class EditorShell {
     private handleTimelineKey(event: Laya.Event): boolean {
         if (!this.controllerTimeline.isTimelineFocused()) return false;
         if (event.key === "Insert") void this.controllerTimeline.duplicateSelectedTimelineItem();
-        else if (event.key === "Delete") void this.controllerTimeline.removeSelectedTimelineItem();
-        else if (event.key === "Enter") this.controllerTimeline.showSelectedTimelineItemEditor();
         else return false;
         event.preventDefault();
         return true;
     }
 
-    private handleSelectionKey(event: Laya.Event): boolean {
-        if (event.key === "Enter" && (this.openSelectedGroup() || this.openReferencedComponent())) {
-            event.preventDefault();
-            return true;
-        }
-        if (event.key === "Delete" && this.selectedDisplayNodeIds.length > 0) {
-            event.preventDefault();
-            void this.deleteSelectedDisplayNodes();
-            return true;
-        }
-        return false;
-    }
-
     private handleCanvasKey(event: Laya.Event): void {
         if (event.altKey || !this.runtimePreview.hasCanvasFocus()) return;
-        if (event.key.toLowerCase() === "g") {
-            event.preventDefault();
-            this.desktopSnapEnabled = !this.desktopSnapEnabled;
-            this.runtimePreview.setSnapEnabled(this.desktopSnapEnabled, this.canvasSettings.gridSize);
-            this.setDebugAttribute(
-                "data-fairy-editor-canvas-snap",
-                this.desktopSnapEnabled ? `${this.canvasSettings.gridSize}px` : "off",
-            );
-            this.setStatus(`Canvas snap ${this.desktopSnapEnabled ? `enabled at ${this.canvasSettings.gridSize}px` : "disabled"}.`);
-            return;
-        }
         const nudge = getDesktopCanvasNudge(event.key, event.shiftKey);
         if (!nudge) return;
 
         event.preventDefault();
         this.queueSelectedNodeNudge(nudge.x, nudge.y);
+    }
+
+    private toggleDesktopGridSnap(): void {
+        if (!this.runtimePreview.hasCanvasFocus()) return;
+        this.desktopSnapEnabled = !this.desktopSnapEnabled;
+        this.runtimePreview.setSnapEnabled(this.desktopSnapEnabled, this.canvasSettings.gridSize);
+        this.saveResourceViewState();
+        this.setDebugAttribute(
+            "data-fairy-editor-canvas-snap",
+            this.desktopSnapEnabled ? `${this.canvasSettings.gridSize}px` : "off",
+        );
+        this.setStatus(`Canvas snap ${this.desktopSnapEnabled ? `enabled at ${this.canvasSettings.gridSize}px` : "disabled"}.`);
     }
 
     private handleEditorShortcut(id: EditorShortcutId, event: Laya.Event): void {
@@ -3318,10 +3356,65 @@ export class EditorShell {
 
     private showHelpMenu(anchor: fgui.GObject): void {
         const menu = this.createActionMenu();
+        this.addMenuItem(menu, "desktopMenuUserGuide", "使用指南", () => {
+            this.showHelpTextDialog("userGuideDialog", "使用指南", [
+                "1. 从开始页导入 Folder 或 ZIP；编辑内容先保存在浏览器工作区。",
+                "2. 单击资源会选中并显示属性；双击组件或资源会打开对应编辑器/预览器。",
+                "3. 资源库空白或资源上右击可创建、导入、重命名、移动、删除、导出及查看导入历史。",
+                "4. 保存会写入浏览器工作区；绑定可写 Folder 时会先检查外部冲突再写回。",
+                "5. 发布从已保存的工作区生成运行时 ZIP；可在偏好设置中启用发布前自动保存。",
+                "6. Undo/Redo、画布编辑、时间轴和属性编辑共用同一事务历史。",
+            ]);
+        });
+        this.addMenuItem(menu, "desktopMenuShortcutGuide", "快捷键说明", () => {
+            this.showHelpTextDialog(
+                "shortcutGuideDialog",
+                "快捷键说明",
+                EDITOR_SHORTCUTS.map((entry) => `${entry.label}：${this.editorPreferences.shortcuts[entry.id] || "未分配"}`),
+            );
+        });
+        menu.addSeperator();
         this.addMenuItem(menu, "desktopMenuAbout", "关于 FairyGUI 编辑器", () => {
             this.showAboutDialog();
         });
         this.showActionMenu(menu, anchor, "help", "已打开帮助菜单。");
+    }
+
+    private showHelpTextDialog(name: string, title: string, lines: string[]): void {
+        this.authoringJsonDialog?.dispose();
+        const dialog = new fgui.Window();
+        dialog.modal = true;
+        dialog.name = name;
+        const content = fgui.UIPackage.createObject("Builder", "AboutDialog").asCom;
+        dialog.contentPane = content;
+        content.getChild("frame").asLabel.title = title;
+        content.getChild("n4").visible = false;
+        content.getChild("n17").visible = false;
+        content.getChild("n15").visible = false;
+        content.getChild("license").visible = false;
+        const message = content.getChild("msg").asRichTextField;
+        message.setXY(20, 38);
+        message.setSize(454, 252);
+        message.align = "left";
+        message.fontSize = lines.length > 14 ? 10 : 12;
+        const columnLength = Math.ceil(lines.length / 2);
+        message.text = lines.length > 14
+            ? lines.slice(0, columnLength).map((line, index) => `${line.padEnd(31)}${lines[index + columnLength] || ""}`).join("\n")
+            : lines.join("\n");
+        const close = content.getChild("n14").asButton;
+        close.title = "关闭";
+        close.visible = true;
+        close.touchable = true;
+        close.setXY(content.width - close.width - 12, content.height - close.height - 12);
+        content.setChildIndex(close, content.numChildren - 1);
+        close.onClick(this, () => dialog.dispose());
+        dialog.on(Laya.Event.UNDISPLAY, this, () => {
+            if (this.authoringJsonDialog === dialog) this.authoringJsonDialog = null;
+        });
+        this.authoringJsonDialog = dialog;
+        dialog.show();
+        dialog.centerOn(fgui.GRoot.inst, true);
+        this.setDebugAttribute("data-fairy-editor-help-dialog", name);
     }
 
     private showAboutDialog(): void {
@@ -3530,6 +3623,7 @@ export class EditorShell {
         this.controllerTimeline.setKeyboardActive(false);
         const data = itemObject.treeNode ? (itemObject.treeNode.data as LibraryItemData | null) : null;
         this.applyClickedLibrarySelection(data, itemObject.parent as fgui.GList);
+        this.libraryController.captureExpansionState();
     }
 
     private onLibraryFilterChanged(): void {
@@ -3550,6 +3644,12 @@ export class EditorShell {
         this.populateLibraryFromSnapshot();
         this.setDebugAttribute("data-fairy-editor-library-icon-size", String(value));
         this.setStatus(`资源缩略图尺寸：${value + 1}/6。`);
+    }
+
+    private onLibraryTwoColumnChanged(): void {
+        this.saveResourceViewState();
+        this.layout();
+        this.setStatus(`资源库${this.panels.library.getChild("btnTwoColumn").asButton.selected ? "双列" : "单列"}视图已保存。`);
     }
 
     private locateActiveDocumentInLibrary(reportStatus = true): void {
@@ -4668,6 +4768,10 @@ export class EditorShell {
         if (!snapshot) {
             this.setStatus("Browser publish unavailable: no authoring project is loaded.");
             return;
+        }
+        if (this.commandAdapter.getSessionState().dirty && this.editorPreferences.saveBeforePublish) {
+            this.setStatus("发布前正在自动保存工作区...");
+            await this.saveBrowserWorkspaceNow();
         }
         if (this.commandAdapter.getSessionState().dirty) {
             this.setStatus("Browser publish blocked: save changes first.");

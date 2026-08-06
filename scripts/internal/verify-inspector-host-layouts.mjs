@@ -9,6 +9,7 @@ const legacySnapshot = {
     packages: [{ components: [{ children: [{ type: "GTextField" }] }] }],
 };
 normalizeProjectSnapshot(legacySnapshot);
+assert.deepEqual(legacySnapshot.packages[0].components[0].customProperties, []);
 assert.deepEqual(legacySnapshot.packages[0].components[0].children[0].textProperties.leading, 3);
 
 const inspector = new InspectorController({}, () => undefined, () => undefined);
@@ -136,6 +137,14 @@ assert.deepEqual(
             pivotAsAnchor: true,
         },
     },
+);
+assert.equal(
+    inspector.createDisplayNodeCommand(
+        { id: "package" },
+        { id: "component" },
+        { ...textNode, filterData: "" },
+    ).props.filterData,
+    "0,0,0,0",
 );
 inspector.fields.textEditor = {
     text: { title: "Updated" },

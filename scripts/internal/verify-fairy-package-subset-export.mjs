@@ -218,7 +218,20 @@ const fontResource = {
     metadata: { ...structuredClone(sourceFont.metadata), textureId: fontTexture.id },
 };
 delete fontResource.sourcePath;
-metadataBag.resources.push(skeletonDependency, skeletonBranchItem, skeletonResource, fontTexture, fontResource);
+const secondFontTexture = {
+    ...structuredClone(fontTexture),
+    id: "fonttex2",
+    name: "subset_font_texture_2",
+    fileName: "subset_font_texture_2.png",
+};
+fontResource.sourceBytes = new TextEncoder().encode([
+    'info face="Subset" size=16',
+    'common lineHeight=16 pages=2',
+    `page id=0 file="${fontTexture.fileName}"`,
+    `page id=1 file='${secondFontTexture.fileName}'`,
+    "chars count=0",
+].join("\n"));
+metadataBag.resources.push(skeletonDependency, skeletonBranchItem, skeletonResource, fontTexture, secondFontTexture, fontResource);
 for (const folderPath of ["/skeleton/", "/font/"]) {
     if (!metadataBag.folders.some((folder) => folder.path === folderPath && !folder.branch)) {
         metadataBag.folders.push({ path: folderPath, branch: "", favorite: false, atlas: "" });
@@ -236,14 +249,18 @@ const parsedSkeleton = parsedMetadataSubset.resources.find((resource) => resourc
 const parsedSkeletonDependency = parsedMetadataSubset.resources.find((resource) => resource.name === skeletonDependency.name);
 const parsedFont = parsedMetadataSubset.resources.find((resource) => resource.name === fontResource.name);
 const parsedFontTexture = parsedMetadataSubset.resources.find((resource) => resource.name === fontTexture.name);
+const parsedSecondFontTexture = parsedMetadataSubset.resources.find((resource) => resource.name === secondFontTexture.name);
 const parsedMetadataBagWin = parsedMetadataSubset.resources.find((resource) => resource.name === metadataBagWin.name);
-assert(parsedSkeleton && parsedSkeletonDependency && parsedFont && parsedFontTexture && parsedMetadataBagWin);
+assert(parsedSkeleton && parsedSkeletonDependency && parsedFont && parsedFontTexture && parsedSecondFontTexture && parsedMetadataBagWin);
 assert.deepEqual(
     parsedSkeleton.metadata.requireIds,
     [parsedSkeletonDependency.id, parsedMetadataSubset.resources.find((resource) => resource.name === "8")?.id],
     "Skeleton requireIds were not closed and remapped.",
 );
 assert.equal(parsedFont.metadata.textureId, parsedFontTexture.id, "Bitmap font texture dependency was not closed and remapped.");
+const parsedMultiPageFont = new TextDecoder().decode(parsedFont.sourceBytes);
+assert(parsedMultiPageFont.includes(`file="${parsedFontTexture.fileName}"`));
+assert(parsedMultiPageFont.includes(`file='${parsedSecondFontTexture.fileName}'`));
 assert.equal(parsedMetadataBagWin.component.properties.remark, freeText, "Free-text fake/short ui:// content was rewritten.");
 assert.equal(parsedMetadataBagWin.component.displayList[0].customData, freeText, "customData fake/short ui:// content was rewritten.");
 assert.equal(hashValue(metadataProject), metadataProjectHash, "Metadata subset export mutated its source project.");
@@ -379,54 +396,71 @@ await expectTransferError(
 );
 
 const branchProject = structuredClone(baseline);
-const branchBagWin = branchProject.packages.find((pkg) => pkg.id === bag.id).resources.find((resource) => resource.id === bagWin.id);
-branchBagWin.branch = "dark";
-await expectTransferError(
-    () => transfer.exportFairyPackageResources(transferBackend, branchProject, [{ packageId: bag.id, resourceId: bagWin.id }]),
-    "fairy_package_branch_resource_unsupported",
-);
-const branchClosureProject = structuredClone(baseline);
-branchClosureProject.packages.find((pkg) => pkg.id === bag.id).resources
-    .find((resource) => resource.name === "WindowFrame").branch = "dark";
-await expectTransferError(
-    () => transfer.exportFairyPackageResources(transferBackend, branchClosureProject, [{ packageId: bag.id, resourceId: bagWin.id }]),
-    "fairy_package_branch_resource_unsupported",
-);
-await expectTransferError(
-    () => transfer.readFairyPackageFiles(transferBackend, [
-        { path: "package.xml", data: new TextEncoder().encode("<packageDescription id=\"branch01\"><resources/></packageDescription>") },
-        { path: "package_dark.xml", data: new Uint8Array([1]) },
-    ]),
-    "fairy_package_branch_archive_unsupported",
-);
-await expectTransferError(
-    () => transfer.readFairyPackageFiles(transferBackend, [
-        { path: "package.xml", data: new TextEncoder().encode("<packageDescription id=\"branch01\"><resources/></packageDescription>") },
-        { path: "assets_dark/Bag/branch.png", data: new Uint8Array([1]) },
-    ]),
-    "fairy_package_branch_archive_unsupported",
-);
-const branchItemsProject = structuredClone(metadataProject);
-branchItemsProject.packages.find((pkg) => pkg.id === bag.id).resources
-    .find((resource) => resource.id === skeletonResource.id).branchItemIds = [skeletonBranchItem.id];
-await expectTransferError(
-    () => transfer.exportFairyPackageResources(transferBackend, branchItemsProject, [{
-        packageId: bag.id,
-        resourceId: skeletonResource.id,
-    }]),
-    "fairy_package_branch_resource_unsupported",
-);
+branchProject.branches = [...new Set([...(branchProject.branches || []), "dark"])].sort();
+const branchBag = branchProject.packages.find((pkg) => pkg.id === bag.id);
+const branchBase = branchBag.resources.find((resource) => resource.kind === "image");
+const branchVariant = { ...structuredClone(branchBase), id: "darkimg1", branch: "dark", branchItemIds: [] };
+branchBag.branchNames = [...new Set([...(branchBag.branchNames || []), "dark"])];
+branchBase.branchItemIds = [branchVariant.id];
+branchBag.resources.push(branchVariant);
+const branchExport = await transfer.exportFairyPackageResources(transferBackend, branchProject, [{
+    packageId: bag.id,
+    resourceId: branchBase.id,
+}]);
+const branchArchiveFiles = await readArchiveFiles(branchExport.blob);
+assert(branchArchiveFiles.some((file) => file.path === "package_dark.xml"));
+assert(branchArchiveFiles.some((file) => file.path.startsWith("assets_dark/")));
+const parsedBranchSubset = await transfer.readFairyPackageFiles(transferBackend, branchArchiveFiles);
+assert.deepEqual(parsedBranchSubset.branchNames, ["dark"]);
+assert(parsedBranchSubset.resources.some((resource) => resource.id === branchVariant.id && resource.branch === "dark"));
 
-const atlasNamesProject = structuredClone(metadataProject);
-atlasNamesProject.packages.find((pkg) => pkg.id === bag.id).resources
-    .find((resource) => resource.id === skeletonResource.id).metadata.atlasNames = ["fixture-atlas"];
-await expectTransferError(
-    () => transfer.exportFairyPackageResources(transferBackend, atlasNamesProject, [{
-        packageId: bag.id,
-        resourceId: skeletonResource.id,
-    }]),
-    "fairy_package_skeleton_atlas_names_unsupported",
-);
+const skeletonAtlasProject = structuredClone(crossProject);
+const skeletonAtlasBag = skeletonAtlasProject.packages.find((pkg) => pkg.id === bag.id);
+const skeletonAtlasBasics = skeletonAtlasProject.packages.find((pkg) => pkg.id === basics.id);
+const skeletonAtlasBagWin = skeletonAtlasBag.resources.find((resource) => resource.id === bagWin.id);
+const skeletonAtlasNode = skeletonAtlasBagWin.component.displayList.find((node) => node.id === externalNode.id);
+const atlasCollision = {
+    ...structuredClone(donor),
+    id: "atlcol01",
+    name: "fixture-atlas-collision",
+    path: "/skeleton/",
+    fileName: "fixture-atlas.png",
+};
+const atlasFile = {
+    kind: "misc",
+    id: "atlas001",
+    name: "fixture-atlas",
+    path: "/skeleton/",
+    file: "fixture-atlas.atlas",
+    sourceBytes: new TextEncoder().encode("fixture-atlas.png\nsize: 1,1"),
+};
+const atlasImage = {
+    ...structuredClone(donor),
+    id: "atlas002",
+    name: "fixture-atlas",
+    path: "/skeleton/",
+    fileName: "fixture-atlas.png",
+};
+const atlasSkeleton = {
+    ...structuredClone(skeletonResource),
+    id: "atlas003",
+    name: "fixture-skeleton",
+    metadata: { ...structuredClone(skeletonResource.metadata), requireIds: [atlasFile.id, atlasImage.id], atlasNames: ["fixture-atlas"] },
+};
+skeletonAtlasBag.resources.push(atlasCollision);
+skeletonAtlasBasics.resources.push(atlasFile, atlasImage, atlasSkeleton);
+skeletonAtlasNode.resource = { packageId: skeletonAtlasBasics.id, resourceId: atlasSkeleton.id };
+const atlasExport = await transfer.exportFairyPackageResources(transferBackend, skeletonAtlasProject, [
+    { packageId: bag.id, resourceId: bagWin.id },
+    { packageId: bag.id, resourceId: atlasCollision.id },
+]);
+const parsedAtlasSubset = await transfer.readFairyPackageFiles(transferBackend, await readArchiveFiles(atlasExport.blob));
+const parsedAtlasSkeleton = parsedAtlasSubset.resources.find((resource) => resource.id === atlasSkeleton.id);
+assert(parsedAtlasSkeleton, `Skeleton atlas resource is missing: ${JSON.stringify(parsedAtlasSubset.resources.map((resource) => ({ id: resource.id, name: resource.name, kind: resource.kind })))}`);
+const parsedAtlasRequires = parsedAtlasSkeleton.metadata.requireIds.map((id) => parsedAtlasSubset.resources.find((resource) => resource.id === id));
+const parsedAtlasStems = new Set(parsedAtlasRequires.map((resource) => (resource.fileName || resource.file).replace(/\.[^.]+$/, "")));
+assert.equal(parsedAtlasStems.size, 1, "Partially colliding skeleton atlas files were not renamed as a group.");
+assert.deepEqual(parsedAtlasSkeleton.metadata.atlasNames, [...parsedAtlasStems]);
 
 const unknownTypedUriProject = structuredClone(baseline);
 const unknownTypedBagWin = unknownTypedUriProject.packages.find((pkg) => pkg.id === bag.id).resources
@@ -446,13 +480,11 @@ const donorAtlasDependency = donorAtlasBasics.resources.find((resource) => resou
 donorAtlasDependency.path = "/images/";
 donorAtlasBasics.folders.find((folder) => folder.path === "/images/" && !folder.branch).atlas = "donor-atlas";
 donorAtlasBasics.publish = { ...(donorAtlasBasics.publish || {}), name: "donor-incompatible-publish" };
-await expectTransferError(
-    () => transfer.exportFairyPackageResources(transferBackend, donorAtlasProject, [{
-        packageId: bag.id,
-        resourceId: bagWin.id,
-    }]),
-    "fairy_package_folder_atlas_publish_incompatible",
-);
+const donorAtlasExport = await transfer.exportFairyPackageResources(transferBackend, donorAtlasProject, [{
+    packageId: bag.id,
+    resourceId: bagWin.id,
+}]);
+assert((await readArchiveFiles(donorAtlasExport.blob)).some((file) => file.path === "package.xml"));
 
 console.log(JSON.stringify({
     ok: true,
@@ -464,6 +496,7 @@ console.log(JSON.stringify({
     crossDependencyIdRemapped: parsedCrossDependency.id !== crossDependency.id,
     skeletonRequireIds: parsedSkeleton.metadata.requireIds.length,
     bitmapFontDependency: true,
+    multiPageBitmapFont: true,
     imageBasedFontGlyphClosure: sourceGlyphIds.length,
     imageBasedFontGlyphIdRemapped: true,
     ambiguousFontRejected: true,
@@ -471,11 +504,10 @@ console.log(JSON.stringify({
     htmlRichTextImageClosure: true,
     escapedRichTextLiteralPreserved: true,
     unknownRichTextImageRejected: true,
-    branchItemIdsRejected: true,
+    branchRoundTrip: true,
     freeTextPreserved: true,
-    branchRejected: true,
-    atlasNamesRejected: true,
-    donorAtlasPublishRejected: true,
+    partialSkeletonAtlasRename: true,
+    donorAtlasPublishPreserved: true,
     unknownTypedUriRejected: true,
     archiveRoundTrip: true,
     sourceUnchanged: true,

@@ -103,6 +103,7 @@ interface ResourceAuthoringControllerOptions {
     getSelectedResourceFolderSelector: () => LibraryResourceFolderSelector | null;
     setSelectedResourceFolderSelector: (selector: LibraryResourceFolderSelector | null) => void;
     getSelectedPackageId: () => string;
+    getWorkspaceId: () => string;
     getLibraryPackageId: () => string;
     setLibraryPackageId: (packageId: string) => void;
     getSelectedLibraryResourceSelectors: () => EditorResourceSelector[];
@@ -132,10 +133,126 @@ interface ResourceAuthoringControllerOptions {
 export class ResourceAuthoringController {
     private readonly liveSessionBridge: BrowserLiveSessionBridge;
     private readonly authoringDialogs: AuthoringDialogController;
+    private importHistoryWorkspaceId = "";
+    private importHistory: Array<{
+        id: string;
+        kind: string;
+        files: string[];
+        packageId: string;
+        status: "success" | "failed";
+        error: string;
+        createdAt: string;
+    }> = [];
+    private readonly retryImports = new Map<string, () => Promise<void>>();
 
     constructor(private readonly options: ResourceAuthoringControllerOptions) {
         this.liveSessionBridge = options.liveSessionBridge;
         this.authoringDialogs = options.dialogs;
+    }
+
+    dispose(): void {
+        this.retryImports.clear();
+        this.importHistory = [];
+    }
+
+    private syncImportHistoryWorkspace(): void {
+        const workspaceId = this.options.getWorkspaceId();
+        if (workspaceId === this.importHistoryWorkspaceId) return;
+        this.importHistoryWorkspaceId = workspaceId;
+        this.retryImports.clear();
+        try {
+            const raw = localStorage.getItem(`fairygui-editor-online.resource-imports.v1:${workspaceId}`);
+            const parsed = raw ? JSON.parse(raw) as unknown : [];
+            this.importHistory = Array.isArray(parsed) ? parsed.flatMap((item) => {
+                if (!item || typeof item !== "object") return [];
+                const value = item as Record<string, unknown>;
+                if (typeof value.id !== "string" || !["success", "failed"].includes(String(value.status))) return [];
+                return [{
+                    id: value.id,
+                    kind: typeof value.kind === "string" ? value.kind : "resource",
+                    files: Array.isArray(value.files) ? value.files.filter((file): file is string => typeof file === "string") : [],
+                    packageId: typeof value.packageId === "string" ? value.packageId : "",
+                    status: value.status as "success" | "failed",
+                    error: typeof value.error === "string" ? value.error : "",
+                    createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
+                }];
+            }).slice(0, 30) : [];
+        } catch {
+            this.importHistory = [];
+        }
+    }
+
+    private recordImport(
+        kind: string,
+        files: File[],
+        packageId: string,
+        error = "",
+        retry?: () => Promise<void>,
+    ): void {
+        this.syncImportHistoryWorkspace();
+        const entry = {
+            id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+            kind,
+            files: files.map((file) => file.name),
+            packageId,
+            status: error ? "failed" as const : "success" as const,
+            error,
+            createdAt: new Date().toISOString(),
+        };
+        this.importHistory.unshift(entry);
+        const removed = this.importHistory.splice(30);
+        removed.forEach((item) => this.retryImports.delete(item.id));
+        if (retry) this.retryImports.set(entry.id, retry);
+        try {
+            localStorage.setItem(
+                `fairygui-editor-online.resource-imports.v1:${this.importHistoryWorkspaceId}`,
+                JSON.stringify(this.importHistory),
+            );
+        } catch {
+            // Import history is optional and never blocks authoring.
+        }
+        this.setDebugAttribute(
+            "data-fairy-editor-resource-import-history",
+            `${this.importHistory.length}:${entry.status}:${entry.kind}`,
+        );
+    }
+
+    private showImportHistoryMenu(anchor: fgui.GObject | null): void {
+        this.syncImportHistoryWorkspace();
+        const menu = this.createActionMenu();
+        if (this.importHistory.length === 0) {
+            const empty = this.addMenuItem(menu, "desktopMenuImportHistoryEmpty", "暂无资源导入记录", () => undefined);
+            this.setActionEnabled(empty, false);
+        }
+        for (const entry of this.importHistory.slice(0, 12)) {
+            const retry = this.retryImports.get(entry.id);
+            const fileLabel = entry.files.join(", ") || entry.kind;
+            const title = entry.status === "success"
+                ? `✓ ${fileLabel}`
+                : retry
+                    ? `重试：${fileLabel}`
+                    : `失败：${fileLabel}（需重新选择）`;
+            const item = this.addMenuItem(menu, `desktopMenuImportHistory-${entry.id}`, title, () => {
+                if (retry) void retry();
+            });
+            this.setActionEnabled(item, Boolean(retry));
+            item.tooltips = entry.error || `${entry.kind} · ${new Date(entry.createdAt).toLocaleString()}`;
+        }
+        if (this.importHistory.length > 0) {
+            menu.addSeperator();
+            this.addMenuItem(menu, "desktopMenuClearImportHistory", "清除导入历史", () => {
+                this.importHistory = [];
+                this.retryImports.clear();
+                try {
+                    localStorage.removeItem(`fairygui-editor-online.resource-imports.v1:${this.importHistoryWorkspaceId}`);
+                } catch {
+                    // Optional browser history cleanup.
+                }
+                this.setDebugAttribute("data-fairy-editor-resource-import-history", "0:cleared");
+                this.setStatus("资源导入历史已清除，临时重试文件已回收。");
+            });
+        }
+        this.showActionMenu(menu, anchor, "resource-import-history", "已打开资源导入历史；失败项可独立重试。 ");
     }
 
     private get selectedResourceFolder(): LibraryResourceFolderSelector | null {
@@ -391,14 +508,15 @@ export class ResourceAuthoringController {
         this.setStatus(`Editing common properties for ${selected.length} images.`);
     }
 
-    async importImageResource(): Promise<void> {
+    async importImageResource(retryFile?: File): Promise<void> {
         const selectedPackage = this.getSelectedPackage();
         if (!selectedPackage) {
             this.setStatus("Image import skipped: no package selected.");
             return;
         }
+        let file = retryFile;
         try {
-            const file = await pickBrowserFile(
+            file ||= await pickBrowserFile(
                 ".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml",
                 "Image import was cancelled.",
                 "image-resource-import",
@@ -423,13 +541,15 @@ export class ResourceAuthoringController {
                 dimensions,
             );
             if (preparation.ok === false) {
-                this.setStatus(`Image import unavailable: ${preparation.code}. ${preparation.message}`);
-                return;
+                throw new Error(`${preparation.code}. ${preparation.message}`);
             }
             const resource = preparation.transaction.operation.kind === "addResource"
                 ? preparation.transaction.operation.resource as { id?: string }
                 : null;
-            if (!await this.applyAuthoringPreparation(preparation) || !resource?.id) return;
+            if (!await this.applyAuthoringPreparation(preparation) || !resource?.id) {
+                this.recordImport("image", [file], selectedPackage.id, "Import transaction was rejected.", () => this.importImageResource(file));
+                return;
+            }
             this.applyLibrarySelection({
                 kind: "resource",
                 packageId: selectedPackage.id,
@@ -440,20 +560,23 @@ export class ResourceAuthoringController {
                 `${resource.id}:${dimensions.width}x${dimensions.height}`,
             );
             this.setStatus(`Imported image ${file.name} (${dimensions.width}×${dimensions.height}).`);
+            this.recordImport("image", [file], selectedPackage.id);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             this.setStatus(`Image import skipped: ${message}`);
+            if (file) this.recordImport("image", [file], selectedPackage.id, message, () => this.importImageResource(file));
         }
     }
 
-    async importSoundResource(): Promise<void> {
+    async importSoundResource(retryFile?: File): Promise<void> {
         const selectedPackage = this.getSelectedPackage();
         if (!selectedPackage) {
             this.setStatus("Sound import skipped: no package selected.");
             return;
         }
+        let file = retryFile;
         try {
-            const file = await pickBrowserFile(
+            file ||= await pickBrowserFile(
                 ".wav,.mp3,.ogg,audio/wav,audio/mpeg,audio/ogg",
                 "Sound import was cancelled.",
                 "sound-resource-import",
@@ -467,13 +590,15 @@ export class ResourceAuthoringController {
                 },
             );
             if (preparation.ok === false) {
-                this.setStatus(`Sound import unavailable: ${preparation.code}. ${preparation.message}`);
-                return;
+                throw new Error(`${preparation.code}. ${preparation.message}`);
             }
             const resource = preparation.transaction.operation.kind === "addResource"
                 ? preparation.transaction.operation.resource as { id?: string }
                 : null;
-            if (!await this.applyAuthoringPreparation(preparation) || !resource?.id) return;
+            if (!await this.applyAuthoringPreparation(preparation) || !resource?.id) {
+                this.recordImport("sound", [file], selectedPackage.id, "Import transaction was rejected.", () => this.importSoundResource(file));
+                return;
+            }
             this.applyLibrarySelection({
                 kind: "resource",
                 packageId: selectedPackage.id,
@@ -481,20 +606,23 @@ export class ResourceAuthoringController {
             });
             this.setDebugAttribute("data-fairy-editor-sound-import", resource.id);
             this.setStatus(`Imported sound ${file.name}.`);
+            this.recordImport("sound", [file], selectedPackage.id);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             this.setStatus(`Sound import skipped: ${message}`);
+            if (file) this.recordImport("sound", [file], selectedPackage.id, message, () => this.importSoundResource(file));
         }
     }
 
-    async importMovieClipResource(): Promise<void> {
+    async importMovieClipResource(retryFiles?: File[]): Promise<void> {
         const selectedPackage = this.getSelectedPackage();
         if (!selectedPackage) {
             this.setStatus("MovieClip import skipped: no package selected.");
             return;
         }
+        let files = retryFiles;
         try {
-            const files = await pickBrowserFiles(
+            files ||= await pickBrowserFiles(
                 ".png,.jpg,.jpeg,.gif,image/png,image/jpeg,image/gif",
                 "MovieClip import was cancelled.",
                 "movieclip-resource-import",
@@ -509,7 +637,7 @@ export class ResourceAuthoringController {
                     const prepared: MovieClipFrameInput[] = gif
                         ? await prepareGifMovieClipFrames(gif, isCancelled, report)
                         : [];
-                    const sortedFiles = files.sort((left, right) => left.name.localeCompare(right.name, undefined, { numeric: true }));
+                    const sortedFiles = files!.sort((left, right) => left.name.localeCompare(right.name, undefined, { numeric: true }));
                     if (!gif) for (let index = 0; index < sortedFiles.length; index += 1) {
                         const file = sortedFiles[index];
                         if (isCancelled()) break;
@@ -531,13 +659,15 @@ export class ResourceAuthoringController {
                 gif ? 100 : 24,
             );
             if (preparation.ok === false) {
-                this.setStatus(`MovieClip import unavailable: ${preparation.code}. ${preparation.message}`);
-                return;
+                throw new Error(`${preparation.code}. ${preparation.message}`);
             }
             const resource = preparation.transaction.operation.kind === "addResource"
                 ? preparation.transaction.operation.resource as { id?: string }
                 : null;
-            if (!await this.applyAuthoringPreparation(preparation) || !resource?.id) return;
+            if (!await this.applyAuthoringPreparation(preparation) || !resource?.id) {
+                this.recordImport("movieClip", files, selectedPackage.id, "Import transaction was rejected.", () => this.importMovieClipResource(files));
+                return;
+            }
             this.applyLibrarySelection({
                 kind: "resource",
                 packageId: selectedPackage.id,
@@ -557,20 +687,23 @@ export class ResourceAuthoringController {
                 `${resource.id}:${frames.length}:cropped=${croppedCount}`,
             );
             this.setStatus(`Imported MovieClip from ${frames.length} frames; alpha-trimmed ${croppedCount}.`);
+            this.recordImport("movieClip", files, selectedPackage.id);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             this.setStatus(`MovieClip import skipped: ${message}`);
+            if (files) this.recordImport("movieClip", files, selectedPackage.id, message, () => this.importMovieClipResource(files));
         }
     }
 
-    async importMovieClipSpriteSheetResource(): Promise<void> {
+    async importMovieClipSpriteSheetResource(retryFiles?: File[]): Promise<void> {
         const selectedPackage = this.getSelectedPackage();
         if (!selectedPackage) {
             this.setStatus("Sprite Sheet import skipped: no package selected.");
             return;
         }
+        let files = retryFiles;
         try {
-            const files = await pickBrowserFiles(
+            files ||= await pickBrowserFiles(
                 ".json,.eas,.xml,.plist,.png,application/json,text/xml,application/xml,image/png",
                 "Sprite Sheet import was cancelled.",
                 "movieclip-sprite-sheet-import",
@@ -604,13 +737,15 @@ export class ResourceAuthoringController {
                 frames,
             );
             if (preparation.ok === false) {
-                this.setStatus(`Sprite Sheet import unavailable: ${preparation.code}. ${preparation.message}`);
-                return;
+                throw new Error(`${preparation.code}. ${preparation.message}`);
             }
             const resource = preparation.transaction.operation.kind === "addResource"
                 ? preparation.transaction.operation.resource as { id?: string; sourceBytes?: Uint8Array }
                 : null;
-            if (!await this.applyAuthoringPreparation(preparation) || !resource?.id) return;
+            if (!await this.applyAuthoringPreparation(preparation) || !resource?.id) {
+                this.recordImport("movieClipSpriteSheet", files, selectedPackage.id, "Import transaction was rejected.", () => this.importMovieClipSpriteSheetResource(files));
+                return;
+            }
             this.applyLibrarySelection({
                 kind: "resource",
                 packageId: selectedPackage.id,
@@ -626,20 +761,23 @@ export class ResourceAuthoringController {
             this.setStatus(
                 `Imported MovieClip Sprite Sheet ${descriptorFile.name}: ${parsed.frames.length} frames, ${textureCount} textures.`,
             );
+            this.recordImport("movieClipSpriteSheet", files, selectedPackage.id);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             this.setStatus(`Sprite Sheet import skipped: ${message}`);
+            if (files) this.recordImport("movieClipSpriteSheet", files, selectedPackage.id, message, () => this.importMovieClipSpriteSheetResource(files));
         }
     }
 
-    async importBitmapFontResource(): Promise<void> {
+    async importBitmapFontResource(retryFiles?: File[]): Promise<void> {
         const selectedPackage = this.getSelectedPackage();
         if (!selectedPackage) {
             this.setStatus("Bitmap font import skipped: no package selected.");
             return;
         }
+        let files = retryFiles;
         try {
-            const files = await pickBrowserFiles(
+            files ||= await pickBrowserFiles(
                 ".fnt,.png,.jpg,.jpeg,.webp,text/plain,image/png,image/jpeg,image/webp",
                 "Bitmap font import was cancelled.",
                 "bitmap-font-import",
@@ -670,14 +808,16 @@ export class ResourceAuthoringController {
                 dimensions,
             );
             if (preparation.ok === false) {
-                this.setStatus(`Bitmap font import unavailable: ${preparation.code}. ${preparation.message}`);
-                return;
+                throw new Error(`${preparation.code}. ${preparation.message}`);
             }
             const fontResource = preparation.transaction.operations
                 ?.filter((operation) => operation.kind === "addResource")
                 .map((operation) => operation.resource as { id?: string; kind?: string })
                 .find((resource) => resource.kind === "font");
-            if (!await this.applyAuthoringPreparation(preparation) || !fontResource?.id) return;
+            if (!await this.applyAuthoringPreparation(preparation) || !fontResource?.id) {
+                this.recordImport("bitmapFont", files, selectedPackage.id, "Import transaction was rejected.", () => this.importBitmapFontResource(files));
+                return;
+            }
             this.applyLibrarySelection({
                 kind: "resource",
                 packageId: selectedPackage.id,
@@ -688,9 +828,11 @@ export class ResourceAuthoringController {
                 `${fontResource.id}:${dimensions.width}x${dimensions.height}`,
             );
             this.setStatus(`Imported bitmap font ${fontFile.name} with texture ${textureFile.name}.`);
+            this.recordImport("bitmapFont", files, selectedPackage.id);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             this.setStatus(`Bitmap font import skipped: ${message}`);
+            if (files) this.recordImport("bitmapFont", files, selectedPackage.id, message, () => this.importBitmapFontResource(files));
         }
     }
 
@@ -1333,6 +1475,9 @@ export class ResourceAuthoringController {
         );
         this.setActionEnabled(importPackage, this.options.isLiveSession());
         this.setActionEnabled(importResources, this.options.isLiveSession());
+        this.addMenuItem(menu, "desktopMenuResourceImportHistory", "导入历史与失败重试…", () => {
+            this.showImportHistoryMenu(anchor);
+        });
         this.setActionEnabled(
             exportPackage,
             this.options.isLiveSession() && Boolean(this.libraryPackageId),
@@ -1357,7 +1502,7 @@ export class ResourceAuthoringController {
         this.showActionMenu(menu, anchor, "resource", "Resource menu opened.");
     }
 
-    async importFairyPackage(): Promise<void> {
+    async importFairyPackage(retryFile?: File): Promise<void> {
         const interactionIdentity = this.liveSessionBridge.captureSessionIdentity();
         const backend = this.liveSessionBridge.getFairyPackageBackend();
         const project = this.liveSessionBridge.getWorkingProject();
@@ -1365,8 +1510,9 @@ export class ResourceAuthoringController {
             this.setStatus("FairyGUI package import requires a connected live session.", "error");
             return;
         }
+        let file = retryFile;
         try {
-            const file = await pickBrowserFile(
+            file ||= await pickBrowserFile(
                 ".fairypackage,.zip,application/zip,application/x-zip-compressed",
                 "FairyGUI package import was cancelled.",
                 "fairy-package",
@@ -1390,7 +1536,10 @@ export class ResourceAuthoringController {
             const currentProject = this.liveSessionBridge.getWorkingProject();
             if (!currentProject) return;
             const preparation = prepareImportPackage(currentProject, imported, packageName);
-            if (!await this.applyAuthoringPreparation(preparation) || !preparation.ok) return;
+            if (!await this.applyAuthoringPreparation(preparation) || !preparation.ok) {
+                this.recordImport("fairyPackage", [file], "", "Import transaction was rejected.", () => this.importFairyPackage(file));
+                return;
+            }
             const operation = preparation.transaction.operation;
             if (operation.kind === "addPackage") {
                 const importedPackage = operation.package as { id: string; name?: string };
@@ -1398,15 +1547,17 @@ export class ResourceAuthoringController {
                 this.applyLibrarySelection({ kind: "package", packageId: importedPackage.id });
                 this.setDebugAttribute("data-fairy-editor-package-import", importedPackage.id);
                 this.setStatus(`FairyGUI package imported: ${importedPackage.name || importedPackage.id}.`);
+                this.recordImport("fairyPackage", [file], importedPackage.id);
             }
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             this.setDebugAttribute("data-fairy-editor-package-import", `error:${message}`);
             this.setStatus(`FairyGUI package import failed: ${message}`, "error");
+            if (file) this.recordImport("fairyPackage", [file], "", message, () => this.importFairyPackage(file));
         }
     }
 
-    async importFairyPackageResources(): Promise<void> {
+    async importFairyPackageResources(retryFile?: File): Promise<void> {
         const interactionIdentity = this.liveSessionBridge.captureSessionIdentity();
         const backend = this.liveSessionBridge.getFairyPackageBackend();
         const project = this.liveSessionBridge.getWorkingProject() as {
@@ -1416,8 +1567,9 @@ export class ResourceAuthoringController {
             this.setStatus("FairyGUI resource import requires a connected live session.", "error");
             return;
         }
+        let file = retryFile;
         try {
-            const file = await pickBrowserFile(
+            file ||= await pickBrowserFile(
                 ".fairypackage,.zip,application/zip,application/x-zip-compressed",
                 "FairyGUI resource import was cancelled.",
                 "fairy-package-resources",
@@ -1500,7 +1652,10 @@ export class ResourceAuthoringController {
                 targetBranch,
                 conflictStrategy,
             });
-            if (!await this.applyAuthoringPreparation(preparation) || !preparation.ok) return;
+            if (!await this.applyAuthoringPreparation(preparation) || !preparation.ok) {
+                this.recordImport("fairyPackageResources", [file], targetPackage.id, "Import transaction was rejected.", () => this.importFairyPackageResources(file));
+                return;
+            }
             this.libraryPackageId = targetPackage.id;
             this.applyLibrarySelection({ kind: "package", packageId: targetPackage.id });
             this.setDebugAttribute(
@@ -1511,10 +1666,12 @@ export class ResourceAuthoringController {
                 `FairyGUI resources imported into ${targetPackage.name || targetPackage.id}${inspection.targetPath}: `
                     + `${preparation.counts.added} added, ${preparation.counts.replaced} replaced, ${preparation.counts.skipped} skipped.`,
             );
+            this.recordImport("fairyPackageResources", [file], targetPackage.id);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             this.setDebugAttribute("data-fairy-editor-package-resource-import", `error:${message}`);
             this.setStatus(`FairyGUI resource import failed: ${message}`, "error");
+            if (file) this.recordImport("fairyPackageResources", [file], this.libraryPackageId, message, () => this.importFairyPackageResources(file));
         }
     }
 
