@@ -5,7 +5,9 @@ import {
     readCommonDisplayProperties,
     readGraphProperties,
     readGroupProperties,
+    readImageProperties,
     readListProperties,
+    readMovieClipProperties,
     readTextInputProperties,
     readTextProperties,
 } from "../commands/DisplayListReaders";
@@ -721,6 +723,7 @@ function summarizeNode(node: unknown): EditorCommandNodeState {
         fillOrigin?: number;
         fillClockwise?: boolean;
         fillAmount?: number;
+        flip?: number;
         clearOnPublish?: boolean;
         layout?: number;
         lineGap?: number;
@@ -735,6 +738,7 @@ function summarizeNode(node: unknown): EditorCommandNodeState {
         src?: string;
         overflow?: number;
         scrollType?: number;
+        scrollBarDisplay?: number;
         scrollBarFlags?: number;
         scrollBarMargin?: { top?: number; bottom?: number; left?: number; right?: number };
         vtScrollBarRes?: string;
@@ -781,6 +785,12 @@ function summarizeNode(node: unknown): EditorCommandNodeState {
         font: String(value.font ?? ""),
         fontSize: Number(value.fontSize ?? 0),
         color: String(value.color ?? ""),
+        ...(value.kind === "image"
+            ? { imageProperties: readImageProperties(uamNode) }
+            : {}),
+        ...(value.kind === "movieClip"
+            ? { movieClipProperties: readMovieClipProperties(uamNode) }
+            : {}),
         textProperties: readTextProperties(uamNode),
         ...(value.kind === "textInput"
             ? { textInputProperties: readTextInputProperties(uamNode) }
@@ -898,6 +908,8 @@ function nodeStatesMatch(
         actual.font === expected.font &&
         actual.fontSize === expected.fontSize &&
         actual.color === expected.color &&
+        stableJson(actual.imageProperties) === stableJson(expected.imageProperties) &&
+        stableJson(actual.movieClipProperties) === stableJson(expected.movieClipProperties) &&
         stableJson(actual.textProperties) === stableJson(expected.textProperties) &&
         stableJson(actual.textInputProperties) === stableJson(expected.textInputProperties) &&
         stableJson(actual.graphProperties) === stableJson(expected.graphProperties) &&

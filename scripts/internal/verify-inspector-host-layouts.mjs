@@ -87,6 +87,10 @@ const textNode = {
     fontSize: 12,
     color: "#000000",
     textProperties: {
+        text: "Original",
+        font: "",
+        fontSize: 12,
+        color: "#000000",
         align: 0,
         vAlign: 0,
         leading: 0,
@@ -94,6 +98,7 @@ const textNode = {
         autoSize: 0,
         singleLine: false,
         autoClearText: false,
+        outlineSoftness: 0,
         underlaySoftness: 0,
         ubbEnabled: false,
         underline: false,
@@ -172,6 +177,10 @@ assert.deepEqual(textCommand.props.fontSize, 18);
 assert.deepEqual(textCommand.props.color, "#123456");
 assert.deepEqual(textCommand.props.textProperties, {
     ...textNode.textProperties,
+    text: "Updated",
+    font: "Arial",
+    fontSize: 18,
+    color: "#123456",
     align: 1,
     vAlign: 2,
     leading: 3,

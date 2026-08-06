@@ -106,13 +106,15 @@ export function prepareAddPrimitiveDisplayNode(
     };
     let node: UamDisplayNodeLike & Record<string, unknown>;
     if (textKind) {
-        const textProperties = readTextProperties({ kind });
-        node = {
-            ...common,
+        const textProperties = readTextProperties({
+            kind,
             text: kind === "richText" ? "[b]Rich Text[/b]" : kind === "text" ? "Text" : "",
             font: "",
             fontSize: 24,
             color: "#000000",
+        });
+        node = {
+            ...common,
             ...textProperties,
             ...(kind === "textInput" ? {
                 ...readTextInputProperties({}),

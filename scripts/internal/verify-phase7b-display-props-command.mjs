@@ -103,6 +103,14 @@ function findComponentInstanceTarget(project, extensionType) {
 	return null;
 }
 
+function findSoundUrl(project) {
+	for (const pkg of project.packages ?? []) {
+		const resource = pkg.resources?.find((candidate) => candidate.kind === 'sound' && candidate.id);
+		if (resource) return `ui://${pkg.id}${resource.id}`;
+	}
+	return '';
+}
+
 function summarizeGraphProperties(node) {
 	return {
 		graphType: Number(node.graphType ?? 0),
@@ -114,6 +122,36 @@ function summarizeGraphProperties(node) {
 		sides: Number(node.sides ?? 0),
 		startAngle: Number(node.startAngle ?? 0),
 		distances: cloneJson(node.distances ?? null),
+	};
+}
+
+function summarizeTextProperties(node) {
+	return {
+		text: String(node.text ?? ''),
+		font: String(node.font ?? ''),
+		fontSize: Number(node.fontSize ?? 12),
+		color: String(node.color ?? '#000000'),
+		align: Number(node.align ?? 0),
+		vAlign: Number(node.vAlign ?? 0),
+		leading: Number(node.leading ?? 3),
+		letterSpacing: Number(node.letterSpacing ?? 0),
+		autoSize: Number(node.autoSize ?? 1),
+		singleLine: node.singleLine === true,
+		autoClearText: node.autoClearText === true,
+		demoText: String(node.demoText ?? ''),
+		templateVarsEnabled: node.templateVarsEnabled === true,
+		faceDilate: Number(node.faceDilate ?? 0),
+		outlineSoftness: Number(node.outlineSoftness ?? 0),
+		underlaySoftness: Number(node.underlaySoftness ?? 0),
+		ubbEnabled: node.ubbEnabled === true,
+		underline: node.underline === true,
+		italic: node.italic === true,
+		bold: node.bold === true,
+		strikethrough: node.strikethrough === true,
+		strokeColor: node.strokeColor ?? null,
+		strokeSize: Number(node.strokeSize ?? 1),
+		shadowColor: node.shadowColor ?? null,
+		shadowOffset: cloneJson(node.shadowOffset ?? { x: 0, y: 0 }),
 	};
 }
 
@@ -154,6 +192,7 @@ function summarizeListProperties(node) {
 		src: String(node.src ?? ''),
 		overflow: Number(node.overflow ?? 0),
 		scrollType: Number(node.scrollType ?? 1),
+		scrollBarDisplay: Number(node.scrollBarDisplay ?? 0),
 		scrollBarFlags: Number(node.scrollBarFlags ?? 0),
 		scrollBarMargin: cloneJson(node.scrollBarMargin ?? { top: 0, bottom: 0, left: 0, right: 0 }),
 		vtScrollBarRes: String(node.vtScrollBarRes ?? ''),
@@ -345,6 +384,39 @@ async function main() {
 		fillAmount: loaderBefore.fillAmount === 42.5 ? 65 : 42.5,
 		clearOnPublish: !loaderBefore.clearOnPublish,
 	};
+	const openFairyGui023Targets = [
+		{
+			kind: 'image',
+			propertyName: 'imageProperties',
+			read: (node) => ({
+				color: String(node.color ?? '#FFFFFF'),
+				flip: Number(node.flip ?? 0),
+				fillMethod: Number(node.fillMethod ?? 0),
+				fillOrigin: Number(node.fillOrigin ?? 0),
+				fillClockwise: node.fillClockwise !== false,
+				fillAmount: Number(node.fillAmount ?? 100),
+			}),
+			change: (before) => ({ ...before, color: '#A1B2C3', flip: 3, fillMethod: 3, fillOrigin: 1, fillClockwise: false, fillAmount: 0.42 }),
+		},
+		{
+			kind: 'movieClip',
+			propertyName: 'movieClipProperties',
+			read: (node) => ({ playing: node.playing !== false, frame: Number(node.frame ?? 0), color: String(node.color ?? '#FFFFFF') }),
+			change: (before) => ({ ...before, playing: !before.playing, frame: before.frame + 1, color: '#C3B2A1' }),
+		},
+		{
+			kind: 'text',
+			propertyName: 'textProperties',
+			read: summarizeTextProperties,
+			change: (before) => ({ ...before, outlineSoftness: before.outlineSoftness === 0.25 ? 0.5 : 0.25 }),
+		},
+	].map((definition) => {
+		const target = findListTarget(uamProject, definition.kind);
+		assert(target, `Phase 7B ${definition.kind} target node not found in UAM baseline.`);
+		const node = findDisplayNode(uamProject, target);
+		const before = definition.read(node);
+		return { ...definition, target, before, after: definition.change(before) };
+	});
 	const listTargets = ['list', 'tree'].map((kind) => {
 		const target = findListTarget(uamProject, kind);
 		assert(target, `Phase 7B ${kind} target node not found in UAM baseline.`);
@@ -361,6 +433,7 @@ async function main() {
 			childrenRenderOrder: 2,
 			apexIndex: 1,
 			scrollBarFlags: before.scrollBarFlags ^ 2048,
+			scrollBarDisplay: (before.scrollBarDisplay + 1) % 4,
 			margin: { top: 1, bottom: 2, left: 3, right: 4 },
 			clipSoftness: { x: 2, y: 3 },
 			scrollItemToViewOnClick: !before.scrollItemToViewOnClick,
@@ -388,27 +461,29 @@ async function main() {
 				? {
 					treeView: true,
 					indent: before.indent + 2,
-					clickToExpand: (before.clickToExpand + 1) % 2,
+					clickToExpand: before.clickToExpand === 2 ? 1 : 2,
 				}
 				: {}),
 		};
 		return { kind, target, before, after };
 	});
-	const componentInstanceTarget = findComponentInstanceTarget(uamProject, 'Button');
-	assert(componentInstanceTarget, 'Phase 7B Button component instance target not found in UAM baseline.');
-	const componentInstanceNode = findDisplayNode(uamProject, componentInstanceTarget);
-	assert(
-		componentInstanceNode?.instanceProperties?.extensionType === 'Button',
-		'Phase 7B component instance target is not a Button overlay.',
-	);
-	const componentInstanceBefore = cloneJson(componentInstanceNode.instanceProperties);
-	const componentInstanceAfter = {
-		...componentInstanceBefore,
-		title: `${componentInstanceBefore.title || 'Button'} Phase 7B`,
-		selectedTitle: `${componentInstanceBefore.selectedTitle || 'Selected'} Phase 7B`,
-		checked: !componentInstanceBefore.checked,
-		soundVolumeScale: componentInstanceBefore.soundVolumeScale === 0.75 ? 0.5 : 0.75,
-	};
+	const soundUrl = findSoundUrl(uamProject);
+	assert(soundUrl, 'Phase 7B sound resource target not found in UAM baseline.');
+	const componentInstanceTargets = ['Button', 'Label', 'ComboBox', 'ProgressBar'].map((extensionType) => {
+		const target = findComponentInstanceTarget(uamProject, extensionType);
+		assert(target, `Phase 7B ${extensionType} component instance target not found in UAM baseline.`);
+		const node = findDisplayNode(uamProject, target);
+		assert(node?.instanceProperties?.extensionType === extensionType, `Phase 7B component instance target is not ${extensionType}.`);
+		const before = cloneJson(node.instanceProperties);
+		const after = extensionType === 'Button'
+			? { ...before, title: `${before.title || 'Button'} Phase 7B`, checked: !before.checked, soundVolumeScale: 0.75 }
+			: extensionType === 'Label'
+				? { ...before, sound: soundUrl, soundVolumeScale: 0.65 }
+				: extensionType === 'ComboBox'
+					? { ...before, titleColor: '#123456', popupDirection: 2, sound: soundUrl, soundVolumeScale: 0.55 }
+					: { ...before, sound: soundUrl, soundVolumeScale: 0.45 };
+		return { extensionType, target, before, after };
+	});
 	const selector = {
 		packageId: baseline.target.packageId,
 		componentResourceId: baseline.target.componentResourceId,
@@ -594,6 +669,39 @@ async function main() {
 	});
 	assert(loaderUndone.ok, `Phase 7B loader inverse transaction failed: ${JSON.stringify(loaderUndone)}`);
 
+	const openFairyGui023Operations = openFairyGui023Targets.map(({ kind, propertyName, target, after }) => ({
+		opId: `phase7b-023-${kind}-properties-command`,
+		kind: 'setDisplayNodeProps',
+		selector: {
+			packageId: target.packageId,
+			componentResourceId: target.componentResourceId,
+			displayNodeId: target.displayNodeId,
+		},
+		props: { [propertyName]: after },
+	}));
+	const openFairyGui023Applied = await runtime.applyTransaction({
+		sessionId: opened.data.sessionId,
+		expectedRevision: loaderUndone.data.revision,
+		operations: openFairyGui023Operations,
+	});
+	assert(openFairyGui023Applied.ok, `Phase 7B OpenFairyGUI 0.2.4 transaction failed: ${JSON.stringify(openFairyGui023Applied)}`);
+	const openFairyGui023InverseOperations = openFairyGui023Targets.map(({ kind, propertyName, target, before }) => ({
+		opId: `phase7b-023-${kind}-properties-command-undo`,
+		kind: 'setDisplayNodeProps',
+		selector: {
+			packageId: target.packageId,
+			componentResourceId: target.componentResourceId,
+			displayNodeId: target.displayNodeId,
+		},
+		props: { [propertyName]: before },
+	}));
+	const openFairyGui023Undone = await runtime.applyTransaction({
+		sessionId: opened.data.sessionId,
+		expectedRevision: openFairyGui023Applied.data.revision,
+		operations: openFairyGui023InverseOperations,
+	});
+	assert(openFairyGui023Undone.ok, `Phase 7B OpenFairyGUI 0.2.4 inverse transaction failed: ${JSON.stringify(openFairyGui023Undone)}`);
+
 	const listOperations = listTargets.map(({ kind, target, after }) => ({
 		opId: `phase7b-${kind}-properties-command`,
 		kind: 'setDisplayNodeProps',
@@ -606,7 +714,7 @@ async function main() {
 	}));
 	const listApplied = await runtime.applyTransaction({
 		sessionId: opened.data.sessionId,
-		expectedRevision: loaderUndone.data.revision,
+		expectedRevision: openFairyGui023Undone.data.revision,
 		operations: listOperations,
 	});
 	assert(listApplied.ok, `Phase 7B list/tree transaction failed: ${JSON.stringify(listApplied)}`);
@@ -627,34 +735,39 @@ async function main() {
 	});
 	assert(listUndone.ok, `Phase 7B list/tree inverse transaction failed: ${JSON.stringify(listUndone)}`);
 
-	const componentInstanceOperation = {
-		opId: 'phase7b-component-instance-properties-command',
+	const componentInstanceOperations = componentInstanceTargets.map(({ extensionType, target, after }) => ({
+		opId: `phase7b-${extensionType.toLowerCase()}-instance-properties-command`,
 		kind: 'setDisplayNodeProps',
 		selector: {
-			packageId: componentInstanceTarget.packageId,
-			componentResourceId: componentInstanceTarget.componentResourceId,
-			displayNodeId: componentInstanceTarget.displayNodeId,
+			packageId: target.packageId,
+			componentResourceId: target.componentResourceId,
+			displayNodeId: target.displayNodeId,
 		},
-		props: { componentInstanceProperties: componentInstanceAfter },
-	};
+		props: { componentInstanceProperties: after },
+	}));
 	const componentInstanceApplied = await runtime.applyTransaction({
 		sessionId: opened.data.sessionId,
 		expectedRevision: listUndone.data.revision,
-		operations: [componentInstanceOperation],
+		operations: componentInstanceOperations,
 	});
 	assert(
 		componentInstanceApplied.ok,
 		`Phase 7B component instance transaction failed: ${JSON.stringify(componentInstanceApplied)}`,
 	);
-	const componentInstanceInverseOperation = {
-		...componentInstanceOperation,
-		opId: 'phase7b-component-instance-properties-command-undo',
-		props: { componentInstanceProperties: componentInstanceBefore },
-	};
+	const componentInstanceInverseOperations = componentInstanceTargets.map(({ extensionType, target, before }) => ({
+		opId: `phase7b-${extensionType.toLowerCase()}-instance-properties-command-undo`,
+		kind: 'setDisplayNodeProps',
+		selector: {
+			packageId: target.packageId,
+			componentResourceId: target.componentResourceId,
+			displayNodeId: target.displayNodeId,
+		},
+		props: { componentInstanceProperties: before },
+	}));
 	const componentInstanceUndone = await runtime.applyTransaction({
 		sessionId: opened.data.sessionId,
 		expectedRevision: componentInstanceApplied.data.revision,
-		operations: [componentInstanceInverseOperation],
+		operations: componentInstanceInverseOperations,
 	});
 	assert(
 		componentInstanceUndone.ok,
@@ -708,17 +821,20 @@ async function main() {
 			operation: loaderOperation,
 			inverseOperation: loaderInverseOperation,
 		},
+		openFairyGui023: {
+			targets: openFairyGui023Targets.map(({ kind, propertyName, target, before, after }) => ({ kind, propertyName, target, before, after })),
+			operations: openFairyGui023Operations,
+			inverseOperations: openFairyGui023InverseOperations,
+		},
 		listAndTree: {
 			targets: listTargets,
 			operations: listOperations,
 			inverseOperations: listInverseOperations,
 		},
-		componentInstance: {
-			target: componentInstanceTarget,
-			before: componentInstanceBefore,
-			after: componentInstanceAfter,
-			operation: componentInstanceOperation,
-			inverseOperation: componentInstanceInverseOperation,
+		componentInstances: {
+			targets: componentInstanceTargets,
+			operations: componentInstanceOperations,
+			inverseOperations: componentInstanceInverseOperations,
 		},
 		results: {
 			openSession: summarizeBackendResult(opened),
@@ -730,6 +846,8 @@ async function main() {
 			groupUndo: summarizeBackendResult(groupUndone),
 			loaderApply: summarizeBackendResult(loaderApplied),
 			loaderUndo: summarizeBackendResult(loaderUndone),
+			openFairyGui023Apply: summarizeBackendResult(openFairyGui023Applied),
+			openFairyGui023Undo: summarizeBackendResult(openFairyGui023Undone),
 			listApply: summarizeBackendResult(listApplied),
 			listUndo: summarizeBackendResult(listUndone),
 			componentInstanceApply: summarizeBackendResult(componentInstanceApplied),
@@ -746,7 +864,7 @@ async function main() {
 				severity: 'info',
 				code: 'PHASE7B_DISPLAY_PROPS_COMMAND_VERIFIED',
 				message:
-					'OpenFairyGUI browser backend memory session accepted common display-object, group, geometry, pivot/anchor, customData, visibility, text, graph, loader, list, tree, and component instance properties through setDisplayNodeProps transactions.',
+					'OpenFairyGUI browser backend memory session accepted common display-object, group, geometry, pivot/anchor, customData, visibility, text, graph, loader, list/tree scrolling, and 0.2.4 component instance properties through setDisplayNodeProps transactions.',
 			},
 			{
 				severity: 'info',

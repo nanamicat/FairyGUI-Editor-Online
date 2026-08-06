@@ -1437,6 +1437,8 @@ export class EditorShell {
                 return;
             case "command:sourceSize": void this.applySelectedNodeSourceSize(); return;
             case "properties:common": this.authoringDialogs.showCommonDisplayProperties(); return;
+            case "properties:image": this.authoringDialogs.showImageProperties(); return;
+            case "properties:movieClip": this.authoringDialogs.showMovieClipProperties(); return;
             case "properties:text": this.authoringDialogs.showTextProperties(); return;
             case "properties:graph": this.authoringDialogs.showGraphProperties(); return;
             case "properties:group": this.authoringDialogs.showGroupProperties(); return;

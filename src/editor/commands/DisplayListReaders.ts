@@ -5,9 +5,11 @@ import type {
     EditorDisplayNodeSelector,
     GraphEditableProperties,
     GroupEditableProperties,
+    ImageEditableProperties,
     ListEditableProperties,
     Loader3DEditableProperties,
     LoaderEditableProperties,
+    MovieClipEditableProperties,
     TextEditableProperties,
     TextInputEditableProperties,
     TreeEditableProperties,
@@ -27,6 +29,10 @@ import {
 
 export function readTextProperties(node: UamDisplayNodeLike): TextEditableProperties {
     return {
+        text: String(node.text || ""),
+        font: String(node.font || ""),
+        fontSize: Number(node.fontSize || 12),
+        color: String(node.color || "#000000"),
         align: Number(node.align || 0),
         vAlign: Number(node.vAlign || 0),
         leading: Number(node.leading ?? 3),
@@ -39,6 +45,7 @@ export function readTextProperties(node: UamDisplayNodeLike): TextEditableProper
             templateVarsEnabled: Boolean(node.templateVarsEnabled),
             faceDilate: Number(node.faceDilate || 0),
         } : {}),
+        outlineSoftness: Number(node.outlineSoftness || 0),
         underlaySoftness: Number(node.underlaySoftness || 0),
         ubbEnabled: Boolean(node.ubbEnabled),
         underline: Boolean(node.underline),
@@ -52,6 +59,25 @@ export function readTextProperties(node: UamDisplayNodeLike): TextEditableProper
             x: Number(node.shadowOffset?.x || 0),
             y: Number(node.shadowOffset?.y || 0),
         },
+    };
+}
+
+export function readImageProperties(node: UamDisplayNodeLike): ImageEditableProperties {
+    return {
+        color: String(node.color || "#FFFFFF"),
+        flip: Number(node.flip || 0),
+        fillMethod: Number(node.fillMethod || 0),
+        fillOrigin: Number(node.fillOrigin || 0),
+        fillClockwise: node.fillClockwise !== false,
+        fillAmount: Number(node.fillAmount ?? 100),
+    };
+}
+
+export function readMovieClipProperties(node: UamDisplayNodeLike): MovieClipEditableProperties {
+    return {
+        playing: node.playing !== false,
+        frame: Number(node.frame || 0),
+        color: String(node.color || "#FFFFFF"),
     };
 }
 
@@ -183,6 +209,7 @@ export function readListProperties(node: UamDisplayNodeLike): ListEditableProper
         src: String(node.src || ""),
         overflow: Number(node.overflow || 0),
         scrollType: Number(node.scrollType ?? 1),
+        scrollBarDisplay: Number(node.scrollBarDisplay || 0),
         scrollBarFlags: Number(node.scrollBarFlags || 0),
         scrollBarMargin: {
             top: Number(node.scrollBarMargin?.top || 0),

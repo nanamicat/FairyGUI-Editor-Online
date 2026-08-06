@@ -310,11 +310,58 @@ export function validateSetDisplayNodeProps(snapshot: EditorProjectSnapshot | nu
             message: "Display node color must use #RRGGBB.",
         };
     }
+    if (command.props.imageProperties !== undefined) {
+        const properties = command.props.imageProperties;
+        const validFillAmount = properties.fillMethod === 0
+            ? properties.fillOrigin === 0 && properties.fillClockwise && properties.fillAmount === 100
+            : Number.isFinite(properties.fillAmount) && properties.fillAmount >= 0 && properties.fillAmount <= 1;
+        if (
+            !/^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(properties.color)
+            || !Number.isInteger(properties.flip)
+            || properties.flip < 0
+            || properties.flip > 3
+            || !Number.isInteger(properties.fillMethod)
+            || properties.fillMethod < 0
+            || properties.fillMethod > 5
+            || !Number.isInteger(properties.fillOrigin)
+            || properties.fillOrigin < 0
+            || properties.fillOrigin > 3
+            || typeof properties.fillClockwise !== "boolean"
+            || !validFillAmount
+        ) {
+            return {
+                code: "invalid_image_properties",
+                field: "imageProperties",
+                message: "Image color, flip, or fill properties are invalid.",
+            };
+        }
+    }
+    if (command.props.movieClipProperties !== undefined) {
+        const properties = command.props.movieClipProperties;
+        if (
+            typeof properties.playing !== "boolean"
+            || !Number.isInteger(properties.frame)
+            || properties.frame < 0
+            || !/^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(properties.color)
+        ) {
+            return {
+                code: "invalid_movie_clip_properties",
+                field: "movieClipProperties",
+                message: "MovieClip playing, frame, or color properties are invalid.",
+            };
+        }
+    }
     if (command.props.textProperties !== undefined) {
         const properties = command.props.textProperties;
         if (
-            !Number.isFinite(properties.leading)
+            typeof properties.text !== "string"
+            || typeof properties.font !== "string"
+            || !Number.isFinite(properties.fontSize)
+            || properties.fontSize <= 0
+            || !/^#[0-9a-f]{6}$/i.test(properties.color)
+            || !Number.isFinite(properties.leading)
             || !Number.isFinite(properties.letterSpacing)
+            || !Number.isFinite(properties.outlineSoftness)
             || !Number.isInteger(properties.autoSize)
             || properties.autoSize < 0
             || properties.autoSize > 4
@@ -508,6 +555,9 @@ export function validateSetDisplayNodeProps(snapshot: EditorProjectSnapshot | nu
             || !Number.isInteger(properties.scrollType)
             || properties.scrollType < 0
             || properties.scrollType > 2
+            || !Number.isInteger(properties.scrollBarDisplay)
+            || properties.scrollBarDisplay < 0
+            || properties.scrollBarDisplay > 3
             || !Number.isInteger(properties.scrollBarFlags)
             || properties.scrollBarFlags < 0
             || !finiteInsets(properties.scrollBarMargin)
@@ -522,7 +572,7 @@ export function validateSetDisplayNodeProps(snapshot: EditorProjectSnapshot | nu
                 || properties.indent < 0
                 || !Number.isInteger(properties.clickToExpand)
                 || properties.clickToExpand < 0
-                || properties.clickToExpand > 1
+                || properties.clickToExpand > 2
             ))
         ) {
             return {
@@ -560,9 +610,26 @@ export function validateSetDisplayNodeProps(snapshot: EditorProjectSnapshot | nu
                         properties.icon,
                         properties.titleColor,
                         properties.promptText,
-                    ]) && nonNegativeInteger(properties.titleFontSize);
+                        properties.sound,
+                    ])
+                        && nonNegativeInteger(properties.titleFontSize)
+                        && finite(properties.soundVolumeScale)
+                        && properties.soundVolumeScale >= 0
+                        && properties.soundVolumeScale <= 1;
                 case "ComboBox":
-                    return strings([properties.title, properties.icon, properties.selectionController])
+                    return strings([
+                        properties.title,
+                        properties.icon,
+                        properties.titleColor,
+                        properties.selectionController,
+                        properties.sound,
+                    ])
+                        && Number.isInteger(properties.popupDirection)
+                        && properties.popupDirection >= 0
+                        && properties.popupDirection <= 2
+                        && finite(properties.soundVolumeScale)
+                        && properties.soundVolumeScale >= 0
+                        && properties.soundVolumeScale <= 1
                         && nonNegativeInteger(properties.visibleItemCount)
                         && typeof properties.autoClearItems === "boolean"
                         && properties.items.every((item) => (
@@ -570,6 +637,11 @@ export function validateSetDisplayNodeProps(snapshot: EditorProjectSnapshot | nu
                                 .every((value) => value === null || typeof value === "string")
                         ));
                 case "ProgressBar":
+                    return [properties.value, properties.max, properties.min].every(finite)
+                        && typeof properties.sound === "string"
+                        && finite(properties.soundVolumeScale)
+                        && properties.soundVolumeScale >= 0
+                        && properties.soundVolumeScale <= 1;
                 case "Slider":
                     return [properties.value, properties.max, properties.min].every(finite);
                 case "ScrollBar":
@@ -652,6 +724,20 @@ export function validateSetDisplayNodeProps(snapshot: EditorProjectSnapshot | nu
             code: "unsupported_text_target",
             field: "text",
             message: "Text, font, font size, and color edits are only enabled for text display nodes.",
+        };
+    }
+    if (command.props.imageProperties !== undefined && node.type !== "GImage") {
+        return {
+            code: "unsupported_image_target",
+            field: "imageProperties",
+            message: "Image properties are only enabled for GImage display nodes.",
+        };
+    }
+    if (command.props.movieClipProperties !== undefined && node.type !== "GMovieClip") {
+        return {
+            code: "unsupported_movie_clip_target",
+            field: "movieClipProperties",
+            message: "MovieClip properties are only enabled for GMovieClip display nodes.",
         };
     }
     if (command.props.graphProperties !== undefined && node.type !== "GGraph") {
@@ -776,7 +862,15 @@ export function applyDisplayNodeProps(node: ProjectSnapshotDisplayNode, props: D
     if (props.font !== undefined) node.font = props.font;
     if (props.fontSize !== undefined) node.fontSize = props.fontSize;
     if (props.color !== undefined) node.color = props.color;
-    if (props.textProperties !== undefined) node.textProperties = structuredClone(props.textProperties);
+    if (props.imageProperties !== undefined) node.imageProperties = structuredClone(props.imageProperties);
+    if (props.movieClipProperties !== undefined) node.movieClipProperties = structuredClone(props.movieClipProperties);
+    if (props.textProperties !== undefined) {
+        node.textProperties = structuredClone(props.textProperties);
+        node.text = props.textProperties.text;
+        node.font = props.textProperties.font;
+        node.fontSize = props.textProperties.fontSize;
+        node.color = props.textProperties.color;
+    }
     if (props.textInputProperties !== undefined) node.textInputProperties = structuredClone(props.textInputProperties);
     if (props.graphProperties !== undefined) node.graphProperties = structuredClone(props.graphProperties);
     if (props.groupProperties !== undefined) node.groupProperties = structuredClone(props.groupProperties);
@@ -809,18 +903,33 @@ export function applyDisplayNodeProps(node: ProjectSnapshotDisplayNode, props: D
                     titleColor: "",
                     titleFontSize: 0,
                     promptText: "",
+                    sound: "",
+                    soundVolumeScale: 1,
                 };
             } else if (extensionType === "ComboBox") {
                 node.componentInstanceProperties = {
                     extensionType,
                     title: "",
                     icon: "",
+                    titleColor: "",
+                    popupDirection: 0,
+                    sound: "",
+                    soundVolumeScale: 1,
                     visibleItemCount: 0,
                     selectionController: "",
                     autoClearItems: false,
                     items: [],
                 };
-            } else if (extensionType === "ProgressBar" || extensionType === "Slider") {
+            } else if (extensionType === "ProgressBar") {
+                node.componentInstanceProperties = {
+                    extensionType,
+                    value: 0,
+                    max: 100,
+                    min: 0,
+                    sound: "",
+                    soundVolumeScale: 1,
+                };
+            } else if (extensionType === "Slider") {
                 node.componentInstanceProperties = {
                     extensionType,
                     value: 0,
@@ -884,6 +993,12 @@ export function createInverseDisplayNodeProps(
     if (edited.font !== undefined) inverse.font = before.font;
     if (edited.fontSize !== undefined) inverse.fontSize = before.fontSize;
     if (edited.color !== undefined) inverse.color = before.color;
+    if (edited.imageProperties !== undefined && before.imageProperties) {
+        inverse.imageProperties = structuredClone(before.imageProperties);
+    }
+    if (edited.movieClipProperties !== undefined && before.movieClipProperties) {
+        inverse.movieClipProperties = structuredClone(before.movieClipProperties);
+    }
     if (edited.textProperties !== undefined) inverse.textProperties = structuredClone(before.textProperties);
     if (edited.textInputProperties !== undefined && before.textInputProperties) {
         inverse.textInputProperties = structuredClone(before.textInputProperties);
@@ -992,6 +1107,12 @@ export function snapshotDisplayNode(node: ProjectSnapshotDisplayNode): EditorCom
         font: node.font,
         fontSize: node.fontSize,
         color: node.color,
+        ...(node.imageProperties
+            ? { imageProperties: structuredClone(node.imageProperties) }
+            : {}),
+        ...(node.movieClipProperties
+            ? { movieClipProperties: structuredClone(node.movieClipProperties) }
+            : {}),
         textProperties: structuredClone(node.textProperties),
         ...(node.textInputProperties
             ? { textInputProperties: structuredClone(node.textInputProperties) }

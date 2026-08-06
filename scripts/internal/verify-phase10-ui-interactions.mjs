@@ -23,6 +23,10 @@ const projectTreeInteractionSource = readSource("src/editor/ui/ProjectTreeIntera
 const resourcePreviewSource = readSource("src/editor/ui/ResourcePreviewController.ts");
 const resourceEditorsSource = readSource("src/editor/dialogs/ResourceEditors.ts");
 const publishSettingsEditorSource = readSource("src/editor/dialogs/PublishSettingsEditor.ts");
+const componentInstanceEditorSource = readSource("src/editor/dialogs/ComponentInstancePropertyEditors.ts");
+const componentPropertyEditorSource = readSource("src/editor/dialogs/ComponentPropertyEditors.ts");
+const listPropertyEditorSource = readSource("src/editor/dialogs/ListPropertyEditors.ts");
+const textGraphPropertyEditorSource = readSource("src/editor/dialogs/TextGraphPropertyEditors.ts");
 const editorShell = [
     editorShellSource,
     editorShellConfig,
@@ -151,6 +155,29 @@ assert(resourceAuthoringControllerSource.includes('"CreateMovieClipDialog"'));
 assert(resourceAuthoringControllerSource.includes('textureSetMode: content.getChild("cb3")'));
 assert(publishSettingsEditorSource.includes("pendingImageAtlasModes"));
 assert(publishSettingsEditorSource.includes("prepareSetImageResourceProps"));
+for (const snippet of [
+    '"properties:image"',
+    '"properties:movieClip"',
+    '"ImagePropsPanel"',
+    '"MovieClipPropsPanel"',
+    "outlineSoftness",
+]) assert(`${editorShell}\n${textGraphPropertyEditorSource}`.includes(snippet), `Missing OpenFairyGUI 0.2.4 display property wiring: ${snippet}`);
+for (const snippet of [
+    'scrollBarDisplay.selectedIndex = current.scrollBarDisplay',
+    '["No", "Click", "Double click"]',
+]) assert(listPropertyEditorSource.includes(snippet), `Missing OpenFairyGUI 0.2.4 list/tree property wiring: ${snippet}`);
+for (const snippet of [
+    'setLabel("sound", initial.sound)',
+    'direction.selectedIndex = initial.popupDirection',
+    'titleColor: panel.getChild("titleColorSet")',
+]) assert(componentInstanceEditorSource.includes(snippet), `Missing OpenFairyGUI 0.2.4 component instance wiring: ${snippet}`);
+for (const snippet of [
+    'designPanel.getChild("src")',
+    'designImageForTest:',
+    'pageController:',
+    'showSound:',
+    'hideSound:',
+]) assert(componentPropertyEditorSource.includes(snippet), `Missing OpenFairyGUI 0.2.4 component property wiring: ${snippet}`);
 assert(runtimePreview.includes("setGraphPointEditing(enabled: boolean"));
 assert(runtimePreview.includes("resolveDesktopCanvasRegularPolygonDistance"));
 assert.deepEqual(
@@ -1728,6 +1755,7 @@ console.log(JSON.stringify({
         "persistent Loader and Loader3D content, layout, playback, and fill property editor wiring",
         "persistent List and Tree layout, scroll, item, and tree-option editor wiring",
         "persistent component instance extension property editor wiring",
+        "OpenFairyGUI 0.2.4 image, MovieClip, text, list/tree, component instance, and component definition property wiring",
         "native browser image import and persistent image publish-property editor wiring",
         "validated self-contained SVG image import and persistent image publish-property editor wiring",
         "alpha-trimmed PNG/JPEG sequence, native GIF decode, and JSON/EAS/XML/plist Sprite Sheet import with persistent MovieClip JTA timing editor wiring",

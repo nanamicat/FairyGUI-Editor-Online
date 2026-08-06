@@ -1,11 +1,15 @@
 import {
     readGraphProperties,
+    readImageProperties,
+    readMovieClipProperties,
     readTextInputProperties,
     readTextProperties,
 } from "../commands/HighRiskAuthoringTransactions";
 import { findComponent } from "../commands/AuthoringTransactionSupport";
 import type {
     GraphEditableProperties,
+    ImageEditableProperties,
+    MovieClipEditableProperties,
     TextEditableProperties,
     TextInputEditableProperties,
 } from "../model/EditorCommand";
@@ -15,6 +19,224 @@ import {
     createInspectorTextInput,
 } from "../ui/EditorFormControls";
 import type { PropertyEditorContext } from "./PropertyEditorContext";
+
+function bindColorPicker(
+    button: fgui.GButton,
+    initial: string,
+    owner: object,
+    ariaLabel: string,
+): { read: () => string; dispose: () => void } {
+    let value = /^#[0-9a-f]{6}$/i.test(initial) ? initial : "#FFFFFF";
+    let input: HTMLInputElement | null = null;
+    const swatch = button.getChild("n1").asGraph;
+    const sync = (): void => {
+        swatch.fillColor = value;
+        button.tooltips = `${ariaLabel}: ${value}`;
+    };
+    const dispose = (): void => {
+        input?.remove();
+        input = null;
+    };
+    sync();
+    button.onClick(owner, () => {
+        dispose();
+        input = document.createElement("input");
+        input.type = "color";
+        input.value = value;
+        input.setAttribute("aria-label", ariaLabel);
+        input.style.position = "fixed";
+        input.style.left = "-100px";
+        input.style.top = "-100px";
+        input.addEventListener("input", () => {
+            value = input!.value;
+            sync();
+        });
+        input.addEventListener("change", dispose, { once: true });
+        document.body.appendChild(input);
+        input.click();
+    });
+    return { read: () => value, dispose };
+}
+
+export function showImagePropertiesEditor(options: PropertyEditorContext): void {
+    const { selector, selectedNode } = options;
+    const findLiveNode = () => selector
+        ? findComponent(options.getWorkingProject(), selector)
+            ?.displayList?.find((node) => node.id === selector.displayNodeId) || null
+        : null;
+    const liveNode = findLiveNode();
+    if (!selector || !selectedNode || liveNode?.kind !== "image") {
+        options.setStatus("Image properties unavailable: select an image node.");
+        return;
+    }
+    const current = readImageProperties(liveNode);
+    options.getActiveDialog()?.dispose();
+    const dialog = new fgui.Window();
+    dialog.modal = true;
+    dialog.name = "desktopImagePropertiesDialog";
+    const content = fgui.UIPackage.createObject("Builder", "ConfirmDialog").asCom;
+    content.setSize(310, 300);
+    addDialogBackground(content);
+    content.getChild("frame").asLabel.title = `${selectedNode.name || selectedNode.id} - Image`;
+    content.getChild("n2").visible = false;
+    const panel = fgui.UIPackage.createObject("Builder", "ImagePropsPanel").asCom;
+    panel.name = "imagePropertiesPanel";
+    panel.setXY(20, 34);
+    panel.getChild("brightness").visible = false;
+    panel.getChild("n75").visible = false;
+    panel.getChild("flipHZ").asButton.selected = Boolean(current.flip & 1);
+    panel.getChild("flipVT").asButton.selected = Boolean(current.flip & 2);
+    const fillMethod = panel.getChild("fillMethod").asComboBox;
+    fillMethod.items = ["None", "Horizontal", "Vertical", "Radial 90", "Radial 180", "Radial 360"];
+    fillMethod.values = ["0", "1", "2", "3", "4", "5"];
+    fillMethod.selectedIndex = current.fillMethod;
+    const fillOrigin = panel.getChild("fillOrigin").asComboBox;
+    fillOrigin.items = ["Top / Left", "Bottom / Right", "Center", "Alternate"];
+    fillOrigin.values = ["0", "1", "2", "3"];
+    fillOrigin.selectedIndex = current.fillOrigin;
+    panel.getChild("fillClockwise").asButton.selected = current.fillClockwise;
+    panel.getChild("fillAmount").asLabel.title = String(current.fillMethod === 0 ? 100 : current.fillAmount * 100);
+    content.addChild(panel);
+    const color = bindColorPicker(panel.getChild("color").asButton, current.color, options.eventOwner, "Image color");
+    const applyButton = createInspectorButton(content, "imagePropertiesApply", "Apply", 20, 260, 80);
+    const saveButton = content.getChild("n1").asButton;
+    saveButton.title = "Save";
+    saveButton.setXY(115, 260);
+    saveButton.setSize(80, 22);
+    const closeButton = content.getChild("n3").asButton;
+    closeButton.title = "Close";
+    closeButton.setXY(210, 260);
+    closeButton.setSize(80, 22);
+    let busy = false;
+    const apply = async (close: boolean): Promise<void> => {
+        if (busy) return;
+        const method = fillMethod.selectedIndex;
+        const amountPercent = Number(panel.getChild("fillAmount").asLabel.title.trim());
+        const updated: ImageEditableProperties = {
+            color: color.read(),
+            flip: (panel.getChild("flipHZ").asButton.selected ? 1 : 0)
+                | (panel.getChild("flipVT").asButton.selected ? 2 : 0),
+            fillMethod: method,
+            fillOrigin: method === 0 ? 0 : fillOrigin.selectedIndex,
+            fillClockwise: method === 0 || panel.getChild("fillClockwise").asButton.selected,
+            fillAmount: method === 0 ? 100 : amountPercent / 100,
+        };
+        if (!Number.isFinite(amountPercent) || amountPercent < 0 || amountPercent > 100) {
+            options.setStatus("Image fill amount must be between 0 and 100.");
+            return;
+        }
+        if (JSON.stringify(readImageProperties(findLiveNode()!)) === JSON.stringify(updated)) {
+            options.setStatus("Image properties are unchanged.");
+            if (close) dialog.dispose();
+            return;
+        }
+        busy = true;
+        try {
+            const applied = await options.applyCommand({
+                kind: "setDisplayNodeProps",
+                selector,
+                props: { imageProperties: updated },
+            }, `image properties ${selector.displayNodeId}`);
+            if (applied && close) dialog.dispose();
+        } finally {
+            busy = false;
+        }
+    };
+    dialog.on(Laya.Event.UNDISPLAY, options.eventOwner, () => {
+        color.dispose();
+        if (options.getActiveDialog() === dialog) options.setActiveDialog(null);
+    });
+    applyButton.onClick(options.eventOwner, () => void apply(false));
+    saveButton.onClick(options.eventOwner, () => void apply(true));
+    closeButton.onClick(options.eventOwner, () => dialog.dispose());
+    dialog.contentPane = content;
+    dialog.show();
+    dialog.centerOn(fgui.GRoot.inst, true);
+    options.setActiveDialog(dialog);
+    options.setStatus(`Editing image properties for ${selectedNode.name || selectedNode.id}.`);
+}
+
+export function showMovieClipPropertiesEditor(options: PropertyEditorContext): void {
+    const { selector, selectedNode } = options;
+    const findLiveNode = () => selector
+        ? findComponent(options.getWorkingProject(), selector)
+            ?.displayList?.find((node) => node.id === selector.displayNodeId) || null
+        : null;
+    const liveNode = findLiveNode();
+    if (!selector || !selectedNode || liveNode?.kind !== "movieClip") {
+        options.setStatus("MovieClip properties unavailable: select a MovieClip node.");
+        return;
+    }
+    const current = readMovieClipProperties(liveNode);
+    options.getActiveDialog()?.dispose();
+    const dialog = new fgui.Window();
+    dialog.modal = true;
+    dialog.name = "desktopMovieClipPropertiesDialog";
+    const content = fgui.UIPackage.createObject("Builder", "ConfirmDialog").asCom;
+    content.setSize(310, 200);
+    addDialogBackground(content);
+    content.getChild("frame").asLabel.title = `${selectedNode.name || selectedNode.id} - MovieClip`;
+    content.getChild("n2").visible = false;
+    const panel = fgui.UIPackage.createObject("Builder", "MovieClipPropsPanel").asCom;
+    panel.name = "movieClipPropertiesPanel";
+    panel.setXY(20, 34);
+    panel.getChild("brightness").visible = false;
+    panel.getChild("n73").visible = false;
+    panel.getChild("frame").asLabel.title = String(current.frame);
+    panel.getChild("playing").asButton.selected = current.playing;
+    content.addChild(panel);
+    const color = bindColorPicker(panel.getChild("color").asButton, current.color, options.eventOwner, "MovieClip color");
+    const applyButton = createInspectorButton(content, "movieClipPropertiesApply", "Apply", 20, 160, 80);
+    const saveButton = content.getChild("n1").asButton;
+    saveButton.title = "Save";
+    saveButton.setXY(115, 160);
+    saveButton.setSize(80, 22);
+    const closeButton = content.getChild("n3").asButton;
+    closeButton.title = "Close";
+    closeButton.setXY(210, 160);
+    closeButton.setSize(80, 22);
+    let busy = false;
+    const apply = async (close: boolean): Promise<void> => {
+        if (busy) return;
+        const updated: MovieClipEditableProperties = {
+            frame: Number(panel.getChild("frame").asLabel.title.trim()),
+            playing: panel.getChild("playing").asButton.selected,
+            color: color.read(),
+        };
+        if (!Number.isInteger(updated.frame) || updated.frame < 0) {
+            options.setStatus("MovieClip frame must be a non-negative integer.");
+            return;
+        }
+        if (JSON.stringify(readMovieClipProperties(findLiveNode()!)) === JSON.stringify(updated)) {
+            options.setStatus("MovieClip properties are unchanged.");
+            if (close) dialog.dispose();
+            return;
+        }
+        busy = true;
+        try {
+            const applied = await options.applyCommand({
+                kind: "setDisplayNodeProps",
+                selector,
+                props: { movieClipProperties: updated },
+            }, `movie clip properties ${selector.displayNodeId}`);
+            if (applied && close) dialog.dispose();
+        } finally {
+            busy = false;
+        }
+    };
+    dialog.on(Laya.Event.UNDISPLAY, options.eventOwner, () => {
+        color.dispose();
+        if (options.getActiveDialog() === dialog) options.setActiveDialog(null);
+    });
+    applyButton.onClick(options.eventOwner, () => void apply(false));
+    saveButton.onClick(options.eventOwner, () => void apply(true));
+    closeButton.onClick(options.eventOwner, () => dialog.dispose());
+    dialog.contentPane = content;
+    dialog.show();
+    dialog.centerOn(fgui.GRoot.inst, true);
+    options.setActiveDialog(dialog);
+    options.setStatus(`Editing MovieClip properties for ${selectedNode.name || selectedNode.id}.`);
+}
 
 export function showTextPropertiesEditor(options: PropertyEditorContext): void {
     const { selector, selectedNode } = options;
@@ -141,14 +363,13 @@ export function showTextPropertiesEditor(options: PropertyEditorContext): void {
     const effectPanel = fgui.UIPackage.createObject("Builder", "TextEffectProPropsPanel").asCom;
     effectPanel.name = "textEffectPropertiesPanel";
     effectPanel.setXY(20, 294);
-    effectPanel.getChild("outlineSoftness").visible = false;
-    effectPanel.getChild("n158").visible = false;
     content.addChild(effectPanel);
     const strokeEnabled = effectPanel.getChild("stroke").asButton;
     const shadowEnabled = effectPanel.getChild("shadow").asButton;
     strokeEnabled.selected = currentProperties.strokeColor !== null;
     shadowEnabled.selected = currentProperties.shadowColor !== null;
     effectPanel.getChild("faceDilate").asLabel.title = String(currentProperties.faceDilate || 0);
+    effectPanel.getChild("outlineSoftness").asLabel.title = String(currentProperties.outlineSoftness);
     effectPanel.getChild("strokeSize").asLabel.title = String(currentProperties.strokeSize);
     effectPanel.getChild("shadowX").asLabel.title = String(currentProperties.shadowOffset.x);
     effectPanel.getChild("shadowY").asLabel.title = String(currentProperties.shadowOffset.y);
@@ -231,8 +452,9 @@ export function showTextPropertiesEditor(options: PropertyEditorContext): void {
         const strokeSize = Number(effectPanel.getChild("strokeSize").asLabel.title.trim());
         const shadowX = Number(effectPanel.getChild("shadowX").asLabel.title.trim());
         const shadowY = Number(effectPanel.getChild("shadowY").asLabel.title.trim());
+        const outlineSoftness = Number(effectPanel.getChild("outlineSoftness").asLabel.title.trim());
         const underlaySoftness = Number(effectPanel.getChild("underlaySoftness").asLabel.title.trim());
-        if ([faceDilate, strokeSize, shadowX, shadowY, underlaySoftness].some((value) => !Number.isFinite(value)) || strokeSize < 0) {
+        if ([faceDilate, strokeSize, shadowX, shadowY, outlineSoftness, underlaySoftness].some((value) => !Number.isFinite(value)) || strokeSize < 0) {
             options.setStatus("Text effect values must be valid numbers and stroke size cannot be negative.");
             return null;
         }
@@ -253,6 +475,10 @@ export function showTextPropertiesEditor(options: PropertyEditorContext): void {
         }
         const updated: TextEditableProperties = {
             ...structuredClone(currentProperties),
+            text: label("text").title,
+            font: label("font").title.trim(),
+            fontSize,
+            color: textColor,
             align: panel.getController("align").selectedIndex,
             vAlign: panel.getController("verticalAlign").selectedIndex,
             leading,
@@ -269,6 +495,7 @@ export function showTextPropertiesEditor(options: PropertyEditorContext): void {
             bold: check("bold").selected,
             strikethrough: check("strike").selected,
             faceDilate,
+            outlineSoftness,
             underlaySoftness,
             strokeColor: strokeEnabled.selected ? readStrokeColor() : null,
             strokeSize,

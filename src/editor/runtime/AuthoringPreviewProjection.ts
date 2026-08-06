@@ -113,6 +113,8 @@ export function planAuthoringPreviewProjection(
             && (
                 operation.props.textProperties
                 || operation.props.textInputProperties
+                || operation.props.imageProperties
+                || operation.props.movieClipProperties
                 || operation.props.loaderProperties
                 || operation.props.loader3DProperties
                 || operation.props.listProperties

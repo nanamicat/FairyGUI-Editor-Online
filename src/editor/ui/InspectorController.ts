@@ -174,6 +174,10 @@ export class InspectorController {
             if (textEditor.color !== selectedNode.color) props.color = textEditor.color;
             const textProperties = {
                 ...structuredClone(selectedNode.textProperties),
+                text,
+                font,
+                fontSize,
+                color: textEditor.color,
                 align: textEditor.align.selectedIndex,
                 vAlign: textEditor.verticalAlign.selectedIndex,
                 leading: textEditor.leading.numberValue,

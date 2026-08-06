@@ -109,8 +109,8 @@ export function showListPropertiesEditor(options: PropertyEditorContext): void {
     content.addChild(treePanel);
     label(treePanel, "indent").title = String("indent" in current ? current.indent : 0);
     const clickToExpand = treePanel.getChild("clickToExpand").asComboBox;
-    clickToExpand.items = ["No", "Click"];
-    clickToExpand.values = ["0", "1"];
+    clickToExpand.items = ["No", "Click", "Double click"];
+    clickToExpand.values = ["0", "1", "2"];
     clickToExpand.selectedIndex = "clickToExpand" in current ? current.clickToExpand : 0;
 
     addInspectorLine(content, "listControllerOverridesLabel", "Controller overrides", 300, isTree ? 420 : 328, 130, "#bdbdbd");
@@ -132,9 +132,7 @@ export function showListPropertiesEditor(options: PropertyEditorContext): void {
     const scrollBarDisplay = scrollPanel.getChild("scrollBarDisplay").asComboBox;
     scrollBarDisplay.items = ["Default", "Visible", "Auto", "Hidden"];
     scrollBarDisplay.values = ["0", "1", "2", "3"];
-    scrollBarDisplay.selectedIndex = 0;
-    scrollBarDisplay.enabled = false;
-    scrollBarDisplay.tooltips = "Scroll bar display mode is read-only in this editor version.";
+    scrollBarDisplay.selectedIndex = current.scrollBarDisplay;
     const bounceEffect = scrollPanel.getChild("scrollBounceBackEffect").asComboBox;
     bounceEffect.items = ["Default", "Enabled", "Disabled"];
     bounceEffect.values = ["0", "1", "2"];
@@ -236,6 +234,7 @@ export function showListPropertiesEditor(options: PropertyEditorContext): void {
             src: current.src,
             overflow: selectedOverflow < 2 ? selectedOverflow : 2,
             scrollType: selectedOverflow < 2 ? 1 : selectedOverflow - 2,
+            scrollBarDisplay: scrollBarDisplay.selectedIndex,
             scrollBarFlags,
             scrollBarMargin: {
                 top: number(scrollPanel, "scrollBarMarginTop"),

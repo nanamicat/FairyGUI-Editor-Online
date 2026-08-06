@@ -19,6 +19,8 @@ export type InspectorPanelAction =
     | "command:apply"
     | "command:sourceSize"
     | "properties:common"
+    | "properties:image"
+    | "properties:movieClip"
     | "properties:text"
     | "properties:graph"
     | "properties:group"
@@ -372,6 +374,8 @@ export class InspectorCommandPanel {
         } = options;
         const lineWidth = Math.max(120, this.list.width - 16);
         const textEditable = isInspectorTextEditable(selectedNode);
+        const imageEditable = selectedNode.type === "GImage";
+        const movieClipEditable = selectedNode.type === "GMovieClip";
         const graphEditable = selectedNode.type === "GGraph";
         const groupEditable = selectedNode.type === "GGroup";
         const loaderEditable = selectedNode.type === "GLoader";
@@ -450,6 +454,13 @@ export class InspectorCommandPanel {
         if (textEditable) {
             const textPanel = this.appendTextEditor(selectedPackage, selectedNode, liveSession, lineWidth);
             this.appendSection("Text", "文本", textPanel, lineWidth);
+        } else if (imageEditable) {
+            const image = selectedNode.imageProperties;
+            const fill = image ? ["无", "水平", "垂直", "径向 90°", "径向 180°", "径向 360°"][image.fillMethod] : "";
+            this.appendActionSection("Image", "图片", "颜色、翻转与填充", image ? `${image.color} · ${fill} · 编辑…` : "编辑…", "properties:image", liveSession, lineWidth);
+        } else if (movieClipEditable) {
+            const movieClip = selectedNode.movieClipProperties;
+            this.appendActionSection("MovieClip", "动画剪辑", "播放、帧与颜色", movieClip ? `${movieClip.playing ? "播放" : `帧 ${movieClip.frame}`} · ${movieClip.color} · 编辑…` : "编辑…", "properties:movieClip", liveSession, lineWidth);
         } else if (graphEditable) {
             const graph = selectedNode.graphProperties;
             const shape = graph ? ["空白", "矩形", "椭圆", "多边形", "正多边形"][graph.graphType] || `类型 ${graph.graphType}` : "";
@@ -539,7 +550,7 @@ export class InspectorCommandPanel {
             [
                 selectedNode.src ? "info" : "",
                 groupEditable ? "" : "basic",
-                textEditable ? "text" : graphEditable || groupEditable || loaderEditable || loader3DEditable || listEditable || componentInstanceEditable ? "type" : "",
+                textEditable ? "text" : imageEditable || movieClipEditable || graphEditable || groupEditable || loaderEditable || loader3DEditable || listEditable || componentInstanceEditable ? "type" : "",
                 componentCustomPropertiesEditable ? "custom" : "",
                 "gear", "relation",
                 groupEditable ? "" : "effect",

@@ -83,6 +83,8 @@ export interface DisplayNodeEditableProps {
     font?: string;
     fontSize?: number;
     color?: string;
+    imageProperties?: ImageEditableProperties;
+    movieClipProperties?: MovieClipEditableProperties;
     textProperties?: TextEditableProperties;
     textInputProperties?: TextInputEditableProperties;
     graphProperties?: GraphEditableProperties;
@@ -119,6 +121,21 @@ export interface GroupEditableProperties {
     excludeInvisibles: boolean;
     autoSizeDisabled: boolean;
     mainGridIndex: number;
+}
+
+export interface ImageEditableProperties {
+    color: string;
+    flip: number;
+    fillMethod: number;
+    fillOrigin: number;
+    fillClockwise: boolean;
+    fillAmount: number;
+}
+
+export interface MovieClipEditableProperties {
+    playing: boolean;
+    frame: number;
+    color: string;
 }
 
 export interface ComponentCustomPropertyDefinition {
@@ -166,18 +183,32 @@ export type ComponentInstanceEditableProperties =
         titleColor: string;
         titleFontSize: number;
         promptText: string;
+        sound: string;
+        soundVolumeScale: number;
     }
     | {
         extensionType: "ComboBox";
         title: string;
         icon: string;
-    visibleItemCount: number;
-    selectionController: string;
-    autoClearItems: boolean;
-    items: ComponentInstanceComboItem[];
+        titleColor: string;
+        popupDirection: number;
+        sound: string;
+        soundVolumeScale: number;
+        visibleItemCount: number;
+        selectionController: string;
+        autoClearItems: boolean;
+        items: ComponentInstanceComboItem[];
     }
     | {
-        extensionType: "ProgressBar" | "Slider";
+        extensionType: "ProgressBar";
+        value: number;
+        max: number;
+        min: number;
+        sound: string;
+        soundVolumeScale: number;
+    }
+    | {
+        extensionType: "Slider";
         value: number;
         max: number;
         min: number;
@@ -261,6 +292,7 @@ export interface ListEditableProperties {
     src: string;
     overflow: number;
     scrollType: number;
+    scrollBarDisplay: number;
     scrollBarFlags: number;
     scrollBarMargin: { top: number; bottom: number; left: number; right: number };
     vtScrollBarRes: string;
@@ -285,6 +317,10 @@ export interface TreeEditableProperties extends ListEditableProperties {
 }
 
 export interface TextEditableProperties {
+    text: string;
+    font: string;
+    fontSize: number;
+    color: string;
     align: number;
     vAlign: number;
     leading: number;
@@ -295,6 +331,7 @@ export interface TextEditableProperties {
     demoText?: string;
     templateVarsEnabled?: boolean;
     faceDilate?: number;
+    outlineSoftness: number;
     underlaySoftness: number;
     ubbEnabled: boolean;
     underline: boolean;
@@ -442,6 +479,11 @@ export interface ComponentEditableProperties {
     designImageAlpha: number;
     designImageLayer: number;
     designImageOffset: { x: number; y: number };
+    designImage: string;
+    designImageForTest: boolean;
+    pageController: string;
+    showSound: string;
+    hideSound: string;
     idNum: number;
     initName: string;
     remark: string;
@@ -746,6 +788,8 @@ export interface EditorCommandNodeState {
     font: string;
     fontSize: number;
     color: string;
+    imageProperties?: ImageEditableProperties;
+    movieClipProperties?: MovieClipEditableProperties;
     textProperties?: TextEditableProperties;
     textInputProperties?: TextInputEditableProperties;
     graphProperties?: GraphEditableProperties;

@@ -16,15 +16,19 @@ import type {
     DisplayNodeBlendMode,
     GraphEditableProperties,
     GroupEditableProperties,
+    ImageEditableProperties,
     ListEditableProperties,
     Loader3DEditableProperties,
     LoaderEditableProperties,
+    MovieClipEditableProperties,
     TextInputEditableProperties,
     TreeEditableProperties,
 } from "../model/EditorCommand";
 import {
     readGraphProperties,
+    readImageProperties,
     readListProperties,
+    readMovieClipProperties,
     readTextInputProperties,
     readTextProperties,
 } from "../commands/DisplayListReaders";
@@ -325,6 +329,12 @@ function mapDisplayNode(
     const graphProperties: GraphEditableProperties | undefined = node.kind === "graph"
         ? readGraphProperties(uamNode)
         : undefined;
+    const imageProperties: ImageEditableProperties | undefined = node.kind === "image"
+        ? readImageProperties(uamNode)
+        : undefined;
+    const movieClipProperties: MovieClipEditableProperties | undefined = node.kind === "movieClip"
+        ? readMovieClipProperties(uamNode)
+        : undefined;
     const loaderProperties: LoaderEditableProperties | undefined = node.kind === "loader"
         ? {
             url: String(node.url || ""),
@@ -427,6 +437,8 @@ function mapDisplayNode(
         fontSize: toNumber(node.fontSize, 0),
         color: String(node.color || ""),
         textProperties,
+        ...(imageProperties ? { imageProperties } : {}),
+        ...(movieClipProperties ? { movieClipProperties } : {}),
         ...(textInputProperties ? { textInputProperties } : {}),
         ...(graphProperties ? { graphProperties } : {}),
         ...(groupProperties ? { groupProperties } : {}),
@@ -487,12 +499,18 @@ function mapComponentInstanceProperties(
                 titleColor: String(source.titleColor || ""),
                 titleFontSize: toNumber(source.titleFontSize, 0),
                 promptText: String(source.promptText || ""),
+                sound: String(source.sound || ""),
+                soundVolumeScale: toNumber(source.soundVolumeScale, 1),
             };
         case "ComboBox":
             return {
                 extensionType,
                 title: String(source.title || ""),
                 icon: String(source.icon || ""),
+                titleColor: String(source.titleColor || ""),
+                popupDirection: toNumber(source.popupDirection, 0),
+                sound: String(source.sound || ""),
+                soundVolumeScale: toNumber(source.soundVolumeScale, 1),
                 visibleItemCount: toNumber(source.visibleItemCount, 0),
                 selectionController: String(source.selectionController || ""),
                 autoClearItems: source.autoClearItems === true,
@@ -508,6 +526,14 @@ function mapComponentInstanceProperties(
                     : [],
             };
         case "ProgressBar":
+            return {
+                extensionType,
+                value: toNumber(source.value, 0),
+                max: toNumber(source.max, 100),
+                min: toNumber(source.min, 0),
+                sound: String(source.sound || ""),
+                soundVolumeScale: toNumber(source.soundVolumeScale, 1),
+            };
         case "Slider":
             return {
                 extensionType,

@@ -168,6 +168,7 @@ export interface UamDisplayNodeLike {
     tooltips?: string;
     blendMode?: string;
     color?: string;
+    flip?: number;
     outlineColor?: string | null;
     font?: string;
     frame?: number;
@@ -187,6 +188,7 @@ export interface UamDisplayNodeLike {
     demoText?: string;
     templateVarsEnabled?: boolean;
     faceDilate?: number;
+    outlineSoftness?: number;
     underlaySoftness?: number;
     ubbEnabled?: boolean;
     underline?: boolean;
@@ -232,6 +234,7 @@ export interface UamDisplayNodeLike {
     apexIndex?: number;
     overflow?: number;
     scrollType?: number;
+    scrollBarDisplay?: number;
     scrollBarFlags?: number;
     scrollBarMargin?: Partial<ListEditableProperties["scrollBarMargin"]>;
     vtScrollBarRes?: string;

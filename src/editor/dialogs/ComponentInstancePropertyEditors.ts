@@ -227,9 +227,9 @@ export function showComponentInstancePropertiesEditor(options: PropertyEditorCon
             panel.getChild("titleFontSizeSet").asButton.selected = initial.titleFontSize > 0;
             setLabel("titleFontSize", initial.titleFontSize || 12);
             setLabel("icon", initial.icon);
-            for (const name of ["inputEdit", "n74", "sound", "volume", "n77"]) {
-                panel.getChild(name).visible = false;
-            }
+            panel.getChild("inputEdit").visible = false;
+            setLabel("sound", initial.sound);
+            setLabel("volume", initial.soundVolumeScale * 100);
             addInspectorLine(content, "componentInstancePromptLabel", "Prompt", 20, panel.y + panel.height + 4, 55, "#bdbdbd");
             promptInput = createInspectorTextInput(
                 content,
@@ -244,11 +244,16 @@ export function showComponentInstancePropertiesEditor(options: PropertyEditorCon
         case "ComboBox":
             setLabel("title", initial.title);
             setLabel("icon", initial.icon);
+            panel.getChild("titleColorSet").asButton.selected = Boolean(initial.titleColor);
+            setLabel("titleColor", initial.titleColor || "#FFFFFF");
+            const direction = panel.getChild("direction").asComboBox;
+            direction.items = ["Auto", "Down", "Up"];
+            direction.values = ["0", "1", "2"];
+            direction.selectedIndex = initial.popupDirection;
+            setLabel("sound", initial.sound);
+            setLabel("volume", initial.soundVolumeScale * 100);
             setLabel("visibleItemCount", initial.visibleItemCount);
             setLabel("selectionController", initial.selectionController);
-            for (const name of ["titleColorSet", "titleColor", "direction", "n78", "n93", "sound", "volume", "n96"]) {
-                panel.getChild(name).visible = false;
-            }
             panel.getChild("n77").asButton.onClick(options.eventOwner, () => {
                 showComponentInstanceComboItemsEditor(options, comboItems, (items) => {
                     comboItems = items;
@@ -263,7 +268,8 @@ export function showComponentInstancePropertiesEditor(options: PropertyEditorCon
             setLabel("min", initial.min);
             setLabel("max", initial.max);
             setLabel("value", initial.value);
-            for (const name of ["n80", "sound", "volume", "n83"]) panel.getChild(name).visible = false;
+            setLabel("sound", initial.sound);
+            setLabel("volume", initial.soundVolumeScale * 100);
             break;
         case "Slider":
             setLabel("min", initial.min);
@@ -302,6 +308,7 @@ export function showComponentInstancePropertiesEditor(options: PropertyEditorCon
                     || titleFontSize < 0
                     || !Number.isFinite(soundVolumeScale)
                     || soundVolumeScale < 0
+                    || soundVolumeScale > 1
                 ) {
                     options.setStatus("Button font size and sound volume are invalid.");
                     return null;
@@ -329,8 +336,15 @@ export function showComponentInstancePropertiesEditor(options: PropertyEditorCon
                 const titleFontSize = panel.getChild("titleFontSizeSet").asButton.selected
                     ? number("titleFontSize")
                     : 0;
-                if (!Number.isInteger(titleFontSize) || titleFontSize < 0) {
-                    options.setStatus("Label font size must be a non-negative integer.");
+                const soundVolumeScale = number("volume") / 100;
+                if (
+                    !Number.isInteger(titleFontSize)
+                    || titleFontSize < 0
+                    || !Number.isFinite(soundVolumeScale)
+                    || soundVolumeScale < 0
+                    || soundVolumeScale > 1
+                ) {
+                    options.setStatus("Label font size or sound volume is invalid.");
                     return null;
                 }
                 return {
@@ -342,34 +356,73 @@ export function showComponentInstancePropertiesEditor(options: PropertyEditorCon
                         : "",
                     titleFontSize,
                     promptText: promptInput?.text || "",
+                    sound: label("sound").title.trim(),
+                    soundVolumeScale,
                 };
             }
             case "ComboBox": {
                 const visibleItemCount = number("visibleItemCount");
-                if (!Number.isInteger(visibleItemCount) || visibleItemCount < 0) {
-                    options.setStatus("ComboBox visible item count must be a non-negative integer.");
+                const soundVolumeScale = number("volume") / 100;
+                const popupDirection = panel.getChild("direction").asComboBox.selectedIndex;
+                if (
+                    !Number.isInteger(visibleItemCount)
+                    || visibleItemCount < 0
+                    || popupDirection < 0
+                    || popupDirection > 2
+                    || !Number.isFinite(soundVolumeScale)
+                    || soundVolumeScale < 0
+                    || soundVolumeScale > 1
+                ) {
+                    options.setStatus("ComboBox item count, popup direction, or sound volume is invalid.");
                     return null;
                 }
                 return {
                     extensionType: "ComboBox",
                     title: label("title").title,
                     icon: label("icon").title.trim(),
+                    titleColor: panel.getChild("titleColorSet").asButton.selected
+                        ? label("titleColor").title.trim()
+                        : "",
+                    popupDirection,
+                    sound: label("sound").title.trim(),
+                    soundVolumeScale,
                     visibleItemCount,
                     selectionController: label("selectionController").title.trim(),
                     autoClearItems: initial.autoClearItems,
                     items: structuredClone(comboItems),
                 };
             }
-            case "ProgressBar":
+            case "ProgressBar": {
+                const min = number("min");
+                const max = number("max");
+                const value = number("value");
+                const soundVolumeScale = number("volume") / 100;
+                if (
+                    ![min, max, value, soundVolumeScale].every(Number.isFinite)
+                    || soundVolumeScale < 0
+                    || soundVolumeScale > 1
+                ) {
+                    options.setStatus("ProgressBar min, max, value, or sound volume is invalid.");
+                    return null;
+                }
+                return {
+                    extensionType: "ProgressBar",
+                    min,
+                    max,
+                    value,
+                    sound: label("sound").title.trim(),
+                    soundVolumeScale,
+                };
+            }
             case "Slider": {
                 const min = number("min");
                 const max = number("max");
                 const value = number("value");
                 if (![min, max, value].every(Number.isFinite)) {
-                    options.setStatus(`${initial.extensionType} min, max, and value must be finite numbers.`);
+                    options.setStatus("Slider min, max, and value must be finite numbers.");
                     return null;
                 }
-                return { extensionType: initial.extensionType, min, max, value };
+                return { extensionType: "Slider", min, max, value };
             }
         }
     };

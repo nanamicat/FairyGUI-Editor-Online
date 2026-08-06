@@ -56,6 +56,8 @@ import {
 } from "../dialogs/ResourceEditors";
 import {
     showGraphPropertiesEditor,
+    showImagePropertiesEditor,
+    showMovieClipPropertiesEditor,
     showTextPropertiesEditor,
 } from "../dialogs/TextGraphPropertyEditors";
 import {
@@ -152,6 +154,14 @@ export class AuthoringDialogController {
 
     showGraphProperties(): void {
         showGraphPropertiesEditor(this.createPropertyEditorContext());
+    }
+
+    showImageProperties(): void {
+        showImagePropertiesEditor(this.createPropertyEditorContext());
+    }
+
+    showMovieClipProperties(): void {
+        showMovieClipPropertiesEditor(this.createPropertyEditorContext());
     }
 
     showTextProperties(): void {

@@ -6,9 +6,11 @@ import type {
     ComponentCustomPropertyDefinition,
     ComponentCustomPropertyValue,
     ComponentControllerPageOverride,
+    ImageEditableProperties,
     ListEditableProperties,
     Loader3DEditableProperties,
     LoaderEditableProperties,
+    MovieClipEditableProperties,
     TextEditableProperties,
     TextInputEditableProperties,
     TreeEditableProperties,
@@ -133,6 +135,8 @@ export interface ProjectSnapshotDisplayNode {
     font: string;
     fontSize: number;
     color: string;
+    imageProperties?: ImageEditableProperties;
+    movieClipProperties?: MovieClipEditableProperties;
     textProperties: TextEditableProperties;
     textInputProperties?: TextInputEditableProperties;
     graphProperties?: GraphEditableProperties;

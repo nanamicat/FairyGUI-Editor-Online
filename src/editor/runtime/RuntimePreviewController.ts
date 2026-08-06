@@ -847,6 +847,8 @@ export class RuntimePreviewController {
         } else if (instance?.extensionType === "ComboBox" && object instanceof fgui.GComboBox) {
             object.text = instance.title;
             object.icon = instance.icon;
+            if (instance.titleColor) object.titleColor = instance.titleColor;
+            object.popupDirection = instance.popupDirection;
             object.visibleItemCount = instance.visibleItemCount;
             object.items = instance.items.map((item) => item.title || "");
             object.values = instance.items.map((item) => item.value || "");
@@ -859,7 +861,20 @@ export class RuntimePreviewController {
             object.max = instance.max;
             object.value = instance.value;
         }
-        if (object instanceof fgui.GLoader && snapshotState.loaderProperties) {
+        if (object instanceof fgui.GImage && snapshotState.imageProperties) {
+            const image = snapshotState.imageProperties;
+            object.color = image.color;
+            object.flip = image.flip;
+            object.fillMethod = image.fillMethod;
+            object.fillOrigin = image.fillOrigin;
+            object.fillClockwise = image.fillClockwise;
+            object.fillAmount = image.fillAmount;
+        } else if (object instanceof fgui.GMovieClip && snapshotState.movieClipProperties) {
+            const movieClip = snapshotState.movieClipProperties;
+            object.playing = movieClip.playing;
+            object.frame = movieClip.frame;
+            object.color = movieClip.color;
+        } else if (object instanceof fgui.GLoader && snapshotState.loaderProperties) {
             const loader = snapshotState.loaderProperties;
             object.fill = loader.fill;
             object.shrinkOnly = loader.shrinkOnly;

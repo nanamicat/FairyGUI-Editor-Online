@@ -198,7 +198,7 @@ export function showComponentPropertiesEditor(options: ComponentPropertyEditorCo
     dialog.modal = true;
     dialog.name = "desktopComponentPropertiesDialog";
     const content = fgui.UIPackage.createObject("Builder", "ConfirmDialog").asCom;
-    content.setSize(600, 450);
+    content.setSize(600, 570);
     addDialogBackground(content);
     const frame = content.getChild("frame");
     if (frame) frame.asLabel.title = `${selectedComponent.name} - Component`;
@@ -350,21 +350,37 @@ export function showComponentPropertiesEditor(options: ComponentPropertyEditorCo
         scrollDialog.centerOn(fgui.GRoot.inst, true);
     });
 
+    const designPanel = fgui.UIPackage.createObject("Builder", "ComDesignPropsPanel").asCom;
+    designPanel.setXY(310, 34);
+    designPanel.getChild("src").asLabel.title = current.designImage;
+    designPanel.getChild("offsetX").asLabel.title = String(current.designImageOffset.x);
+    designPanel.getChild("offsetY").asLabel.title = String(current.designImageOffset.y);
+    designPanel.getChild("alpha").asLabel.title = String(current.designImageAlpha);
+    designPanel.getController("layer").selectedIndex = current.designImageLayer;
+    designPanel.getChild("forTest").asButton.selected = current.designImageForTest;
+    content.addChild(designPanel);
+
+    const pagePanel = fgui.UIPackage.createObject("Builder", "ComPropsPanel2").asCom;
+    pagePanel.setXY(310, 177);
+    pagePanel.getChild("pageController").asLabel.title = current.pageController;
+    content.addChild(pagePanel);
+
+    const etcPanel = fgui.UIPackage.createObject("Builder", "ComEtcPropsPanel").asCom;
+    etcPanel.setXY(310, 209);
+    etcPanel.getChild("remark").asLabel.title = current.remark;
+    etcPanel.getChild("showSound").asLabel.title = current.showSound;
+    etcPanel.getChild("hideSound").asLabel.title = current.hideSound;
+    etcPanel.getChild("editCustomProps").enabled = false;
+    etcPanel.getChild("editCustomProps").tooltips = "Use the Inspector custom properties action.";
+    content.addChild(etcPanel);
+
     const advancedInputs = {
-        remark: createInspectorTextInput(content, "componentRemark", 390, 52, 180, current.remark, true),
-        designImageAlpha: createInspectorTextInput(content, "componentDesignAlpha", 390, 86, 80, String(current.designImageAlpha), true),
-        designImageLayer: createInspectorTextInput(content, "componentDesignLayer", 490, 86, 80, String(current.designImageLayer), true),
-        designImageX: createInspectorTextInput(content, "componentDesignX", 390, 140, 80, String(current.designImageOffset.x), true),
-        designImageY: createInspectorTextInput(content, "componentDesignY", 490, 140, 80, String(current.designImageOffset.y), true),
-        clipX: createInspectorTextInput(content, "componentClipX", 390, 194, 80, String(current.clipSoftness.x), true),
-        clipY: createInspectorTextInput(content, "componentClipY", 490, 194, 80, String(current.clipSoftness.y), true),
-        idNum: createInspectorTextInput(content, "componentIdNum", 390, 248, 80, String(current.idNum), true),
+        clipX: createInspectorTextInput(content, "componentClipX", 390, 420, 80, String(current.clipSoftness.x), true),
+        clipY: createInspectorTextInput(content, "componentClipY", 490, 420, 80, String(current.clipSoftness.y), true),
+        idNum: createInspectorTextInput(content, "componentIdNum", 390, 474, 80, String(current.idNum), true),
     };
-    addInspectorLine(content, "componentRemarkLabel", "Remark", 320, 32, 180, "#bdbdbd");
-    addInspectorLine(content, "componentDesignLabel", "Design overlay alpha / layer", 320, 66, 250, "#bdbdbd");
-    addInspectorLine(content, "componentOffsetLabel", "Design overlay offset X / Y", 320, 120, 250, "#bdbdbd");
-    addInspectorLine(content, "componentClipLabel", "Clip softness X / Y", 320, 174, 250, "#bdbdbd");
-    addInspectorLine(content, "componentIdNumLabel", "Generated ID number", 320, 228, 180, "#bdbdbd");
+    addInspectorLine(content, "componentClipLabel", "Clip softness X / Y", 320, 400, 250, "#bdbdbd");
+    addInspectorLine(content, "componentIdNumLabel", "Generated ID number", 320, 454, 180, "#bdbdbd");
 
     const targetNodes = (resource.component.displayList || [])
         .filter((node) => node.kind === "image" || node.kind === "graph")
@@ -453,14 +469,14 @@ export function showComponentPropertiesEditor(options: ComponentPropertyEditorCo
         options.setDebugAttribute("data-fairy-editor-component-background-color-draft", "cleared");
     });
 
-    const applyButton = createInspectorButton(content, "componentPropertiesApply", "Apply", 20, 410, 80);
+    const applyButton = createInspectorButton(content, "componentPropertiesApply", "Apply", 20, 530, 80);
     const saveButton = content.getChild("n1").asButton;
     saveButton.title = "Save";
-    saveButton.setXY(260, 410);
+    saveButton.setXY(260, 530);
     saveButton.setSize(80, 22);
     const closeButton = content.getChild("n3").asButton;
     closeButton.title = "Close";
-    closeButton.setXY(500, 410);
+    closeButton.setXY(500, 530);
     closeButton.setSize(80, 22);
 
     let busy = false;
@@ -473,10 +489,10 @@ export function showComponentPropertiesEditor(options: ComponentPropertyEditorCo
         }
         const selectedOverflow = overflow.selectedIndex;
         const backgroundEnabled = bgColorEnabled.selected;
-        const designImageAlpha = Number(advancedInputs.designImageAlpha.text);
-        const designImageLayer = Number(advancedInputs.designImageLayer.text);
-        const designImageX = Number(advancedInputs.designImageX.text);
-        const designImageY = Number(advancedInputs.designImageY.text);
+        const designImageAlpha = Number(designPanel.getChild("alpha").asLabel.title);
+        const designImageLayer = designPanel.getController("layer").selectedIndex;
+        const designImageX = Number(designPanel.getChild("offsetX").asLabel.title);
+        const designImageY = Number(designPanel.getChild("offsetY").asLabel.title);
         const clipX = Number(advancedInputs.clipX.text);
         const clipY = Number(advancedInputs.clipY.text);
         const idNum = Number(advancedInputs.idNum.text);
@@ -505,12 +521,17 @@ export function showComponentPropertiesEditor(options: ComponentPropertyEditorCo
                 hitTest: hitTestInput.value,
                 bgColor: backgroundEnabled ? (bgColorValue || pickerColor) : bgColorValue,
                 bgColorEnabled: backgroundEnabled,
+                designImage: designPanel.getChild("src").asLabel.title.trim(),
+                designImageForTest: designPanel.getChild("forTest").asButton.selected,
                 designImageAlpha,
                 designImageLayer,
                 designImageOffset: { x: designImageX, y: designImageY },
+                pageController: pagePanel.getChild("pageController").asLabel.title.trim(),
+                showSound: etcPanel.getChild("showSound").asLabel.title.trim(),
+                hideSound: etcPanel.getChild("hideSound").asLabel.title.trim(),
                 clipSoftness: { x: clipX, y: clipY },
                 idNum: Math.trunc(idNum),
-                remark: advancedInputs.remark.text,
+                remark: etcPanel.getChild("remark").asLabel.title,
             },
         };
     };
