@@ -49,6 +49,8 @@ const favoriteFolderSelector = {
     path: favoriteFolder.path,
 };
 const favoriteFolderTarget = favoriteFolder.favorite !== true;
+const originalFolderAtlas = favoriteFolder.atlas || "";
+const targetFolderAtlas = originalFolderAtlas === "" ? "0" : "";
 const originalFolderFavorites = new Map(pkg.folders.map((folder) => [
     `${folder.branch || ""}:${folder.path}`,
     folder.favorite === true,
@@ -67,6 +69,7 @@ const append = (preparation) => {
 };
 append(transactions.prepareSetResourceFavorite(projected, selector, resource.favorite !== true));
 append(transactions.prepareSetResourceFolderFavorite(projected, favoriteFolderSelector, favoriteFolderTarget));
+append(transactions.prepareSetResourceFolderAtlas(projected, favoriteFolderSelector, targetFolderAtlas));
 append(transactions.prepareSetResourceExported(projected, selector, resource.exported === false));
 append(transactions.prepareAddResourceFolder(projected, pkg.id, "/CodexAlpha30/"));
 append(transactions.prepareAddResourceFolder(projected, pkg.id, "/CodexAlpha30/Child/"));
@@ -119,6 +122,7 @@ const reloadedFavoriteFolder = reloadedPackage?.folders.find((folder) => (
     (folder.branch || "") === favoriteFolderSelector.branch && folder.path === favoriteFolderSelector.path
 ));
 assert.equal(reloadedFavoriteFolder?.favorite, favoriteFolderTarget);
+assert.equal(reloadedFavoriteFolder?.atlas || "", targetFolderAtlas);
 for (const folder of reloadedPackage?.folders || []) {
     if ((folder.branch || "") === favoriteFolderSelector.branch && folder.path.startsWith(favoriteFolderSelector.path)) {
         assert.equal(folder.favorite, favoriteFolderTarget);
@@ -147,6 +151,12 @@ assert.equal(
     favoriteFolderTarget,
 );
 assert.equal(
+    snapshotPackage?.folders.find((folder) => (
+        folder.branch === favoriteFolderSelector.branch && folder.path === favoriteFolderSelector.path
+    ))?.atlas || "",
+    targetFolderAtlas,
+);
+assert.equal(
     snapshotPackage?.resources.find((candidate) => candidate.id === resource.id)?.favorite,
     projectedResource?.favorite,
 );
@@ -170,6 +180,12 @@ assert.equal(restoredResource?.exported, resource.exported !== false);
 for (const folder of restoredPackage?.folders || []) {
     assert.equal(folder.favorite === true, originalFolderFavorites.get(`${folder.branch || ""}:${folder.path}`));
 }
+assert.equal(
+    restoredPackage?.folders.find((folder) => (
+        (folder.branch || "") === favoriteFolderSelector.branch && folder.path === favoriteFolderSelector.path
+    ))?.atlas || "",
+    originalFolderAtlas,
+);
 for (const candidate of restoredPackage?.resources || []) {
     assert.equal(candidate.favorite === true, originalResourceFavorites.get(candidate.id));
 }
@@ -214,6 +230,8 @@ for (const snippet of [
     'fgui.UIPackage.createObject("Builder", "InputDialog")',
     'prepareSetResourceFavorite(',
     'prepareSetResourceFolderFavorite(',
+    'prepareSetResourceFolderAtlas(',
+    '"FolderPropertyDialog"',
     'prepareSetResourceExported(',
     'prepareAddResourceFolder(',
     'Move ${selectedResources.length} Selected...',
@@ -236,6 +254,7 @@ const report = {
         inverseSaveReload: true,
         favoritesSnapshot: true,
         folderFavoriteAtomic: true,
+        folderAtlasSaveReload: true,
         saveTargetVerified: true,
         nonEmptyGuard,
     },

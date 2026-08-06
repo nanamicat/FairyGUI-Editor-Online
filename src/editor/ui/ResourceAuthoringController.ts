@@ -28,13 +28,14 @@ import {
     prepareResourceRename,
     prepareSetResourceExported,
     prepareSetResourceFavorite,
+    prepareSetResourceFolderAtlas,
     prepareSetResourceFolderFavorite,
     prepareSetImageResourceProps,
     readImageResourceProps,
     type HighRiskTransactionPreparation,
     type MovieClipFrameInput
 } from "../commands/HighRiskAuthoringTransactions";
-import { findResource } from "../commands/AuthoringTransactionSupport";
+import { findPackage, findResource } from "../commands/AuthoringTransactionSupport";
 import {
     prepareGifMovieClipFrames,
     prepareMovieClipFrame,
@@ -405,6 +406,53 @@ export class ResourceAuthoringController {
             selector,
             !folder.favorite,
         ));
+    }
+
+    showResourceFolderPropertiesEditor(): void {
+        const folder = this.getSelectedResourceFolder();
+        const selector = this.selectedResourceFolder;
+        const pkg = selector && findPackage(this.liveSessionBridge.getWorkingProject(), selector.packageId);
+        if (!folder || !selector || !pkg) return;
+        const publish = pkg.publish as { maxAtlasIndex?: number; atlases?: Array<{ index?: number; name?: string }> } | null;
+        const maxAtlasIndex = Number.isInteger(publish?.maxAtlasIndex)
+            ? Math.max(0, Math.min(255, Number(publish?.maxAtlasIndex)))
+            : 10;
+        const atlasValues = Array.from({ length: maxAtlasIndex + 1 }, (_, index) => String(index));
+        const atlasNames = new Map((publish?.atlases || []).map((entry) => [entry.index, entry.name || ""]));
+
+        const dialog = new fgui.Window();
+        dialog.modal = true;
+        const content = fgui.UIPackage.createObject("Builder", "FolderPropertyDialog").asCom;
+        content.name = "desktopFolderPropertyDialog";
+        const enabled = content.getChild("atlasEnabled").asButton;
+        const atlas = content.getChild("atlas").asComboBox;
+        enabled.selected = folder.atlas !== "";
+        atlas.items = atlasValues.map((value) => {
+            const name = atlasNames.get(Number(value));
+            return name ? `纹理集 ${value} · ${name}` : `纹理集 ${value}`;
+        });
+        atlas.values = atlasValues;
+        atlas.selectedIndex = Math.max(0, atlasValues.indexOf(folder.atlas));
+        const syncEnabled = (): void => {
+            atlas.grayed = !enabled.selected;
+            atlas.touchable = enabled.selected;
+        };
+        enabled.onClick(this, syncEnabled);
+        syncEnabled();
+        content.getChild("ok").asButton.onClick(this, () => {
+            const value = enabled.selected ? atlasValues[atlas.selectedIndex] || "0" : "";
+            void this.applyAuthoringPreparation(prepareSetResourceFolderAtlas(
+                this.liveSessionBridge.getWorkingProject(),
+                selector,
+                value,
+            )).then((applied) => {
+                if (applied) dialog.dispose();
+            });
+        });
+        content.getChild("cancel").asButton.onClick(this, () => dialog.dispose());
+        dialog.contentPane = content;
+        dialog.show();
+        this.setDebugAttribute("data-fairy-editor-resource-folder-atlas-dialog", `${selector.packageId}:${selector.branch || ""}:${selector.path}`);
     }
 
     showMultiImagePropertiesEditor(): void {
@@ -1258,6 +1306,9 @@ export class ResourceAuthoringController {
         this.setActionEnabled(addFolder, templateEnabled);
         const selectedFolder = this.getSelectedResourceFolder();
         if (selectedFolder) {
+            this.addMenuItem(menu, "desktopMenuResourceFolderProperties", "Folder Properties...", () => {
+                this.showResourceFolderPropertiesEditor();
+            });
             this.addMenuItem(menu, "desktopMenuRenameResourceFolder", "Rename Folder...", () => {
                 void this.renameSelectedResourceFolder();
             });

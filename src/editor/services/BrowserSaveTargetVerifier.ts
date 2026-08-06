@@ -277,6 +277,7 @@ function getTransactionTargetState(
             };
         }
         case "setResourceFolderFavorite":
+        case "setResourceFolderAtlas":
         case "addResourceFolder":
         case "renameResourceFolder":
         case "moveResourceFolder":
@@ -529,7 +530,7 @@ function findResourceFolder(
 
 function getResourceFolderTargetSelector(
     operation: Extract<EditorCommandOperation, {
-        kind: "setResourceFolderFavorite" | "addResourceFolder" | "renameResourceFolder" | "moveResourceFolder" | "removeResourceFolder";
+        kind: "setResourceFolderFavorite" | "setResourceFolderAtlas" | "addResourceFolder" | "renameResourceFolder" | "moveResourceFolder" | "removeResourceFolder";
     }>,
 ): { packageId: string; branch?: string; path: string } {
     if (operation.kind === "addResourceFolder") {
@@ -643,6 +644,7 @@ function describeTransactionOperation(operation: EditorCommandOperation): string
         case "moveResource": return `resource move ${operation.selector.resourceId}`;
         case "setResourceFavorite": return `resource favorite ${operation.selector.resourceId}`;
         case "setResourceFolderFavorite": return `resource folder favorite ${operation.selector.path}`;
+        case "setResourceFolderAtlas": return `resource folder Atlas ${operation.selector.path}`;
         case "setResourceExported": return `resource exported ${operation.selector.resourceId}`;
         case "addResourceFolder": return `resource folder add ${operation.path}`;
         case "renameResourceFolder": return `resource folder rename ${operation.selector.path}`;

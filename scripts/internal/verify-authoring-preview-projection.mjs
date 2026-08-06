@@ -200,7 +200,13 @@ for (const operation of [
     { opId: "folder-move", kind: "moveResourceFolder", selector: { packageId: "package", path: "/folder/" }, toPath: "/" },
     { opId: "folder-remove", kind: "removeResourceFolder", selector: { packageId: "package", path: "/folder/" } },
 ]) assert.equal(plan(operation).status, "unaffected");
-assert.equal(Object.keys(AUTHORING_PREVIEW_PROJECTION_MATRIX).length, 40);
+assert.equal(plan({
+    opId: "folder-atlas",
+    kind: "setResourceFolderAtlas",
+    selector: { packageId: "package", path: "/folder/" },
+    atlas: "0",
+}).runtimeStatus, "publish-required");
+assert.equal(Object.keys(AUTHORING_PREVIEW_PROJECTION_MATRIX).length, 41);
 
 console.log(JSON.stringify({
     ok: true,

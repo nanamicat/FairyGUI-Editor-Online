@@ -350,6 +350,29 @@ export function prepareSetResourceFolderFavorite(
     };
 }
 
+export function prepareSetResourceFolderAtlas(
+    projectValue: unknown,
+    selector: EditorResourceFolderSelector,
+    atlas: string,
+): HighRiskTransactionPreparation {
+    const pkg = findPackage(projectValue, selector.packageId);
+    const folder = pkg && findResourceFolder(pkg, selector);
+    if (!folder) return missingResourceFolder(selector);
+    const previous = String(folder.atlas || "");
+    if (previous === atlas) {
+        return { ok: false, code: "resource_folder_atlas_unchanged", message: "Resource folder Atlas assignment is unchanged." };
+    }
+    const normalizedSelector = { ...selector, branch: selector.branch || "" };
+    return {
+        ok: true,
+        transaction: {
+            summary: `${atlas ? `Assign Atlas ${atlas} to` : "Clear Atlas assignment from"} resource folder ${folder.path}`,
+            operation: { opId: createOpId("set-resource-folder-atlas"), kind: "setResourceFolderAtlas", selector: normalizedSelector, atlas },
+            inverseOperation: { opId: createOpId("set-resource-folder-atlas-undo"), kind: "setResourceFolderAtlas", selector: normalizedSelector, atlas: previous },
+        },
+    };
+}
+
 export function prepareSetResourceExported(
     projectValue: unknown,
     selector: EditorResourceSelector,

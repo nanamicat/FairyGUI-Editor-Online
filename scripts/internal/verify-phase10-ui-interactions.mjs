@@ -27,6 +27,7 @@ const componentInstanceEditorSource = readSource("src/editor/dialogs/ComponentIn
 const componentPropertyEditorSource = readSource("src/editor/dialogs/ComponentPropertyEditors.ts");
 const listPropertyEditorSource = readSource("src/editor/dialogs/ListPropertyEditors.ts");
 const textGraphPropertyEditorSource = readSource("src/editor/dialogs/TextGraphPropertyEditors.ts");
+const editorCommandSource = readSource("src/editor/model/EditorCommand.ts");
 const editorShell = [
     editorShellSource,
     editorShellConfig,
@@ -178,6 +179,11 @@ for (const snippet of [
     'showSound:',
     'hideSound:',
 ]) assert(componentPropertyEditorSource.includes(snippet), `Missing OpenFairyGUI 0.2.4 component property wiring: ${snippet}`);
+for (const snippet of [
+    "setResourceFolderAtlas",
+    '"FolderPropertyDialog"',
+    '"resourceFolder:atlas"',
+]) assert(`${editorCommandSource}\n${resourceAuthoringControllerSource}\n${editorShell}`.includes(snippet), `Missing OpenFairyGUI 0.2.4 resource-folder Atlas wiring: ${snippet}`);
 assert(runtimePreview.includes("setGraphPointEditing(enabled: boolean"));
 assert(runtimePreview.includes("resolveDesktopCanvasRegularPolygonDistance"));
 assert.deepEqual(
@@ -1755,7 +1761,7 @@ console.log(JSON.stringify({
         "persistent Loader and Loader3D content, layout, playback, and fill property editor wiring",
         "persistent List and Tree layout, scroll, item, and tree-option editor wiring",
         "persistent component instance extension property editor wiring",
-        "OpenFairyGUI 0.2.4 image, MovieClip, text, list/tree, component instance, and component definition property wiring",
+        "OpenFairyGUI 0.2.4 image, MovieClip, text, list/tree, component instance, component definition, and editable folder Atlas property wiring",
         "native browser image import and persistent image publish-property editor wiring",
         "validated self-contained SVG image import and persistent image publish-property editor wiring",
         "alpha-trimmed PNG/JPEG sequence, native GIF decode, and JSON/EAS/XML/plist Sprite Sheet import with persistent MovieClip JTA timing editor wiring",

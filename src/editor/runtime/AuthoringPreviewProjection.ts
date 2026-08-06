@@ -35,6 +35,7 @@ export const AUTHORING_PREVIEW_PROJECTION_MATRIX: Record<
     moveResource: "unaffected",
     setResourceFavorite: "unaffected",
     setResourceFolderFavorite: "unaffected",
+    setResourceFolderAtlas: "publish-required",
     setResourceExported: "unaffected",
     addResourceFolder: "unaffected",
     renameResourceFolder: "unaffected",
@@ -86,6 +87,7 @@ export function planAuthoringPreviewProjection(
         if (
             operation.kind === "updateProjectSettings"
             || operation.kind === "updatePackageSettings"
+            || operation.kind === "setResourceFolderAtlas"
             || operation.kind === "addBranch"
             || operation.kind === "renameBranch"
             || operation.kind === "removeBranch"

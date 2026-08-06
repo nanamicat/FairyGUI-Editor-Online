@@ -406,6 +406,13 @@ export interface SetResourceFolderFavoriteOperation {
     favorite: boolean;
 }
 
+export interface SetResourceFolderAtlasOperation {
+    opId: string;
+    kind: "setResourceFolderAtlas";
+    selector: EditorResourceFolderSelector;
+    atlas: string;
+}
+
 export interface AddResourceFolderOperation {
     opId: string;
     kind: "addResourceFolder";
@@ -713,6 +720,7 @@ export type EditorCommandOperation =
     | MoveResourceOperation
     | SetResourceFavoriteOperation
     | SetResourceFolderFavoriteOperation
+    | SetResourceFolderAtlasOperation
     | SetResourceExportedOperation
     | AddResourceFolderOperation
     | RenameResourceFolderOperation

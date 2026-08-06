@@ -237,7 +237,7 @@ export class InspectorController {
         this.layout();
     }
 
-    renderResourceFolder(folder: ProjectSnapshotResourceFolder | null): void {
+    renderResourceFolder(folder: ProjectSnapshotResourceFolder | null, editable = false): void {
         if (!folder) {
             this.renderLines(["未选择资源文件夹"]);
             return;
@@ -247,6 +247,7 @@ export class InspectorController {
             `分支：${folder.branch || "main"}${folder.atlas ? ` · 图集：${folder.atlas}` : ""}`,
         ];
         this.panel.renderSummary("文件夹", lines);
+        this.panel.appendFolderAtlasProperty(folder.atlas, editable);
         this.layout();
     }
 

@@ -1415,7 +1415,7 @@ export class EditorShell {
     }
 
     private renderResourceFolderInspector(folder: ProjectSnapshotResourceFolder | null): void {
-        this.inspectorCommandPanel.renderResourceFolder(folder);
+        this.inspectorCommandPanel.renderResourceFolder(folder, this.commandAdapter.getSessionState().liveSession);
     }
 
     private renderInspectorLines(details: string[]): void {
@@ -1450,6 +1450,7 @@ export class EditorShell {
             case "component:properties": this.authoringDialogs.showComponentProperties(); return;
             case "component:extension": this.authoringDialogs.showComponentExtensionProperties(); return;
             case "component:customProperties": this.authoringDialogs.showComponentCustomPropertyDefinitions(); return;
+            case "resourceFolder:atlas": this.resourceAuthoring.showResourceFolderPropertiesEditor(); return;
             case "display:relations": this.authoringDialogs.showRelationEditor(); return;
             case "display:gears": this.authoringDialogs.showGearEditor(); return;
         }

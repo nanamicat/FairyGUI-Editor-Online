@@ -32,6 +32,7 @@ export type InspectorPanelAction =
     | "component:properties"
     | "component:extension"
     | "component:customProperties"
+    | "resourceFolder:atlas"
     | "display:relations"
     | "display:gears";
 
@@ -205,6 +206,19 @@ export class InspectorCommandPanel {
         panel.setSize(lineWidth, Math.max(30, 10 + details.length * INSPECTOR_LINE_HEIGHT));
         this.appendLinesTo(panel, details);
         this.appendSection("Summary", title, panel, lineWidth);
+    }
+
+    appendFolderAtlasProperty(atlas: string, editable: boolean): void {
+        const lineWidth = Math.max(120, this.list.width - 16);
+        this.appendActionSection(
+            "ResourceFolderAtlas",
+            "纹理集",
+            atlas ? `纹理集 ${atlas}` : "默认",
+            "编辑…",
+            "resourceFolder:atlas",
+            editable,
+            lineWidth,
+        );
     }
 
     appendComponentEditor(component: ProjectSnapshotComponent, editable: boolean): void {
