@@ -74,7 +74,6 @@ import type {
     ProjectionInvalidation,
 } from "./runtime/AuthoringPreviewProjection";
 import {
-    AuthoringRuntimePackageLoader,
     type AuthoringRuntimePackageLoadResult,
 } from "./runtime/AuthoringRuntimePackageLoader";
 import {
@@ -138,7 +137,6 @@ import {
 import { createDisplayNodeSaveTarget } from "./services/BrowserSaveTargetVerifier";
 import { loadProjectSnapshot } from "./services/ProjectSnapshotLoader";
 import {
-    ActiveDocumentController,
     type ActiveDocumentSelection,
     type PersistedEditorSelection,
 } from "./ui/ActiveDocumentController";
@@ -149,9 +147,6 @@ import {
     type DesktopLeftTopPanelMode,
     type DesktopLayoutPanels as ShellPanels,
 } from "./ui/DesktopLayoutController";
-import {
-    DocumentWorkspaceController,
-} from "./ui/DocumentWorkspaceController";
 import {
     setActionEnabled as setEditorFormActionEnabled,
 } from "./ui/EditorFormControls";
@@ -191,9 +186,9 @@ import type {
     EditorToolMenuContribution,
     EditorToolMenuProvider,
 } from "./workbench/EditorShellModuleHost";
-import type { AuthoringPreviewControllerFactory } from "./modules/AuthoringPreviewModule";
 import { EditorShellChrome } from "./modules/ShellChromeModule";
 import { EditorProjectSession } from "./modules/ProjectSessionModule";
+import { EditorDocumentAuthoring } from "./modules/DocumentAuthoringModule";
 
 const EDITOR_REPOSITORY_URL = "https://github.com/OpenFairyGUI/FairyGUI-Editor-Online";
 const FAIRYGUI_WEBSITE_URL = "https://fairygui.com/";
@@ -241,11 +236,10 @@ export class EditorShell {
     private readonly timelineView: fgui.GComponent;
     private readonly controllerTimeline: ControllerTimelineAuthoringController;
     private readonly consoleView: fgui.GComponent;
-    private readonly runtimePreview: RuntimePreviewController;
     private readonly resourcePreview: ResourcePreviewController;
     private readonly projectSession: EditorProjectSession;
-    private runtimeBundleRevision = 0;
-    private readonly runtimePackageLoader: AuthoringRuntimePackageLoader;
+    private readonly documentAuthoring: EditorDocumentAuthoring;
+    private readonly unbindDocumentAuthoring: () => void;
     private readonly projectImportDialog: ProjectImportDialog;
     private actionMenu: fgui.PopupMenu | null = null;
     private readonly actionUnbinders: Array<() => void> = [];
@@ -254,8 +248,6 @@ export class EditorShell {
     private readonly toolMenuProviders = new Set<EditorToolMenuProvider>();
     private authoringJsonDialog: fgui.Window | null = null;
     private editorPreferences: EditorPreferences = createDefaultEditorPreferences();
-    private readonly documentWorkspace: DocumentWorkspaceController;
-    private readonly activeDocument: ActiveDocumentController;
     private readonly desktopLayout: DesktopLayoutController;
     private readonly libraryController: LibraryController;
     private readonly authoringDialogs: AuthoringDialogController;
@@ -299,6 +291,9 @@ export class EditorShell {
     private get workspaceLifecycle(): WorkspaceLifecycleController { return this.projectSession.workspaceLifecycle; }
     private get projectSnapshot(): EditorProjectSnapshot | null { return this.projectSession.snapshot; }
     private get commandLastResult(): EditorCommandResult | null { return this.projectSession.lastResult; }
+    private get documentWorkspace() { return this.documentAuthoring.workspace; }
+    private get activeDocument() { return this.documentAuthoring.activeDocument; }
+    private get runtimePreview(): RuntimePreviewController { return this.documentAuthoring.preview; }
 
     private get leftDockVisible(): boolean { return this.desktopLayout.leftDockVisible; }
     private set leftDockVisible(value: boolean) { this.desktopLayout.leftDockVisible = value; }
@@ -328,18 +323,29 @@ export class EditorShell {
     constructor(
         chrome: EditorShellChrome,
         projectSession: EditorProjectSession,
-        createAuthoringPreview: AuthoringPreviewControllerFactory,
+        documentAuthoring: EditorDocumentAuthoring,
     ) {
         this.mainView = chrome.mainView;
         this.projectSession = projectSession;
-        this.runtimePackageLoader = new AuthoringRuntimePackageLoader(() => {
-            const adapter = this.projectStorage.getAdapter();
-            return adapter
-                ? {
-                    adapter,
-                    revision: `${this.projectStorage.getWorkspaceName()}:${this.runtimeBundleRevision}`,
-                }
-                : null;
+        this.documentAuthoring = documentAuthoring;
+        this.unbindDocumentAuthoring = documentAuthoring.bind({
+            activateDocument: (tab) => this.activateDocumentFromTab(tab),
+            closeDocument: (tab, event) => this.onDocumentTabClose(tab, event),
+            changeGroupPathDepth: (depth) => this.changeGroupPathDepth(depth),
+            selectPreviewNodes: (nodeIds, primaryNodeId) => this.onPreviewNodesSelected(nodeIds, primaryNodeId),
+            runtimePackageLoaded: (result) => this.onRuntimePreviewPackageLoad(result),
+            commitPositions: (positions) => this.commitPreviewNodePositions(positions),
+            commitTransforms: (transforms) => this.commitPreviewNodeTransforms(transforms),
+            commitRotations: (rotations) => this.commitPreviewNodeRotations(rotations),
+            commitPivot: (pivot) => this.commitPreviewNodePivot(pivot),
+            commitGraphPoints: (points) => this.commitPreviewGraphPoints(points),
+            previewViewChanged: (zoom, panX, panY) => this.onPreviewViewChanged(zoom, panX, panY),
+            createNode: (point) => this.placeDesktopPrimitive(point),
+            openNode: (nodeId) => {
+                this.openSelectedGroup(nodeId) || this.openReferencedComponent(nodeId);
+            },
+            showCanvasContextMenu: () => this.editorMenus.showCanvasContextMenu(),
+            setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
         });
         this.projectImportDialog = new ProjectImportDialog(chrome.mainView, {
             applyImport: (picked, label) => this.applyProjectImport(picked, label),
@@ -359,16 +365,6 @@ export class EditorShell {
         this.inspectorCommandPanel = new InspectorController(
             this.panels.inspector.getChild("list").asList,
             (action) => this.onInspectorPanelAction(action),
-            (name, value) => this.setDebugAttribute(name, value),
-        );
-        this.documentWorkspace = new DocumentWorkspaceController(this.panels.document, {
-            activateDocument: (documentTab) => this.activateDocumentFromTab(documentTab),
-            closeDocument: (documentTab, event) => this.onDocumentTabClose(documentTab, event),
-            changeGroupPathDepth: (targetDepth) => this.changeGroupPathDepth(targetDepth),
-            setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
-        });
-        this.activeDocument = new ActiveDocumentController(
-            this.documentWorkspace,
             (name, value) => this.setDebugAttribute(name, value),
         );
         this.favoritesView = chrome.favoritesView;
@@ -595,24 +591,6 @@ export class EditorShell {
         this.restoreEditorPreferences();
         this.restoreDesktopLayoutState();
         this.restoreResourceViewState();
-        const documentContainer = this.requireChild(this.panels.document, "docContainer").asCom;
-        this.runtimePreview = createAuthoringPreview(
-            documentContainer,
-            documentContainer,
-            (nodeIds, primaryNodeId) => this.onPreviewNodesSelected(nodeIds, primaryNodeId),
-            null,
-            (result) => this.onRuntimePreviewPackageLoad(result),
-            this.runtimePackageLoader,
-            (positions) => this.commitPreviewNodePositions(positions),
-            (transforms) => this.commitPreviewNodeTransforms(transforms),
-            (transforms) => this.commitPreviewNodeRotations(transforms),
-            (transform) => this.commitPreviewNodePivot(transform),
-            (transform) => this.commitPreviewGraphPoints(transform),
-            (zoom, panX, panY) => this.onPreviewViewChanged(zoom, panX, panY),
-            (point) => this.placeDesktopPrimitive(point),
-            (nodeId) => this.openSelectedGroup(nodeId) || this.openReferencedComponent(nodeId),
-            () => this.editorMenus.showCanvasContextMenu(),
-        );
         this.controllerTimeline = new ControllerTimelineAuthoringController({
             documentView: this.panels.document,
             transitionListView: this.transitionListView,
@@ -674,8 +652,8 @@ export class EditorShell {
         Laya.stage.off(Laya.Event.MOUSE_DOWN, this, this.onStageMouseDown);
         Laya.stage.off(Laya.Event.KEY_DOWN, this, this.onStageKeyDown);
         Laya.stage.off(Laya.Event.KEY_UP, this, this.onStageKeyUp);
+        this.unbindDocumentAuthoring();
         this.controllerTimeline.dispose();
-        this.documentWorkspace.dispose();
         this.resourceAuthoring.dispose();
         this.unbindActions();
         this.toolMenuContributions.clear();
@@ -688,7 +666,6 @@ export class EditorShell {
         this.customArrangePanel = null;
         this.inspectorCommandPanel.clear();
         this.publishedTest.dispose();
-        this.runtimePreview.dispose();
         this.resourcePreview.dispose();
         this.desktopLayout.dispose();
         this.treeInteraction.dispose();
@@ -4930,8 +4907,7 @@ export class EditorShell {
     }
 
     private resetRuntimePreviewPackages(): void {
-        this.runtimeBundleRevision += 1;
-        this.runtimePreview.resetRuntimePackages();
+        this.documentAuthoring.resetRuntimePackages();
     }
 
     private async connectBrowserLiveSession(): Promise<boolean> {
@@ -5273,11 +5249,4 @@ export class EditorShell {
         if (selected) tree.selectNode(selected, true);
     }
 
-    private requireChild(owner: fgui.GComponent, childName: string): fgui.GObject {
-        const child = owner.getChild(childName);
-        if (!child) {
-            throw new Error(`Missing required UI child "${childName}" in ${owner.name || owner.resourceURL}.`);
-        }
-        return child;
-    }
 }

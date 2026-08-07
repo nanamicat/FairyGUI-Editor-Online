@@ -1,8 +1,6 @@
 import { EditorShell } from "../EditorShell";
 import {
-    AUTHORING_PREVIEW_FACTORY_SERVICE,
     createAuthoringPreviewModule,
-    type AuthoringPreviewControllerFactory,
 } from "../modules/AuthoringPreviewModule";
 import { createBrowserPluginsModule } from "../modules/BrowserPluginsModule";
 import { createResourceHealthModule } from "../modules/ResourceHealthModule";
@@ -16,6 +14,11 @@ import {
     EditorProjectSession,
     PROJECT_SESSION_SERVICE,
 } from "../modules/ProjectSessionModule";
+import {
+    createDocumentAuthoringModule,
+    DOCUMENT_AUTHORING_SERVICE,
+    EditorDocumentAuthoring,
+} from "../modules/DocumentAuthoringModule";
 import { EditorWorkbench, type EditorModule } from "../workbench/EditorWorkbench";
 import {
     EDITOR_SHELL_MODULE_HOST_SERVICE,
@@ -29,12 +32,10 @@ function createEditorShellModule(): EditorModule<FairyGuiEditorWorkbenchHost> {
         id: EDITOR_SHELL_MODULE_ID,
         hotReloadable: false,
         activate(context) {
-            const createAuthoringPreview = context.requireService<AuthoringPreviewControllerFactory>(
-                AUTHORING_PREVIEW_FACTORY_SERVICE,
-            );
             const chrome = context.requireService<EditorShellChrome>(SHELL_CHROME_SERVICE);
             const session = context.requireService<EditorProjectSession>(PROJECT_SESSION_SERVICE);
-            const shell = new EditorShell(chrome, session, createAuthoringPreview);
+            const document = context.requireService<EditorDocumentAuthoring>(DOCUMENT_AUTHORING_SERVICE);
+            const shell = new EditorShell(chrome, session, document);
             context.provideService(EDITOR_SHELL_MODULE_HOST_SERVICE, shell.createModuleHost());
             return () => shell.dispose();
         },
@@ -46,6 +47,7 @@ export function createFairyGuiEditorProductModules(): EditorModule<FairyGuiEdito
         createAuthoringPreviewModule(),
         createShellChromeModule(),
         createProjectSessionModule(),
+        createDocumentAuthoringModule(),
         createEditorShellModule(),
         createBrowserPluginsModule(),
         createResourceHealthModule(),

@@ -21,6 +21,7 @@ const resourceHealthDialogSource = readSource("src/editor/dialogs/ResourceHealth
 const resourceHealthModuleSource = readSource("src/editor/modules/ResourceHealthModule.ts");
 const projectSessionModuleSource = readSource("src/editor/modules/ProjectSessionModule.ts");
 const shellChromeModuleSource = readSource("src/editor/modules/ShellChromeModule.ts");
+const documentAuthoringModuleSource = readSource("src/editor/modules/DocumentAuthoringModule.ts");
 const editorMenuControllerSource = readSource("src/editor/ui/EditorMenuController.ts");
 const resourceAuthoringControllerSource = readSource("src/editor/ui/ResourceAuthoringController.ts");
 const projectTreeInteractionSource = readSource("src/editor/ui/ProjectTreeInteractionController.ts");
@@ -56,6 +57,7 @@ const editorShell = [
     resourceHealthModuleSource,
     projectSessionModuleSource,
     shellChromeModuleSource,
+    documentAuthoringModuleSource,
     readSource("src/editor/dialogs/TextGraphPropertyEditors.ts"),
     readSource("src/editor/dialogs/TimelineItemEditor.ts"),
     readSource("src/editor/ui/EditorFormControls.ts"),
@@ -1257,7 +1259,7 @@ for (const snippet of [
     assert(phase7Bridge.includes(snippet), `Missing browser runtime publish wiring: ${snippet}`);
 }
 assert(editorShell.includes("Browser publish blocked: save changes first."), "Dirty browser publish must require a saved checkpoint.");
-assert(editorShell.includes("this.runtimePreview.resetRuntimePackages()"), "Successful browser publish must unload stale runtime packages.");
+assert(documentAuthoringModuleSource.includes("this.preview.resetRuntimePackages()"), "Successful browser publish must unload stale runtime packages.");
 
 for (const snippet of [
     "export async function pickBrowserFile(",

@@ -106,6 +106,7 @@ const productSource = readFileSync("src/editor/product/FairyGuiEditorProduct.ts"
 const shellSource = readFileSync("src/editor/EditorShell.ts", "utf8");
 const shellChromeModuleSource = readFileSync("src/editor/modules/ShellChromeModule.ts", "utf8");
 const projectSessionModuleSource = readFileSync("src/editor/modules/ProjectSessionModule.ts", "utf8");
+const documentAuthoringModuleSource = readFileSync("src/editor/modules/DocumentAuthoringModule.ts", "utf8");
 const browserPluginsModuleSource = readFileSync("src/editor/modules/BrowserPluginsModule.ts", "utf8");
 const resourceHealthModuleSource = readFileSync("src/editor/modules/ResourceHealthModule.ts", "utf8");
 assert(mainSource.includes("createFairyGuiEditorWorkbench(mainView)"));
@@ -114,6 +115,7 @@ assert(productSource.includes("createEditorShellModule()"));
 assert(productSource.includes("createAuthoringPreviewModule()"));
 assert(productSource.includes("createShellChromeModule()"));
 assert(productSource.includes("createProjectSessionModule()"));
+assert(productSource.includes("createDocumentAuthoringModule()"));
 assert(productSource.includes("createBrowserPluginsModule()"));
 assert(productSource.includes("createResourceHealthModule()"));
 assert(productSource.includes([
@@ -121,6 +123,7 @@ assert(productSource.includes([
     "        createAuthoringPreviewModule(),",
     "        createShellChromeModule(),",
     "        createProjectSessionModule(),",
+    "        createDocumentAuthoringModule(),",
     "        createEditorShellModule(),",
     "        createBrowserPluginsModule(),",
     "        createResourceHealthModule(),",
@@ -136,6 +139,13 @@ assert(shellChromeModuleSource.includes("new EditorShellChrome(context.host.main
 assert(projectSessionModuleSource.includes("new EditorProjectSession()"));
 assert(projectSessionModuleSource.includes("runExclusive<T>"));
 assert(projectSessionModuleSource.includes("hotReloadable: false"));
+assert(!shellSource.includes("new DocumentWorkspaceController("));
+assert(!shellSource.includes("new ActiveDocumentController("));
+assert(!shellSource.includes("createAuthoringPreview("));
+assert(documentAuthoringModuleSource.includes("new DocumentWorkspaceController("));
+assert(documentAuthoringModuleSource.includes("new ActiveDocumentController("));
+assert(documentAuthoringModuleSource.includes("const document = new EditorDocumentAuthoring("));
+assert(documentAuthoringModuleSource.includes("hotReloadable: false"));
 assert(browserPluginsModuleSource.includes("new BrowserPluginHost()"));
 assert(browserPluginsModuleSource.includes("shell.registerToolMenuProvider"));
 assert(browserPluginsModuleSource.includes("pluginHost.dispose()"));
