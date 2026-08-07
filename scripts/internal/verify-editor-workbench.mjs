@@ -112,7 +112,9 @@ const projectExplorerModuleSource = readFileSync("src/editor/modules/ProjectExpl
 const authoringDialogsModuleSource = readFileSync("src/editor/modules/AuthoringDialogsModule.ts", "utf8");
 const timelineModuleSource = readFileSync("src/editor/modules/TimelineModule.ts", "utf8");
 const resourceAuthoringModuleSource = readFileSync("src/editor/modules/ResourceAuthoringModule.ts", "utf8");
+const resourceAuthoringControllerSource = readFileSync("src/editor/ui/ResourceAuthoringController.ts", "utf8");
 const projectTransferModuleSource = readFileSync("src/editor/modules/ProjectTransferModules.ts", "utf8");
+const browserDownloadSource = readFileSync("src/editor/services/BrowserDownload.ts", "utf8");
 const browserPluginsModuleSource = readFileSync("src/editor/modules/BrowserPluginsModule.ts", "utf8");
 const resourceHealthModuleSource = readFileSync("src/editor/modules/ResourceHealthModule.ts", "utf8");
 assert(mainSource.includes("createFairyGuiEditorWorkbench(mainView)"));
@@ -127,6 +129,8 @@ assert(productSource.includes("createProjectExplorerModule()"));
 assert(productSource.includes("createAuthoringDialogsModule()"));
 assert(productSource.includes("createTimelineModule()"));
 assert(productSource.includes("createResourceAuthoringModule()"));
+assert(productSource.includes("createFairyPackageImportModule()"));
+assert(productSource.includes("createFairyPackageExportModule()"));
 assert(productSource.includes("createWorkspaceExportModule()"));
 assert(productSource.includes("createWorkspaceImportModule()"));
 assert(productSource.includes("createRuntimePublishModule()"));
@@ -138,12 +142,14 @@ assert(productSource.includes([
     "        createShellChromeModule(),",
     "        createProjectSessionModule(),",
     "        createDocumentAuthoringModule(),",
-    "        createInspectorModule(),",
     "        createProjectExplorerModule(),",
+    "        createInspectorModule(),",
     "        createAuthoringDialogsModule(),",
     "        createTimelineModule(),",
     "        createResourceAuthoringModule(),",
     "        createEditorShellModule(),",
+    "        createFairyPackageImportModule(),",
+    "        createFairyPackageExportModule(),",
     "        createWorkspaceImportModule(),",
     "        createWorkspaceExportModule(),",
     "        createRuntimePublishModule(),",
@@ -185,6 +191,10 @@ assert(timelineModuleSource.includes("new ControllerTimelineAuthoringController(
 assert(!shellSource.includes("new ResourceAuthoringController("));
 assert(resourceAuthoringModuleSource.includes("new ResourceAuthoringController("));
 assert(resourceAuthoringModuleSource.includes("hotReloadable: false"));
+assert(!resourceAuthoringControllerSource.includes('from "../services/FairyPackageTransfer"'));
+assert(!shellSource.includes('from "./modules/ProjectTransferModules"'));
+assert(!authoringDialogsModuleSource.includes('from "./ProjectTransferModules"'));
+assert(browserDownloadSource.includes("URL.createObjectURL(blob)"));
 assert(!shellSource.includes("exportBrowserWorkspaceZip"));
 assert(!shellSource.includes("new ProjectImportDialog("));
 assert(!shellSource.includes("applyProjectImportNow"));
@@ -192,6 +202,14 @@ assert(!shellSource.includes("publishBrowserRuntimeBundle"));
 assert(projectTransferModuleSource.includes("createWorkspaceExportModule"));
 assert(projectTransferModuleSource.includes("createWorkspaceImportModule"));
 assert(projectTransferModuleSource.includes("createRuntimePublishModule"));
+assert(projectTransferModuleSource.includes("createFairyPackageImportModule"));
+assert(projectTransferModuleSource.includes("createFairyPackageExportModule"));
+assert(projectTransferModuleSource.includes('id: "fairygui.fairy-package-import"'));
+assert(projectTransferModuleSource.includes('id: "fairygui.fairy-package-export"'));
+assert(projectTransferModuleSource.includes("hotReloadable: false"));
+assert(projectTransferModuleSource.includes('["resource:importFairyPackage"]'));
+assert(projectTransferModuleSource.includes('["resource:exportFairyPackageResources"]'));
+assert(projectTransferModuleSource.includes("context.onDeactivate(() => transfer.dispose())"));
 assert(projectTransferModuleSource.includes("publishRuntimeBundle(snapshot"));
 assert(projectTransferModuleSource.includes("new ProjectImportDialog("));
 assert(projectTransferModuleSource.includes('["toolbar:exportWorkspace"]'));

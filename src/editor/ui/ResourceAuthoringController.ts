@@ -11,7 +11,6 @@ import {
     prepareImportImageResource,
     prepareImportMovieClipResource,
     prepareImportMovieClipSpriteSheetResource,
-    prepareImportPackage,
     prepareImportSoundResource,
     prepareMoveComponent,
     prepareMoveResourceFolder,
@@ -65,19 +64,12 @@ import type {
 import {
     pickBrowserFile,
     pickBrowserFiles,
-    readZipProjectFiles,
 } from "../services/BrowserProjectImport";
-import {
-    exportFairyPackage,
-    exportFairyPackageResources,
-    inspectFairyPackageResourceImport,
-    prepareImportFairyPackageResources,
-    readFairyPackageFiles,
-} from "../services/FairyPackageTransfer";
 import type { AuthoringDialogController } from "./AuthoringDialogController";
 import { setActionEnabled } from "./EditorFormControls";
 import type { LibraryResourceFolderSelector } from "./LibraryController";
 import type { LibraryItemData } from "./ProjectTreeInteractionController";
+import type { EditorActionId } from "../EditorShellConfig";
 
 const TRANSPARENT_PIXEL_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 
@@ -125,8 +117,8 @@ interface ResourceAuthoringControllerOptions {
     showSelectedResourceInspector: () => void;
     showProjectReferences: () => void;
     removeSelectedComponent: () => void;
-    runEditorAction: (action: "workspace:importProject" | "toolbar:exportWorkspace") => void;
-    download: (blob: Blob, fileName: string) => void;
+    hasEditorAction: (action: EditorActionId) => boolean;
+    runEditorAction: (action: EditorActionId) => void;
     setStatus: (message: string, level?: "info" | "error") => void;
     setDebugAttribute: (name: string, value: string) => void;
 }
@@ -183,7 +175,7 @@ export class ResourceAuthoringController {
         }
     }
 
-    private recordImport(
+    recordImport(
         kind: string,
         files: File[],
         packageId: string,
@@ -216,6 +208,13 @@ export class ResourceAuthoringController {
             "data-fairy-editor-resource-import-history",
             `${this.importHistory.length}:${entry.status}:${entry.kind}`,
         );
+    }
+
+    clearImportRetries(...kinds: string[]): void {
+        const selected = new Set(kinds);
+        for (const entry of this.importHistory) {
+            if (selected.has(entry.kind)) this.retryImports.delete(entry.id);
+        }
     }
 
     private showImportHistoryMenu(anchor: fgui.GObject | null): void {
@@ -308,10 +307,9 @@ export class ResourceAuthoringController {
     private setActionEnabled(item: fgui.GButton, enabled: boolean): void { setActionEnabled(item, enabled); }
     private showSelectedResourceInspector(): void { this.options.showSelectedResourceInspector(); }
     private showProjectReferencesForCurrentSelection(): void { this.options.showProjectReferences(); }
-    private runEditorAction(action: "workspace:importProject" | "toolbar:exportWorkspace"): void {
+    private runEditorAction(action: EditorActionId): void {
         this.options.runEditorAction(action);
     }
-    private downloadWorkspaceExport(blob: Blob, fileName: string): void { this.options.download(blob, fileName); }
     private setStatus(message: string, level: "info" | "error" = "info"): void {
         this.options.setStatus(message, level);
     }
@@ -1501,284 +1499,69 @@ export class ResourceAuthoringController {
             importBitmapFont,
             this.options.isLiveSession() && Boolean(this.getSelectedPackage()),
         );
-        menu.addSeperator();
-        const importPackage = this.addMenuItem(menu, "desktopMenuImportFairyPackage", "Import FairyGUI Package...", () => {
-            void this.importFairyPackage();
-        });
-        const importResources = this.addMenuItem(
-            menu,
-            "desktopMenuImportFairyPackageResources",
-            "Import Resources into Existing Package...",
-            () => {
-                void this.importFairyPackageResources();
-            },
-        );
-        const exportPackage = this.addMenuItem(menu, "desktopMenuExportFairyPackage", "Export Selected Package...", () => {
-            void this.exportSelectedFairyPackage();
-        });
-        const exportResources = this.addMenuItem(
-            menu,
-            "desktopMenuExportSelectedFairyPackageResources",
-            "Export Selected Resources...",
-            () => {
-                void this.exportSelectedFairyPackageResources();
-            },
-        );
-        this.setActionEnabled(importPackage, this.options.isLiveSession());
-        this.setActionEnabled(importResources, this.options.isLiveSession());
+        const transferActions = [
+            "resource:importFairyPackage",
+            "resource:importFairyPackageResources",
+            "resource:exportFairyPackage",
+            "resource:exportFairyPackageResources",
+        ] as const;
+        if (transferActions.some((action) => this.options.hasEditorAction(action))) {
+            menu.addSeperator();
+        }
+        if (this.options.hasEditorAction("resource:importFairyPackage")) {
+            const item = this.addMenuItem(menu, "desktopMenuImportFairyPackage", "Import FairyGUI Package...", () => {
+                this.runEditorAction("resource:importFairyPackage");
+            });
+            this.setActionEnabled(item, this.options.isLiveSession());
+        }
+        if (this.options.hasEditorAction("resource:importFairyPackageResources")) {
+            const item = this.addMenuItem(
+                menu,
+                "desktopMenuImportFairyPackageResources",
+                "Import Resources into Existing Package...",
+                () => this.runEditorAction("resource:importFairyPackageResources"),
+            );
+            this.setActionEnabled(item, this.options.isLiveSession());
+        }
+        if (this.options.hasEditorAction("resource:exportFairyPackage")) {
+            const item = this.addMenuItem(menu, "desktopMenuExportFairyPackage", "Export Selected Package...", () => {
+                this.runEditorAction("resource:exportFairyPackage");
+            });
+            this.setActionEnabled(item, this.options.isLiveSession() && Boolean(this.libraryPackageId));
+        }
+        if (this.options.hasEditorAction("resource:exportFairyPackageResources")) {
+            const item = this.addMenuItem(
+                menu,
+                "desktopMenuExportSelectedFairyPackageResources",
+                "Export Selected Resources...",
+                () => this.runEditorAction("resource:exportFairyPackageResources"),
+            );
+            this.setActionEnabled(
+                item,
+                this.options.isLiveSession()
+                    && selectedResources.length > 0
+                    && selectedResources.every((selector) => selector.packageId === selectedResources[0].packageId),
+            );
+        }
         this.addMenuItem(menu, "desktopMenuResourceImportHistory", "导入历史与失败重试…", () => {
             this.showImportHistoryMenu(anchor);
         });
-        this.setActionEnabled(
-            exportPackage,
-            this.options.isLiveSession() && Boolean(this.libraryPackageId),
-        );
-        this.setActionEnabled(
-            exportResources,
-            this.options.isLiveSession()
-                && selectedResources.length > 0
-                && selectedResources.every((selector) => selector.packageId === selectedResources[0].packageId),
-        );
         menu.addSeperator();
         const inspect = this.addMenuItem(menu, "desktopMenuInspectResource", "显示资源属性", () => {
             this.showSelectedResourceInspector();
         });
         this.setActionEnabled(inspect, Boolean(selectedResource));
-        this.addMenuItem(menu, "desktopMenuImportProject", "导入项目...", () => {
-            this.runEditorAction("workspace:importProject");
-        });
-        this.addMenuItem(menu, "desktopMenuExportWorkspace", "导出工作区 ZIP", () => {
-            this.runEditorAction("toolbar:exportWorkspace");
-        });
+        if (this.options.hasEditorAction("workspace:importProject")) {
+            this.addMenuItem(menu, "desktopMenuImportProject", "导入项目...", () => {
+                this.runEditorAction("workspace:importProject");
+            });
+        }
+        if (this.options.hasEditorAction("toolbar:exportWorkspace")) {
+            this.addMenuItem(menu, "desktopMenuExportWorkspace", "导出工作区 ZIP", () => {
+                this.runEditorAction("toolbar:exportWorkspace");
+            });
+        }
         this.showActionMenu(menu, anchor, "resource", "Resource menu opened.");
-    }
-
-    async importFairyPackage(retryFile?: File): Promise<void> {
-        const interactionIdentity = this.liveSessionBridge.captureSessionIdentity();
-        const backend = this.liveSessionBridge.getFairyPackageBackend();
-        const project = this.liveSessionBridge.getWorkingProject();
-        if (!interactionIdentity || !backend || !project) {
-            this.setStatus("FairyGUI package import requires a connected live session.", "error");
-            return;
-        }
-        let file = retryFile;
-        try {
-            file ||= await pickBrowserFile(
-                ".fairypackage,.zip,application/zip,application/x-zip-compressed",
-                "FairyGUI package import was cancelled.",
-                "fairy-package",
-            );
-            if (!this.ensureFairyPackageInteractionCurrent(interactionIdentity, "package import")) return;
-            const archiveFiles = await readZipProjectFiles(file);
-            if (!this.ensureFairyPackageInteractionCurrent(interactionIdentity, "package import")) return;
-            const imported = await readFairyPackageFiles(backend, archiveFiles);
-            if (!this.ensureFairyPackageInteractionCurrent(interactionIdentity, "package import")) return;
-            const importedName = file.name.replace(/\.[^.]+$/, "")
-                || String((imported as { name?: unknown }).name || "Imported");
-            const packageName = await this.authoringDialogs.requestTextInput(
-                "desktopImportFairyPackageDialog",
-                "Import FairyGUI package",
-                "New package name",
-                importedName,
-                "Import",
-            );
-            if (!this.ensureFairyPackageInteractionCurrent(interactionIdentity, "package import")) return;
-            if (packageName === null) return;
-            const currentProject = this.liveSessionBridge.getWorkingProject();
-            if (!currentProject) return;
-            const preparation = prepareImportPackage(currentProject, imported, packageName);
-            if (!await this.applyAuthoringPreparation(preparation) || !preparation.ok) {
-                this.recordImport("fairyPackage", [file], "", "Import transaction was rejected.", () => this.importFairyPackage(file));
-                return;
-            }
-            const operation = preparation.transaction.operation;
-            if (operation.kind === "addPackage") {
-                const importedPackage = operation.package as { id: string; name?: string };
-                this.libraryPackageId = importedPackage.id;
-                this.applyLibrarySelection({ kind: "package", packageId: importedPackage.id });
-                this.setDebugAttribute("data-fairy-editor-package-import", importedPackage.id);
-                this.setStatus(`FairyGUI package imported: ${importedPackage.name || importedPackage.id}.`);
-                this.recordImport("fairyPackage", [file], importedPackage.id);
-            }
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            this.setDebugAttribute("data-fairy-editor-package-import", `error:${message}`);
-            this.setStatus(`FairyGUI package import failed: ${message}`, "error");
-            if (file) this.recordImport("fairyPackage", [file], "", message, () => this.importFairyPackage(file));
-        }
-    }
-
-    async importFairyPackageResources(retryFile?: File): Promise<void> {
-        const interactionIdentity = this.liveSessionBridge.captureSessionIdentity();
-        const backend = this.liveSessionBridge.getFairyPackageBackend();
-        const project = this.liveSessionBridge.getWorkingProject() as {
-            packages?: Array<{ id?: string; name?: string }>;
-        } | null;
-        if (!interactionIdentity || !backend || !project?.packages?.length) {
-            this.setStatus("FairyGUI resource import requires a connected live session.", "error");
-            return;
-        }
-        let file = retryFile;
-        try {
-            file ||= await pickBrowserFile(
-                ".fairypackage,.zip,application/zip,application/x-zip-compressed",
-                "FairyGUI resource import was cancelled.",
-                "fairy-package-resources",
-            );
-            if (!this.ensureFairyPackageInteractionCurrent(interactionIdentity, "resource import")) return;
-            const archiveFiles = await readZipProjectFiles(file);
-            if (!this.ensureFairyPackageInteractionCurrent(interactionIdentity, "resource import")) return;
-            const imported = await readFairyPackageFiles(backend, archiveFiles);
-            if (!this.ensureFairyPackageInteractionCurrent(interactionIdentity, "resource import")) return;
-            const initialPackageId = this.libraryPackageId || this.selectedPackageId || String(project.packages[0]?.id || "");
-            const targetPackageValue = await this.authoringDialogs.requestTextInput(
-                "desktopImportFairyPackageResourcesTargetDialog",
-                "Import resources",
-                "Target existing package ID or name",
-                initialPackageId,
-                "Next",
-            );
-            if (!this.ensureFairyPackageInteractionCurrent(interactionIdentity, "resource import")) return;
-            if (targetPackageValue === null) return;
-            let currentProject = this.liveSessionBridge.getWorkingProject() as typeof project;
-            if (!currentProject?.packages?.length) return;
-            let targetPackage = currentProject.packages.find((pkg) => (
-                pkg.id === targetPackageValue.trim() || pkg.name === targetPackageValue.trim()
-            ));
-            if (!targetPackage?.id) {
-                this.setStatus(`FairyGUI resource import failed: target package ${targetPackageValue.trim() || "(empty)"} was not found.`, "error");
-                return;
-            }
-            const selectedFolder = this.selectedResourceFolder?.packageId === targetPackage.id
-                ? this.selectedResourceFolder
-                : null;
-            const targetPath = await this.authoringDialogs.requestTextInput(
-                "desktopImportFairyPackageResourcesFolderDialog",
-                `Import resources into ${targetPackage.name || targetPackage.id}`,
-                "Target existing folder path",
-                selectedFolder?.path || "/",
-                "Inspect conflicts",
-            );
-            if (!this.ensureFairyPackageInteractionCurrent(interactionIdentity, "resource import")) return;
-            if (targetPath === null) return;
-            const targetBranch = selectedFolder?.branch || "";
-            currentProject = this.liveSessionBridge.getWorkingProject() as typeof project;
-            if (!currentProject?.packages?.length) return;
-            targetPackage = currentProject.packages.find((pkg) => pkg.id === targetPackage?.id);
-            if (!targetPackage?.id) {
-                this.setStatus("FairyGUI resource import cancelled because the target package changed.");
-                return;
-            }
-            let inspection = inspectFairyPackageResourceImport(currentProject, imported, {
-                targetPackageId: targetPackage.id,
-                targetPath,
-                targetBranch,
-            });
-            const conflictPreview = inspection.conflicts.slice(0, 4).map((conflict) => (
-                `${conflict.targetPath}${conflict.fileName} (${conflict.incomingKind} -> ${conflict.targetKind})`
-            )).join("; ");
-            const conflictStrategy = inspection.conflicts.length > 0
-                ? await this.authoringDialogs.requestPasteConflictStrategy(
-                    `Conflicts: ${inspection.conflicts.length}/${inspection.resourceCount}`
-                    + `${conflictPreview ? `. ${conflictPreview}${inspection.conflicts.length > 4 ? "; ..." : ""}` : "."}`,
-                )
-                : "rename";
-            if (!this.ensureFairyPackageInteractionCurrent(interactionIdentity, "resource import")) return;
-            if (conflictStrategy === null) return;
-            currentProject = this.liveSessionBridge.getWorkingProject() as typeof project;
-            if (!currentProject?.packages?.length) return;
-            targetPackage = currentProject.packages.find((pkg) => pkg.id === targetPackage?.id);
-            if (!targetPackage?.id) {
-                this.setStatus("FairyGUI resource import cancelled because the target package changed.");
-                return;
-            }
-            inspection = inspectFairyPackageResourceImport(currentProject, imported, {
-                targetPackageId: targetPackage.id,
-                targetPath,
-                targetBranch,
-            });
-            const preparation = prepareImportFairyPackageResources(currentProject, imported, {
-                targetPackageId: targetPackage.id,
-                targetPath,
-                targetBranch,
-                conflictStrategy,
-            });
-            if (!await this.applyAuthoringPreparation(preparation) || !preparation.ok) {
-                this.recordImport("fairyPackageResources", [file], targetPackage.id, "Import transaction was rejected.", () => this.importFairyPackageResources(file));
-                return;
-            }
-            this.libraryPackageId = targetPackage.id;
-            this.applyLibrarySelection({ kind: "package", packageId: targetPackage.id });
-            this.setDebugAttribute(
-                "data-fairy-editor-package-resource-import",
-                `${targetPackage.id}:${preparation.counts.added}:${preparation.counts.replaced}:${preparation.counts.skipped}:${conflictStrategy}`,
-            );
-            this.setStatus(
-                `FairyGUI resources imported into ${targetPackage.name || targetPackage.id}${inspection.targetPath}: `
-                    + `${preparation.counts.added} added, ${preparation.counts.replaced} replaced, ${preparation.counts.skipped} skipped.`,
-            );
-            this.recordImport("fairyPackageResources", [file], targetPackage.id);
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            this.setDebugAttribute("data-fairy-editor-package-resource-import", `error:${message}`);
-            this.setStatus(`FairyGUI resource import failed: ${message}`, "error");
-            if (file) this.recordImport("fairyPackageResources", [file], this.libraryPackageId, message, () => this.importFairyPackageResources(file));
-        }
-    }
-
-    ensureFairyPackageInteractionCurrent(
-        identity: BrowserLiveSessionIdentity,
-        label: string,
-    ): boolean {
-        if (this.liveSessionBridge.isSessionIdentityCurrent(identity)) return true;
-        this.setDebugAttribute("data-fairy-editor-package-interaction", `cancelled:${label}:session-changed`);
-        this.setStatus(`FairyGUI ${label} cancelled because the live session changed.`);
-        return false;
-    }
-
-    async exportSelectedFairyPackage(): Promise<void> {
-        const backend = this.liveSessionBridge.getFairyPackageBackend();
-        const project = this.liveSessionBridge.getWorkingProject();
-        const packageId = this.libraryPackageId || this.selectedPackageId;
-        if (!backend || !project || !packageId) {
-            this.setStatus("FairyGUI package export requires a selected package and connected live session.", "error");
-            return;
-        }
-        try {
-            const exported = await exportFairyPackage(backend, project, packageId);
-            this.downloadWorkspaceExport(exported.blob, exported.fileName);
-            this.setDebugAttribute("data-fairy-editor-package-export", `${exported.packageId}:${exported.files.length}`);
-            this.setStatus(`FairyGUI package exported: ${exported.fileName} (${exported.files.length} files).`);
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            this.setDebugAttribute("data-fairy-editor-package-export", `error:${message}`);
-            this.setStatus(`FairyGUI package export failed: ${message}`, "error");
-        }
-    }
-
-    async exportSelectedFairyPackageResources(): Promise<void> {
-        const backend = this.liveSessionBridge.getFairyPackageBackend();
-        const project = this.liveSessionBridge.getWorkingProject();
-        const selectors = this.getSelectedLibraryResourceSelectors();
-        if (!backend || !project || selectors.length === 0) {
-            this.setStatus("FairyGUI resource export requires selected resources and a connected live session.", "error");
-            return;
-        }
-        try {
-            const exported = await exportFairyPackageResources(backend, project, selectors);
-            this.downloadWorkspaceExport(exported.blob, exported.fileName);
-            this.setDebugAttribute(
-                "data-fairy-editor-resource-subset-export",
-                `${exported.packageId}:${selectors.length}:${exported.files.length}`,
-            );
-            this.setStatus(
-                `Exported ${selectors.length} selected resource${selectors.length === 1 ? "" : "s"} with dependencies: ${exported.fileName} (${exported.files.length} files).`,
-            );
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            this.setDebugAttribute("data-fairy-editor-resource-subset-export", `error:${message}`);
-            this.setStatus(`FairyGUI selected-resource export failed: ${message}`, "error");
-        }
     }
 
     async addResourceFolder(): Promise<void> {

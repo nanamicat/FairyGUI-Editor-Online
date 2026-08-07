@@ -12,11 +12,11 @@ import type {
     ProjectSnapshotResource,
 } from "../model/ProjectSnapshot";
 import type { BrowserLiveSessionIdentity } from "../services/BrowserLiveSessionBridge";
+import { downloadBrowserFile } from "../services/BrowserDownload";
 import { AuthoringDialogController } from "../ui/AuthoringDialogController";
 import type { EditorModule } from "../workbench/EditorWorkbench";
 import type { FairyGuiEditorWorkbenchHost } from "../workbench/EditorShellModuleHost";
 import { DOCUMENT_AUTHORING_SERVICE, EditorDocumentAuthoring } from "./DocumentAuthoringModule";
-import { downloadBrowserFile } from "./ProjectTransferModules";
 import { EditorProjectSession, PROJECT_SESSION_SERVICE } from "./ProjectSessionModule";
 import { EditorShellChrome, SHELL_CHROME_SERVICE } from "./ShellChromeModule";
 

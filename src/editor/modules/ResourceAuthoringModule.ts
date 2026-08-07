@@ -10,6 +10,7 @@ import type {
     ProjectSnapshotResourceFolder,
 } from "../model/ProjectSnapshot";
 import type { BrowserLiveSessionIdentity } from "../services/BrowserLiveSessionBridge";
+import type { EditorActionId } from "../EditorShellConfig";
 import type { LibraryResourceFolderSelector } from "../ui/LibraryController";
 import type { LibraryItemData } from "../ui/ProjectTreeInteractionController";
 import { ResourceAuthoringController } from "../ui/ResourceAuthoringController";
@@ -17,7 +18,6 @@ import type { EditorModule } from "../workbench/EditorWorkbench";
 import type { FairyGuiEditorWorkbenchHost } from "../workbench/EditorShellModuleHost";
 import { AUTHORING_DIALOGS_SERVICE, EditorAuthoringDialogs } from "./AuthoringDialogsModule";
 import { DOCUMENT_AUTHORING_SERVICE, EditorDocumentAuthoring } from "./DocumentAuthoringModule";
-import { downloadBrowserFile } from "./ProjectTransferModules";
 import { EditorProjectExplorer, PROJECT_EXPLORER_SERVICE } from "./ProjectExplorerModule";
 import { EditorProjectSession, PROJECT_SESSION_SERVICE } from "./ProjectSessionModule";
 import { EditorShellChrome, SHELL_CHROME_SERVICE } from "./ShellChromeModule";
@@ -43,7 +43,7 @@ export type ResourceAuthoringEvents = {
     showSelectedResourceInspector(): void;
     showProjectReferences(): void;
     removeSelectedComponent(): void;
-    runEditorAction(action: "workspace:importProject" | "toolbar:exportWorkspace"): void;
+    runEditorAction(action: EditorActionId): void;
 };
 
 export class EditorResourceAuthoring {
@@ -54,7 +54,7 @@ export class EditorResourceAuthoring {
         chrome: EditorShellChrome,
         session: EditorProjectSession,
         document: EditorDocumentAuthoring,
-        explorer: EditorProjectExplorer,
+        private readonly explorer: EditorProjectExplorer,
         dialogs: EditorAuthoringDialogs,
     ) {
         this.controller = new ResourceAuthoringController({
@@ -96,8 +96,8 @@ export class EditorResourceAuthoring {
             showSelectedResourceInspector: () => this.events?.showSelectedResourceInspector(),
             showProjectReferences: () => this.events?.showProjectReferences(),
             removeSelectedComponent: () => this.events?.removeSelectedComponent(),
+            hasEditorAction: (action) => chrome.hasAction(action),
             runEditorAction: (action) => this.events?.runEditorAction(action),
-            download: downloadBrowserFile,
             setStatus: (message, level) => chrome.setStatus(message, level === "error" ? "error" : "info"),
             setDebugAttribute: (name, value) => chrome.setDebugAttribute(name, value),
         });
@@ -109,6 +109,15 @@ export class EditorResourceAuthoring {
         return () => {
             if (this.events === events) this.events = null;
         };
+    }
+
+    selectLibraryPackage(packageId: string): void {
+        this.explorer.library.setPackageId(packageId);
+        this.events?.applyLibrarySelection({ kind: "package", packageId });
+    }
+
+    getSelectedLibraryResourceSelectors(): EditorResourceSelector[] {
+        return this.events?.getSelectedLibraryResourceSelectors() || [];
     }
 
     dispose(): void {

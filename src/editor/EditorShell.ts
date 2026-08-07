@@ -1,5 +1,4 @@
 import { findComponent,findDisplayNode,findResource } from "./commands/AuthoringTransactionSupport";
-import { createCommonDisplayNodePropsCommands } from "./commands/DisplayNodePropsLogic";
 import {
     ALIGN_TOOLBAR_ACTIONS,
     CUSTOM_ARRANGE_ACTIONS,
@@ -76,9 +75,6 @@ import {
     type BrowserWorkspaceRegistryEntry,
 } from "./runtime/BrowserWorkspaceRegistry";
 import {
-    createDesktopCanvasPositionCommands,
-    createDesktopCanvasRotationCommands,
-    createDesktopCanvasTransformCommands,
     getDesktopCanvasNudge,
     inferDesktopCanvasColumnCount,
     inferDesktopCanvasSpacing,
@@ -114,11 +110,6 @@ import { PublishedTestController } from "./runtime/PublishedTestController";
 import type {
     RuntimePreviewController,
     RuntimePreviewCanvasSettings,
-    RuntimePreviewGraphPoints,
-    RuntimePreviewNodePivot,
-    RuntimePreviewNodePosition,
-    RuntimePreviewNodeRotation,
-    RuntimePreviewNodeTransform,
 } from "./runtime/RuntimePreviewController";
 import type { WorkspaceLifecycleController } from "./runtime/WorkspaceLifecycleController";
 import {
@@ -170,7 +161,7 @@ import { EditorProjectExplorer } from "./modules/ProjectExplorerModule";
 import { EditorAuthoringDialogs } from "./modules/AuthoringDialogsModule";
 import { EditorTimeline } from "./modules/TimelineModule";
 import { EditorResourceAuthoring } from "./modules/ResourceAuthoringModule";
-import { downloadBrowserFile } from "./modules/ProjectTransferModules";
+import { downloadBrowserFile } from "./services/BrowserDownload";
 
 const EDITOR_REPOSITORY_URL = "https://github.com/OpenFairyGUI/FairyGUI-Editor-Online";
 const FAIRYGUI_WEBSITE_URL = "https://fairygui.com/";
@@ -329,11 +320,6 @@ export class EditorShell {
             changeGroupPathDepth: (depth) => this.onGroupPathDepthChanged(depth),
             selectPreviewNodes: (nodeIds, primaryNodeId) => this.onPreviewNodesSelected(nodeIds, primaryNodeId),
             runtimePackageLoaded: (result) => this.onRuntimePreviewPackageLoad(result),
-            commitPositions: (positions) => this.commitPreviewNodePositions(positions),
-            commitTransforms: (transforms) => this.commitPreviewNodeTransforms(transforms),
-            commitRotations: (rotations) => this.commitPreviewNodeRotations(rotations),
-            commitPivot: (pivot) => this.commitPreviewNodePivot(pivot),
-            commitGraphPoints: (points) => this.commitPreviewGraphPoints(points),
             previewViewChanged: (zoom, panX, panY) => this.onPreviewViewChanged(zoom, panX, panY),
             createNode: (point) => this.placeDesktopPrimitive(point),
             openNode: (nodeId) => {
@@ -1116,35 +1102,10 @@ export class EditorShell {
     }
 
     private populateInspectorFromSnapshot(): void {
-        const snapshot = this.projectSnapshot;
-        if (!snapshot) return;
-
-        const selectedResource = this.getSelectedResource();
-        if (selectedResource) {
-            this.renderResourceInspector(selectedResource);
-            return;
-        }
-        const selectedFolder = this.getSelectedResourceFolder();
-        if (selectedFolder) {
-            this.renderResourceFolderInspector(selectedFolder);
-            return;
-        }
-
-        const selectedPackage = this.getSelectedPackage();
-        const selectedComponent = this.getSelectedComponent();
-        const selectedNode = this.getSelectedDisplayNode();
-        this.inspectorCommandPanel.renderSnapshot({
-            snapshot,
-            workingProject: this.liveSessionBridge.getWorkingProject(),
-            selectedPackage,
-            selectedComponent,
-            selectedNode,
-            selectedNodes: this.getSelectedDisplayNodes(),
-            commandSession: this.commandAdapter.getSessionState(),
-            componentCustomPropertiesEditable:
-                this.getSelectedComponentCustomPropertyDefinitions().length > 0
-                || this.getSelectedComponentExportedControllers().length > 0,
-        });
+        this.inspectorCommandPanel.renderCurrent(
+            this.getSelectedComponentCustomPropertyDefinitions().length > 0
+            || this.getSelectedComponentExportedControllers().length > 0,
+        );
     }
 
     private renderResourceInspector(resource: ProjectSnapshotResource | null): void {
@@ -1156,22 +1117,15 @@ export class EditorShell {
     }
 
     private renderInspectorLines(details: string[]): void {
-        if (this.disposed) return;
-        this.inspectorCommandPanel.renderLines(details);
+        if (!this.disposed) this.inspectorCommandPanel.renderLines(details);
     }
 
     private layoutInspectorLines(): void {
-        if (this.disposed) return;
-        this.inspectorCommandPanel.layout();
+        if (!this.disposed) this.inspectorCommandPanel.layout();
     }
 
     private onInspectorPanelAction(action: InspectorPanelAction): void {
         switch (action) {
-            case "command:apply":
-                void (this.selectedDisplayNodeIds.length > 1
-                    ? this.applyMultiSelectionCommand()
-                    : this.applyInspectorCommand());
-                return;
             case "command:sourceSize": void this.applySelectedNodeSourceSize(); return;
             case "properties:common": this.authoringDialogs.showCommonDisplayProperties(); return;
             case "properties:image": this.authoringDialogs.showImageProperties(); return;
@@ -1191,75 +1145,6 @@ export class EditorShell {
             case "display:relations": this.authoringDialogs.showRelationEditor(); return;
             case "display:gears": this.authoringDialogs.showGearEditor(); return;
         }
-    }
-
-    private async applyMultiSelectionCommand(): Promise<void> {
-        const selectedPackage = this.getSelectedPackage();
-        const selectedComponent = this.getSelectedComponent();
-        const selectedIds = this.selectedDisplayNodeIds.slice();
-        if (!selectedPackage || !selectedComponent || selectedIds.length < 2) {
-            this.setStatus("Multi-selection command skipped: select at least two display nodes.");
-            return;
-        }
-
-        const readResult = this.inspectorCommandPanel.readMultiSelectionValues();
-        if (!readResult.ok) {
-            this.setStatus(readResult.message);
-            return;
-        }
-
-        await this.enqueueAuthoringOperation(async () => {
-            if (!this.sameDisplayNodeSelection(selectedIds, this.selectedDisplayNodeIds)) {
-                this.setStatus("Multi-selection command cancelled because the selection changed.");
-                return false;
-            }
-            const selectedNodes = this.getSelectedDisplayNodes();
-            if (selectedNodes.length !== selectedIds.length) return false;
-            const { commands, changedFields } = createCommonDisplayNodePropsCommands(
-                selectedPackage.id,
-                selectedComponent.id,
-                selectedNodes,
-                readResult.values,
-            );
-            if (commands.length === 0) {
-                this.setStatus("Multi-selection common properties are unchanged.");
-                this.setDebugAttribute("data-fairy-editor-multi-inspector", "unchanged");
-                return true;
-            }
-            const applied = await this.applyDisplayNodePropsCommandsNow(
-                commands,
-                `multi-selection common properties (${commands.length} nodes)`,
-            );
-            if (applied) {
-                this.setDebugAttribute(
-                    "data-fairy-editor-multi-inspector",
-                    `${commands.length}:${changedFields.join(",")}`,
-                );
-                this.setDebugAttribute(
-                    "data-fairy-editor-multi-inspector-selection",
-                    selectedIds.join(","),
-                );
-            }
-            return applied;
-        });
-    }
-
-    private async applyInspectorCommand(): Promise<void> {
-        const selectedPackage = this.getSelectedPackage();
-        const selectedComponent = this.getSelectedComponent();
-        const selectedNode = this.getSelectedDisplayNode();
-        if (!selectedPackage || !selectedComponent || !selectedNode) {
-            this.setStatus("Command skipped: no display node selected.");
-            return;
-        }
-
-        const command = this.inspectorCommandPanel.createDisplayNodeCommand(
-            selectedPackage,
-            selectedComponent,
-            selectedNode,
-        );
-        if (Object.keys(command.props).length === 0) return;
-        await this.applyDisplayNodePropsCommand(command, "setDisplayNodeProps");
     }
 
     private async applyDisplayNodePropsCommand(
@@ -1486,99 +1371,10 @@ export class EditorShell {
         this.runtimePreview.applyDisplayNodeState(selectedNode);
     }
 
-    private commitPreviewNodePositions(positions: RuntimePreviewNodePosition[]): Promise<boolean> {
-        const selectedIds = new Set(this.selectedDisplayNodeIds);
-        if (
-            selectedIds.size === 0
-            || positions.length !== selectedIds.size
-            || positions.some((position) => !selectedIds.has(position.nodeId))
-        ) {
-            return Promise.resolve(false);
-        }
-
-        return this.enqueueAuthoringOperation(() => (
-            this.applyDesktopNodePositions(positions, "canvas drag")
-        ));
-    }
-
-    private commitPreviewNodeTransforms(
-        transforms: RuntimePreviewNodeTransform[],
-    ): Promise<boolean> {
-        const selectedIds = new Set(this.selectedDisplayNodeIds);
-        if (
-            selectedIds.size === 0
-            || transforms.length !== selectedIds.size
-            || transforms.some((transform) => !selectedIds.has(transform.nodeId))
-        ) {
-            return Promise.resolve(false);
-        }
-        return this.enqueueAuthoringOperation(() => (
-            this.applyDesktopNodeTransforms(transforms)
-        ));
-    }
-
-    private commitPreviewNodeRotations(transforms: RuntimePreviewNodeRotation[]): Promise<boolean> {
-        const selectedIds = new Set(this.selectedDisplayNodeIds);
-        if (
-            selectedIds.size === 0
-            || transforms.length !== selectedIds.size
-            || transforms.some((transform) => !selectedIds.has(transform.nodeId))
-        ) {
-            return Promise.resolve(false);
-        }
-        return this.enqueueAuthoringOperation(() => (
-            this.applyDesktopNodeRotations(transforms)
-        ));
-    }
-
-    private commitPreviewNodePivot(transform: RuntimePreviewNodePivot): Promise<boolean> {
-        if (
-            this.selectedDisplayNodeIds.length !== 1
-            || this.selectedDisplayNodeIds[0] !== transform.nodeId
-        ) {
-            return Promise.resolve(false);
-        }
-        return this.enqueueAuthoringOperation(() => this.applyDesktopNodePivot(transform));
-    }
-
-    private commitPreviewGraphPoints(transform: RuntimePreviewGraphPoints): Promise<boolean> {
-        if (
-            this.selectedDisplayNodeIds.length !== 1
-            || this.selectedDisplayNodeIds[0] !== transform.nodeId
-        ) {
-            return Promise.resolve(false);
-        }
-        return this.enqueueAuthoringOperation(() => this.applyDesktopGraphPoints(transform));
-    }
-
     private onPreviewViewChanged(zoom: number, panX: number, panY: number): void {
-        this.setDebugAttribute("data-fairy-editor-canvas-zoom", zoom.toFixed(2));
-        this.setDebugAttribute("data-fairy-editor-canvas-pan", `${panX},${panY}`);
-        this.documentAuthoring.rememberView(zoom, panX, panY);
         const combo = this.toolbar.getChild("viewScale").asComboBox;
         const index = combo.values.indexOf(String(zoom));
         if (index >= 0 && combo.selectedIndex !== index) combo.selectedIndex = index;
-    }
-
-    private queueSelectedNodeNudge(dx: number, dy: number): void {
-        const selectedIds = this.selectedDisplayNodeIds.slice();
-        if (selectedIds.length === 0) return;
-
-        void this.enqueueAuthoringOperation(async () => {
-            if (!this.sameDisplayNodeSelection(selectedIds, this.selectedDisplayNodeIds)) {
-                return false;
-            }
-            const selectedNodes = this.getSelectedDisplayNodes();
-            if (selectedNodes.length !== selectedIds.length) return false;
-            return this.applyDesktopNodePositions(
-                selectedNodes.map((node) => ({
-                    nodeId: node.id,
-                    x: node.x + dx,
-                    y: node.y + dy,
-                })),
-                "keyboard nudge",
-            );
-        });
     }
 
     private enqueueAuthoringOperation(task: () => Promise<boolean>): Promise<boolean>;
@@ -1589,93 +1385,6 @@ export class EditorShell {
         return this.projectSession.runExclusive(() => (
             this.disposed ? Promise.resolve(false) : task()
         ));
-    }
-
-    private async applyDesktopNodePositions(
-        positions: RuntimePreviewNodePosition[],
-        source: "canvas drag" | "keyboard nudge",
-    ): Promise<boolean> {
-        if (this.disposed) return false;
-        const selectedPackage = this.getSelectedPackage();
-        const selectedComponent = this.getSelectedComponent();
-        if (!selectedPackage || !selectedComponent) return false;
-
-        const selectedNodes = this.getSelectedDisplayNodes();
-        if (selectedNodes.length !== this.selectedDisplayNodeIds.length) return false;
-        const commands = createDesktopCanvasPositionCommands({
-            packageId: selectedPackage.id,
-            componentResourceId: selectedComponent.id,
-            nodes: selectedNodes,
-        }, positions);
-        if (!commands) return false;
-        if (commands.length === 0) return true;
-
-        const summary = commands.length === 1
-            ? `${source} ${selectedNodes[0].name || selectedNodes[0].id} to ${commands[0].props.position!.x},${commands[0].props.position!.y}`
-            : `${source} ${commands.length} selected nodes`;
-        const applied = await this.applyDisplayNodePropsCommandsNow(commands, summary);
-        if (applied) {
-            this.setDebugAttribute("data-fairy-editor-canvas-interaction", source);
-            this.setDebugAttribute("data-fairy-editor-canvas-selection-count", String(commands.length));
-            this.setDebugAttribute(
-                "data-fairy-editor-canvas-position",
-                commands.map((command) => (
-                    `${command.selector.displayNodeId}:${command.props.position!.x},${command.props.position!.y}`
-                )).join("|"),
-            );
-        }
-        return applied;
-    }
-
-    private async applyDesktopNodeTransforms(
-        transforms: RuntimePreviewNodeTransform[],
-        source?: string,
-    ): Promise<boolean> {
-        const selectedPackage = this.getSelectedPackage();
-        const selectedComponent = this.getSelectedComponent();
-        if (!selectedPackage || !selectedComponent) return false;
-        const selectedNodes = this.getSelectedDisplayNodes();
-        if (selectedNodes.length !== this.selectedDisplayNodeIds.length) return false;
-        const commands = createDesktopCanvasTransformCommands({
-            packageId: selectedPackage.id,
-            componentResourceId: selectedComponent.id,
-            nodes: selectedNodes,
-        }, transforms);
-        if (!commands) return false;
-        if (commands.length === 0) return true;
-        const nodeById = new Map(selectedNodes.map((node) => [node.id, node]));
-        const interaction = source || (commands.length === 1 ? "resize" : "group scale");
-        const summary = commands.length === 1
-            ? `canvas ${interaction} ${selectedNodes[0].name || selectedNodes[0].id}`
-            : `canvas ${interaction} ${commands.length} selected nodes`;
-        const applied = await this.applyDisplayNodePropsCommandsNow(commands, summary);
-        if (applied) {
-            this.setDebugAttribute(
-                "data-fairy-editor-canvas-interaction",
-                interaction,
-            );
-            this.setDebugAttribute(
-                "data-fairy-editor-canvas-selection-count",
-                String(commands.length),
-            );
-            this.setDebugAttribute(
-                "data-fairy-editor-canvas-size",
-                commands.map((command) => {
-                    const node = nodeById.get(command.selector.displayNodeId)!;
-                    const size = command.props.size || node;
-                    return `${command.selector.displayNodeId}:${size.width},${size.height}`;
-                }).join("|"),
-            );
-            this.setDebugAttribute(
-                "data-fairy-editor-canvas-position",
-                commands.map((command) => {
-                    const node = nodeById.get(command.selector.displayNodeId)!;
-                    const position = command.props.position || node;
-                    return `${command.selector.displayNodeId}:${position.x},${position.y}`;
-                }).join("|"),
-            );
-        }
-        return applied;
     }
 
     private onAlignToolbarAction(mode: DesktopCanvasAlignmentMode): void {
@@ -1700,7 +1409,7 @@ export class EditorShell {
                 mode,
                 this.selectedDisplayNodeId,
             ).map((node) => ({ ...node, nodeId: node.id }));
-            const applied = await this.applyDesktopNodeTransforms(transforms, `align ${mode}`);
+            const applied = await this.documentAuthoring.applyTransforms(transforms, `align ${mode}`);
             if (applied) {
                 this.setDebugAttribute(
                     "data-fairy-editor-canvas-align",
@@ -1775,7 +1484,7 @@ export class EditorShell {
                 mode,
                 options,
             ).map((node) => ({ ...node, nodeId: node.id }));
-            const applied = await this.applyDesktopNodeTransforms(transforms, `arrange ${mode}`);
+            const applied = await this.documentAuthoring.applyTransforms(transforms, `arrange ${mode}`);
             if (applied) {
                 this.setDebugAttribute(
                     "data-fairy-editor-canvas-arrange",
@@ -1785,159 +1494,6 @@ export class EditorShell {
             }
             return applied;
         });
-    }
-
-    private async applyDesktopNodeRotations(
-        transforms: RuntimePreviewNodeRotation[],
-    ): Promise<boolean> {
-        const selectedPackage = this.getSelectedPackage();
-        const selectedComponent = this.getSelectedComponent();
-        if (!selectedPackage || !selectedComponent) return false;
-        const selectedNodes = this.getSelectedDisplayNodes();
-        if (selectedNodes.length !== this.selectedDisplayNodeIds.length) return false;
-        const commands = createDesktopCanvasRotationCommands({
-            packageId: selectedPackage.id,
-            componentResourceId: selectedComponent.id,
-            nodes: selectedNodes,
-        }, transforms);
-        if (!commands) return false;
-        if (commands.length === 0) return true;
-        const nodeById = new Map(selectedNodes.map((node) => [node.id, node]));
-        const interaction = commands.length === 1 ? "rotate" : "group rotate";
-        const summary = commands.length === 1
-            ? `canvas rotate ${selectedNodes[0].name || selectedNodes[0].id} to ${commands[0].props.rotation ?? selectedNodes[0].rotation}°`
-            : `canvas group rotate ${commands.length} selected nodes`;
-        const applied = await this.applyDisplayNodePropsCommandsNow(commands, summary);
-        if (applied) {
-            this.setDebugAttribute("data-fairy-editor-canvas-interaction", interaction);
-            this.setDebugAttribute("data-fairy-editor-canvas-selection-count", String(commands.length));
-            this.setDebugAttribute(
-                "data-fairy-editor-canvas-rotation",
-                commands.map((command) => {
-                    const node = nodeById.get(command.selector.displayNodeId)!;
-                    return `${command.selector.displayNodeId}:${command.props.rotation ?? node.rotation}`;
-                }).join("|"),
-            );
-            this.setDebugAttribute(
-                "data-fairy-editor-canvas-position",
-                commands.map((command) => {
-                    const node = nodeById.get(command.selector.displayNodeId)!;
-                    const position = command.props.position || node;
-                    return `${command.selector.displayNodeId}:${position.x},${position.y}`;
-                }).join("|"),
-            );
-        }
-        return applied;
-    }
-
-    private async applyDesktopNodePivot(transform: RuntimePreviewNodePivot): Promise<boolean> {
-        const selectedPackage = this.getSelectedPackage();
-        const selectedComponent = this.getSelectedComponent();
-        const selectedNode = this.getSelectedDisplayNode();
-        if (
-            !selectedPackage
-            || !selectedComponent
-            || !selectedNode
-            || selectedNode.id !== transform.nodeId
-            || selectedNode.type === "GGroup"
-            || selectedNode.type === "GLoader3D"
-        ) {
-            return false;
-        }
-        const position = { x: Math.round(transform.x), y: Math.round(transform.y) };
-        const pivot = { x: transform.pivotX, y: transform.pivotY };
-        const positionChanged = selectedNode.x !== position.x || selectedNode.y !== position.y;
-        const pivotChanged = selectedNode.pivotX !== pivot.x || selectedNode.pivotY !== pivot.y;
-        if (!positionChanged && !pivotChanged) return true;
-        const command: SetDisplayNodePropsCommand = {
-            kind: "setDisplayNodeProps",
-            selector: {
-                packageId: selectedPackage.id,
-                componentResourceId: selectedComponent.id,
-                displayNodeId: selectedNode.id,
-            },
-            props: {
-                ...(positionChanged ? { position } : {}),
-                ...(pivotChanged ? { pivot } : {}),
-            },
-        };
-        const applied = await this.applyDisplayNodePropsCommandsNow(
-            [command],
-            `canvas pivot ${selectedNode.name || selectedNode.id} to ${pivot.x},${pivot.y}`,
-        );
-        if (applied) {
-            this.setDebugAttribute("data-fairy-editor-canvas-interaction", "pivot");
-            this.setDebugAttribute(
-                "data-fairy-editor-canvas-pivot",
-                `${selectedNode.id}:${pivot.x},${pivot.y}@${position.x},${position.y}`,
-            );
-        }
-        return applied;
-    }
-
-    private async applyDesktopGraphPoints(transform: RuntimePreviewGraphPoints): Promise<boolean> {
-        const selectedPackage = this.getSelectedPackage();
-        const selectedComponent = this.getSelectedComponent();
-        const selectedNode = this.getSelectedDisplayNode();
-        const graph = selectedNode?.graphProperties;
-        if (
-            !selectedPackage
-            || !selectedComponent
-            || !selectedNode
-            || selectedNode.id !== transform.nodeId
-            || selectedNode.type !== "GGraph"
-            || (graph?.graphType !== 3 && graph?.graphType !== 4)
-        ) {
-            return false;
-        }
-        const polygonPoints = transform.points;
-        const regularDistances = transform.distances;
-        if (graph.graphType === 3 && (
-            !graph.points
-            || !polygonPoints
-            || polygonPoints.length !== graph.points.length
-            || polygonPoints.length < 6
-            || polygonPoints.length % 2 !== 0
-            || polygonPoints.some((value) => !Number.isFinite(value))
-        )) return false;
-        if (graph.graphType === 4 && (
-            !regularDistances
-            || regularDistances.length !== graph.sides
-            || regularDistances.some((value) => !Number.isFinite(value) || value < 0 || value > 1)
-        )) return false;
-        const before = graph.graphType === 3 ? graph.points! : Array.from({ length: graph.sides }, (_, index) => graph.distances?.[index] ?? 1);
-        const after = graph.graphType === 3 ? polygonPoints! : regularDistances!;
-        if (after.every((value, index) => value === before[index])) return true;
-        const command: SetDisplayNodePropsCommand = {
-            kind: "setDisplayNodeProps",
-            selector: {
-                packageId: selectedPackage.id,
-                componentResourceId: selectedComponent.id,
-                displayNodeId: selectedNode.id,
-            },
-            props: {
-                graphProperties: {
-                    ...structuredClone(graph),
-                    ...(graph.graphType === 3 ? { points: [...polygonPoints!] } : { distances: [...regularDistances!] }),
-                },
-            },
-        };
-        const applied = await this.applyDisplayNodePropsCommandsNow(
-            [command],
-            `canvas ${graph.graphType === 3 ? "polygon point" : "regular polygon radius"} ${selectedNode.name || selectedNode.id}`,
-        );
-        if (applied) {
-            const changedIndex = after.findIndex((value, index) => value !== before[index]);
-            const pointIndex = graph.graphType === 3 ? Math.max(0, Math.floor(changedIndex / 2)) : Math.max(0, changedIndex);
-            this.setDebugAttribute("data-fairy-editor-canvas-interaction", "graph-point");
-            this.setDebugAttribute(
-                "data-fairy-editor-canvas-graph-point",
-                graph.graphType === 3
-                    ? `${selectedNode.id}:${pointIndex}:${polygonPoints![pointIndex * 2]},${polygonPoints![pointIndex * 2 + 1]}`
-                    : `${selectedNode.id}:${pointIndex}:distance=${regularDistances![pointIndex]}`,
-            );
-        }
-        return applied;
     }
 
     private sameDisplayNodeSelection(left: string[], right: string[]): boolean {
@@ -2360,7 +1916,7 @@ export class EditorShell {
         if (!nudge) return;
 
         event.preventDefault();
-        this.queueSelectedNodeNudge(nudge.x, nudge.y);
+        this.documentAuthoring.nudgeSelectedNodes(nudge.x, nudge.y);
     }
 
     private toggleDesktopGridSnap(): void {
