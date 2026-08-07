@@ -17,6 +17,7 @@ const browserPluginDialogSource = readSource("src/editor/dialogs/BrowserPluginDi
 const browserWorkspaceDialogSource = readSource("src/editor/dialogs/BrowserWorkspaceDialog.ts");
 const projectImportDialogSource = readSource("src/editor/dialogs/ProjectImportDialog.ts");
 const resourceHealthDialogSource = readSource("src/editor/dialogs/ResourceHealthDialog.ts");
+const resourceHealthModuleSource = readSource("src/editor/modules/ResourceHealthModule.ts");
 const editorMenuControllerSource = readSource("src/editor/ui/EditorMenuController.ts");
 const resourceAuthoringControllerSource = readSource("src/editor/ui/ResourceAuthoringController.ts");
 const projectTreeInteractionSource = readSource("src/editor/ui/ProjectTreeInteractionController.ts");
@@ -48,6 +49,7 @@ const editorShell = [
     readSource("src/editor/dialogs/ReplaceObjectDialog.ts"),
     readSource("src/editor/dialogs/ResourceEditors.ts"),
     resourceHealthDialogSource,
+    resourceHealthModuleSource,
     readSource("src/editor/dialogs/TextGraphPropertyEditors.ts"),
     readSource("src/editor/dialogs/TimelineItemEditor.ts"),
     readSource("src/editor/ui/EditorFormControls.ts"),
@@ -856,7 +858,7 @@ const shellChecks = [
     "private showPopup(anchor: fgui.GObject): void",
     "private toggleTooltips(anchor: fgui.GObject): void",
     "resolvePublishedTestViewport(",
-    'openResourceHealthDialog({',
+    "showResourceHealthDialog(shell.createResourceHealthDialogContext())",
     "repairResourceHealthIssue(issue: ResourceHealthIssue, entries: ResourceHealthEntry[]): void",
     "prepareRemoveResources(project, entries)",
     "private prepareResourceHealthConflictRename(",
@@ -1610,7 +1612,7 @@ assert(
     "Snapshot refresh must restore Library drag handlers after resetting the tree.",
 );
 assert(
-    editorShellSource.includes("if (child.isFolder) {\n                    const nested = find(child);"),
+    /if \(child\.isFolder\) \{\r?\n\s+const nested = find\(child\);/.test(editorShellSource),
     "Hierarchy selection restore must not read leaf-node children.",
 );
 assert(

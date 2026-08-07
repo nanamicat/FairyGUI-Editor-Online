@@ -1,5 +1,7 @@
-import { EditorShell } from "./editor/EditorShell";
+import { createFairyGuiEditorWorkbench } from "./editor/product/FairyGuiEditorProduct";
 import { registerEditorUiExtensions } from "./editor/ui/EditorUiExtensions";
+import type { EditorWorkbench } from "./editor/workbench/EditorWorkbench";
+import type { FairyGuiEditorWorkbenchHost } from "./editor/workbench/EditorShellModuleHost";
 
 const { regClass } = Laya;
 
@@ -11,7 +13,7 @@ let standaloneMainScript: Main | undefined;
 
 @regClass(MAIN_SCENE_SCRIPT_ASSET_ID)
 export class Main extends Laya.Script {
-    private editorShell?: EditorShell;
+    private editorWorkbench?: EditorWorkbench<FairyGuiEditorWorkbenchHost>;
     private started = false;
 
     onStart(): void {
@@ -23,8 +25,10 @@ export class Main extends Laya.Script {
     }
 
     onDestroy(): void {
-        this.editorShell?.dispose();
-        this.editorShell = undefined;
+        void this.editorWorkbench?.dispose().catch((error) => {
+            console.error("[FairyGUI Editor] Editor workbench disposal failed.", error);
+        });
+        this.editorWorkbench = undefined;
     }
 
     private bootFairyGui(): void {
@@ -104,9 +108,20 @@ export class Main extends Laya.Script {
         const mainView = fgui.UIPackage.createObject("Builder", "MainView").asCom;
         mainView.makeFullScreen();
         fgui.GRoot.inst.addChild(mainView);
-        this.editorShell = new EditorShell(mainView);
-
-        console.log("[FairyGUI Editor] Editor packages loaded and Builder/MainView shell is mounted.");
+        const workbench = createFairyGuiEditorWorkbench(mainView);
+        this.editorWorkbench = workbench;
+        void workbench.start().then(() => {
+            if (this.editorWorkbench !== workbench) return;
+            console.log("[FairyGUI Editor] Editor product modules activated and Builder/MainView shell is mounted.");
+        }).catch((error) => {
+            console.error("[FairyGUI Editor] Editor workbench activation failed.", error);
+            if (this.editorWorkbench === workbench) {
+                this.editorWorkbench = undefined;
+                void workbench.dispose().catch((disposeError) => {
+                    console.error("[FairyGUI Editor] Failed to clean up the inactive workbench.", disposeError);
+                });
+            }
+        });
     }
 
     private showRuntimeProbe(message: string): void {

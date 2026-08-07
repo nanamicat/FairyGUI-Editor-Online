@@ -51,9 +51,7 @@ import {
 import { showPackageGroupsEditor as openPackageGroupsEditor } from "./dialogs/PackageGroupsEditor";
 import { showPublishSettingsEditor as openPublishSettingsEditor } from "./dialogs/PublishSettingsEditor";
 import { showReplaceObjectDialog as openReplaceObjectDialog } from "./dialogs/ReplaceObjectDialog";
-import {
-    showResourceHealthDialog as openResourceHealthDialog,
-} from "./dialogs/ResourceHealthDialog";
+import type { ResourceHealthDialogContext } from "./dialogs/ResourceHealthDialog";
 import type {
     BrowserSaveResult,
     BrowserSaveTarget,
@@ -130,14 +128,14 @@ import {
     type EditorShortcutId,
 } from "./runtime/EditorPreferences";
 import { PublishedTestController } from "./runtime/PublishedTestController";
-import {
+import type {
     RuntimePreviewController,
-    type RuntimePreviewCanvasSettings,
-    type RuntimePreviewGraphPoints,
-    type RuntimePreviewNodePivot,
-    type RuntimePreviewNodePosition,
-    type RuntimePreviewNodeRotation,
-    type RuntimePreviewNodeTransform,
+    RuntimePreviewCanvasSettings,
+    RuntimePreviewGraphPoints,
+    RuntimePreviewNodePivot,
+    RuntimePreviewNodePosition,
+    RuntimePreviewNodeRotation,
+    RuntimePreviewNodeTransform,
 } from "./runtime/RuntimePreviewController";
 import {
     WorkspaceLifecycleController,
@@ -203,6 +201,11 @@ import {
     type LibraryItemData,
 } from "./ui/ProjectTreeInteractionController";
 import { ResourceAuthoringController } from "./ui/ResourceAuthoringController";
+import type {
+    EditorShellModuleHost,
+    EditorToolMenuContribution,
+} from "./workbench/EditorShellModuleHost";
+import type { AuthoringPreviewControllerFactory } from "./modules/AuthoringPreviewModule";
 
 let pendingEditorShellDisposal: Promise<void> = Promise.resolve();
 
@@ -285,6 +288,7 @@ export class EditorShell {
     private actionMenu: fgui.PopupMenu | null = null;
     private readonly actionUnbinders: Array<() => void> = [];
     private readonly editorActions = new Map<EditorActionId, () => void>();
+    private readonly toolMenuContributions = new Map<string, EditorToolMenuContribution>();
     private commandLastResult: EditorCommandResult | null = null;
     private authoringJsonDialog: fgui.Window | null = null;
     private editorPreferences: EditorPreferences = createDefaultEditorPreferences();
@@ -353,7 +357,7 @@ export class EditorShell {
         return selection?.kind === "folder" ? selection : null;
     }
 
-    constructor(mainView: fgui.GComponent) {
+    constructor(mainView: fgui.GComponent, createAuthoringPreview: AuthoringPreviewControllerFactory) {
         this.mainView = mainView;
         this.projectImportDialog = new ProjectImportDialog(mainView, {
             applyImport: (picked, label) => this.applyProjectImport(picked, label),
@@ -637,7 +641,7 @@ export class EditorShell {
         this.restoreDesktopLayoutState();
         this.restoreResourceViewState();
         const documentContainer = this.requireChild(this.panels.document, "docContainer").asCom;
-        this.runtimePreview = new RuntimePreviewController(
+        this.runtimePreview = createAuthoringPreview(
             documentContainer,
             documentContainer,
             (nodeIds, primaryNodeId) => this.onPreviewNodesSelected(nodeIds, primaryNodeId),
@@ -700,6 +704,16 @@ export class EditorShell {
         this.setStatus("Loading project snapshot.");
     }
 
+    createModuleHost(): EditorShellModuleHost {
+        return Object.freeze({
+            registerToolMenuContribution: (contribution: EditorToolMenuContribution) => (
+                this.registerToolMenuContribution(contribution)
+            ),
+            isLiveSession: () => this.commandAdapter.getSessionState().liveSession,
+            createResourceHealthDialogContext: () => this.createResourceHealthDialogContext(),
+        });
+    }
+
     dispose(): void {
         if (this.disposed) return;
         this.disposed = true;
@@ -712,6 +726,7 @@ export class EditorShell {
         this.documentWorkspace.dispose();
         this.resourceAuthoring.dispose();
         this.unbindActions();
+        this.toolMenuContributions.clear();
         const closeLiveSession = this.authoringOperationQueue.then(() => this.liveSessionBridge.reset());
         pendingEditorShellDisposal = closeLiveSession.then(
             (): void => {},
@@ -3069,10 +3084,16 @@ export class EditorShell {
         this.addMenuItem(menu, "desktopMenuWorkspace", "浏览器工作区...", () => {
             this.showBrowserWorkspaceSelector();
         });
-        const resourceHealth = this.addMenuItem(menu, "desktopMenuResourceHealth", "资源健康…", () => {
-            this.showResourceHealthDialog();
-        });
-        setEditorFormActionEnabled(resourceHealth, this.commandAdapter.getSessionState().liveSession);
+        for (const contribution of this.toolMenuContributions.values()) {
+            const item = this.addMenuItem(menu, contribution.itemName, contribution.title, () => {
+                void Promise.resolve(contribution.run()).catch((error) => {
+                    this.setStatus(
+                        `工具模块 ${contribution.id} 执行失败：${error instanceof Error ? error.message : String(error)}`,
+                    );
+                });
+            });
+            setEditorFormActionEnabled(item, contribution.isEnabled?.() ?? true);
+        }
         const pluginContributions = this.browserPluginHost.menuContributions();
         if (pluginContributions.length > 0) {
             menu.addSeperator();
@@ -3340,8 +3361,8 @@ export class EditorShell {
         );
     }
 
-    private showResourceHealthDialog(): void {
-        openResourceHealthDialog({
+    private createResourceHealthDialogContext(): ResourceHealthDialogContext {
+        return {
             getWorkingProject: () => this.liveSessionBridge.getWorkingProject(),
             getActiveDialog: () => this.authoringJsonDialog,
             setActiveDialog: (dialog) => { this.authoringJsonDialog = dialog; },
@@ -3367,7 +3388,24 @@ export class EditorShell {
             setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
             setStatus: (message) => this.setStatus(message),
             eventOwner: this,
-        });
+        };
+    }
+
+    private registerToolMenuContribution(contribution: EditorToolMenuContribution): () => void {
+        if (this.disposed) throw new Error("Cannot register a tool contribution after the editor shell was disposed.");
+        if (!/^[a-z][a-z0-9.-]+$/.test(contribution.id)) {
+            throw new Error(`Invalid editor tool contribution id: ${contribution.id}.`);
+        }
+        if (this.toolMenuContributions.has(contribution.id)) {
+            throw new Error(`Editor tool contribution ${contribution.id} is already registered.`);
+        }
+        const registered = { ...contribution };
+        this.toolMenuContributions.set(registered.id, registered);
+        return () => {
+            if (this.toolMenuContributions.get(registered.id) === registered) {
+                this.toolMenuContributions.delete(registered.id);
+            }
+        };
     }
 
     private showHelpMenu(anchor: fgui.GObject): void {
