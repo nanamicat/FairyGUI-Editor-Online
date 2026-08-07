@@ -779,7 +779,7 @@ const shellChecks = [
     "data-fairy-editor-transaction-remove-component-confirmation",
     "data-fairy-editor-transaction-move-component-confirmation",
     "data-fairy-editor-preview-projection",
-    "private toggleHierarchyExpansion(): void",
+    "toggleHierarchyExpansion(): void",
     "configureHierarchyTree(tree: fgui.GTree): void",
     "private onHierarchyDragStart(",
     "private onHierarchyDragMove(",
@@ -916,6 +916,23 @@ const shellChecks = [
 for (const snippet of shellChecks) {
     assert(editorShell.includes(snippet), `Missing UI interaction wiring: ${snippet}`);
 }
+for (const snippet of [
+    "populateHierarchy(): void",
+    "refreshProjectSearch(): void",
+    "refreshProjectReferences(): void",
+    "toggleHierarchyExpansion(): void",
+    "private bindViewActions(): void",
+]) {
+    assert(projectExplorerModuleSource.includes(snippet), `Project Explorer must own presentation wiring: ${snippet}`);
+}
+for (const snippet of [
+    "private populateHierarchyFromSnapshot(): void",
+    "private refreshProjectSearch(): void",
+    "private refreshProjectReferences(): void",
+    "private toggleHierarchyExpansion(): void",
+]) {
+    assert(!editorShellSource.includes(snippet), `EditorShell still owns Project Explorer presentation: ${snippet}`);
+}
 for (const removedProductDiagnostic of [
     "showCapabilitySummary",
     "showCommandHistory",
@@ -1050,7 +1067,7 @@ for (const snippet of [
     '["资源", "library", "panel_lib"]',
     '["收藏", "favorites", "panel_favorite"]',
     '["搜索", "search", "panel_search"]',
-    'this.libraryDock.getChild("tab2")',
+    'this.chrome.libraryDock.getChild("tab2")',
     "library.width * 137 / 283",
     "slider.y - list.y",
 ]) {
@@ -1059,7 +1076,7 @@ for (const snippet of [
 for (const snippet of [
     'btnTwoColumn").asButton.selected = false',
     'list.visible = separator.visible = slider.visible = twoColumn',
-    'this.listenClick(this.panels.library.getChild("btnCollapseAll"), this.collapseLibrary)',
+    'this.listenClick(this.chrome.panels.library.getChild("btnCollapseAll"), this.collapseLibrary)',
     'data-fairy-editor-library-columns',
 ]) {
     assert(editorShell.includes(snippet), `Desktop single-column LibraryView behavior is missing: ${snippet}`);
@@ -1644,7 +1661,7 @@ assert(
     "Snapshot refresh must restore Library drag handlers after resetting the tree.",
 );
 assert(
-    /if \(child\.isFolder\) \{\r?\n\s+const nested = find\(child\);/.test(editorShellSource),
+    /if \(child\.isFolder\) \{\r?\n\s+const nested = find\(child\);/.test(projectExplorerModuleSource),
     "Hierarchy selection restore must not read leaf-node children.",
 );
 assert(

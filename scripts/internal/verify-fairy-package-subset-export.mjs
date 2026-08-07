@@ -26,6 +26,7 @@ for (const packageName of ["core", "functions", "backend", "cli"]) {
 }
 const editorShellSource = [
     readFileSync("src/editor/EditorShell.ts", "utf8"),
+    readFileSync("src/editor/modules/ProjectTransferModules.ts", "utf8"),
     readFileSync("src/editor/ui/ResourceAuthoringController.ts", "utf8"),
 ].join("\n");
 for (const snippet of [
@@ -33,7 +34,7 @@ for (const snippet of [
     "Export Selected Resources...",
     "exportFairyPackageResources(",
 ]) {
-    assert(editorShellSource.includes(snippet), `EditorShell must wire ${snippet}`);
+    assert(editorShellSource.includes(snippet), `Editor product must wire ${snippet}`);
 }
 
 const transferBackend = {

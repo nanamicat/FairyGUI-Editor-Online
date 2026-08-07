@@ -13,7 +13,6 @@ import {
 import {
     createDisplayNodeClipboard,
     getProjectResourceUrl,
-    parseProjectResourceUrl,
     prepareAddPrimitiveDisplayNode,
     prepareAdjustDisplayNodeDepth,
     prepareDetachDisplayNodes,
@@ -25,12 +24,10 @@ import {
     prepareRenameDisplayNode,
     prepareReplaceDisplayNodes,
     prepareUngroupDisplayNodes,
-    queryProjectResourceReferences,
     readComponentProperties,
     type DisplayNodeClipboard,
     type HighRiskTransactionPreparation,
-    type PrimitiveDisplayNodeKind,
-    type ProjectResourceReference
+    type PrimitiveDisplayNodeKind
 } from "./commands/HighRiskAuthoringTransactions";
 import { requestEditorTextInput } from "./dialogs/EditorDialogs";
 import { showBrowserWorkspaceDialog as openBrowserWorkspaceDialog } from "./dialogs/BrowserWorkspaceDialog";
@@ -92,10 +89,6 @@ import {
     getDesktopDocumentTabId,
     type DesktopDocumentTab,
 } from "./runtime/DesktopDocumentTabs";
-import {
-    searchDesktopProject,
-    type DesktopProjectSearchResult,
-} from "./runtime/DesktopProjectSearch";
 import {
     EDITOR_SHORTCUTS,
     EDITOR_PREFERENCES_STORAGE_KEY,
@@ -159,27 +152,6 @@ import { downloadBrowserFile } from "./services/BrowserDownload";
 const EDITOR_REPOSITORY_URL = "https://github.com/OpenFairyGUI/FairyGUI-Editor-Online";
 const FAIRYGUI_WEBSITE_URL = "https://fairygui.com/";
 
-const DISPLAY_NODE_ICONS: Record<string, string> = {
-    GButton: "icon_button",
-    GComboBox: "icon_combobox",
-    GComponent: "icon_component",
-    GGraph: "icon_graph",
-    GGroup: "icon_group",
-    GImage: "icon_image",
-    GLabel: "icon_label",
-    GList: "icon_list",
-    GLoader: "icon_loader",
-    GLoader3D: "icon_loader3D",
-    GMovieClip: "icon_movieclip",
-    GProgressBar: "icon_progressbar",
-    GRichTextField: "icon_richtext",
-    GScrollBar: "icon_scrollbar",
-    GSlider: "icon_slider",
-    GTextField: "icon_text",
-    GTextInput: "icon_inputtext",
-    GTree: "icon_list",
-};
-
 export class EditorShell {
     private readonly mainView: fgui.GComponent;
     private readonly chrome: EditorShellChrome;
@@ -195,9 +167,7 @@ export class EditorShell {
     private readonly hierarchyDock: fgui.GComponent;
     private readonly favoritesView: fgui.GComponent;
     private readonly searchView: fgui.GComponent;
-    private readonly searchInput: fgui.GTextInput;
     private readonly referenceView: fgui.GComponent;
-    private readonly referenceInput: fgui.GTextInput;
     private readonly transitionListView: fgui.GComponent;
     private readonly testView: fgui.GComponent;
     private readonly publishedTest: PublishedTestController;
@@ -216,18 +186,14 @@ export class EditorShell {
     private editorPreferences: EditorPreferences = createDefaultEditorPreferences();
     private readonly desktopLayout: DesktopLayoutController;
     private readonly libraryController: EditorProjectExplorer["library"];
+    private readonly projectExplorer: EditorProjectExplorer;
     private readonly unbindProjectExplorer: () => void;
     private readonly authoringDialogs: EditorAuthoringDialogs["controller"];
     private readonly unbindAuthoringDialogs: () => void;
     private readonly resourceAuthoring: EditorResourceAuthoring["controller"];
     private readonly unbindResourceAuthoring: () => void;
     private readonly editorMenus: EditorMenuController;
-    private hierarchyExpanded = true;
     private hierarchyKeyboardActive = false;
-    private hierarchySearchQuery = "";
-    private readonly hierarchyHiddenNodes = new Map<string, Set<string>>();
-    private readonly hierarchyRelationsDisabled = new Set<string>();
-    private readonly hierarchyShowAllInvisibles = new Set<string>();
     private readonly treeInteraction: EditorProjectExplorer["treeInteraction"];
     private desktopSnapEnabled = false;
     private canvasSettings: RuntimePreviewCanvasSettings = {
@@ -241,11 +207,9 @@ export class EditorShell {
     };
     private desktopPanToolEnabled = false;
     private desktopObjectTool: PrimitiveDisplayNodeKind | null = null;
-    private libraryLinked = false;
     private activeBranch = "";
     private activeLanguagePath = "";
     private displayNodeClipboard: DisplayNodeClipboard | null = null;
-    private searchResults: DesktopProjectSearchResult[] = [];
     private consoleEntries: DesktopConsoleEntry[] = [];
     private customArrangePanel: EditorCustomArrangePanel | null = null;
     private customArrangeSelectionIds: string[] = [];
@@ -331,6 +295,7 @@ export class EditorShell {
         this.resourcePreview = projectExplorer.resourcePreview;
         this.treeInteraction = projectExplorer.treeInteraction;
         this.libraryController = projectExplorer.library;
+        this.projectExplorer = projectExplorer;
         this.unbindProjectExplorer = projectExplorer.bind({
             editPackageGroups: () => this.showPackageGroupsEditor(),
             applyLibrarySelection: (data, preserve) => this.applyLibrarySelection(data, preserve),
@@ -343,9 +308,7 @@ export class EditorShell {
             showLibraryContextMenu: (cell, data) => this.showLibraryContextMenu(cell, data),
             showHierarchyContextMenu: (cell, data) => this.showHierarchyContextMenu(cell, data),
             openLibraryItem: (data) => this.openLibraryItem(data),
-            selectHierarchyNode: (data) => this.selectHierarchyDragNode(data),
             toggleHierarchyNodeLock: (data) => this.toggleHierarchyNodeLock(data),
-            toggleHierarchyNodeHidden: (data) => this.toggleHierarchyNodeHidden(data),
             applyLibraryDrop: (state, point) => this.applyLibraryDrop(state, point),
             applyHierarchyDrop: (state, target) => this.applyHierarchyDrop(state, target),
             getComponentPreviewEnabled: () => this.editorPreferences.componentPreviewEnabled,
@@ -353,16 +316,33 @@ export class EditorShell {
                 ...this.editorPreferences,
                 componentPreviewEnabled: enabled,
             }),
+            activateDocument: (packageId, componentId) => this.activateDocumentTab({ packageId, componentId }),
+            documentSelectionChanged: () => {
+                this.clearResourceSelection();
+                this.populateInspectorFromSnapshot();
+                this.runtimePreview.selectNodes(this.selectedDisplayNodeIds, this.selectedDisplayNodeId);
+                this.layoutInspectorLines();
+            },
+            deactivateTimelineKeyboard: () => this.controllerTimeline.setKeyboardActive(false),
+            showLeftPanel: (mode, ensureVisible) => {
+                if (ensureVisible) {
+                    this.showEditorWorkspace();
+                    if (!this.leftDockVisible) {
+                        this.leftDockVisible = true;
+                        this.saveDesktopLayoutState();
+                    }
+                }
+                this.leftTopPanelMode = mode;
+            },
+            setTransientStatus: (message) => this.setTransientStatus(message),
         });
         this.inspectorCommandPanel = inspector;
         this.unbindInspectorActions = inspector.bindActions((action) => this.onInspectorPanelAction(action));
         this.favoritesView = chrome.favoritesView;
         this.searchView = chrome.searchView;
-        this.searchInput = chrome.searchInput;
         this.libraryDock = chrome.libraryDock;
         this.hierarchyDock = chrome.hierarchyDock;
         this.referenceView = chrome.referenceView;
-        this.referenceInput = chrome.referenceInput;
         this.transitionListView = chrome.transitionListView;
         this.testView = chrome.testView;
         this.publishedTest = new PublishedTestController(this.testView, {
@@ -427,7 +407,7 @@ export class EditorShell {
             addMenuItem: (menu, name, title, handler) => this.addMenuItem(menu, name, title, handler),
             showActionMenu: (menu, anchor, source, status) => this.showActionMenu(menu, anchor, source, status),
             showSelectedResourceInspector: () => this.showSelectedResourceInspector(),
-            showProjectReferences: () => this.showProjectReferencesForCurrentSelection(),
+            showProjectReferences: () => this.projectExplorer.showProjectReferencesForCurrentSelection(),
             removeSelectedComponent: () => this.requestAuthoringRemoveComponent(),
             runEditorAction: (action) => this.runEditorAction(action),
         });
@@ -445,7 +425,7 @@ export class EditorShell {
                 timelineVisible: this.timelineVisible,
                 selectedTransition: Boolean(this.controllerTimeline.selectedTransitionName),
                 selectedTimelineItem: this.controllerTimeline.getSelectedTimelineItemIndex() >= 0,
-                hierarchyExpanded: this.hierarchyExpanded,
+                hierarchyExpanded: this.projectExplorer.hierarchyExpanded,
                 leftTopPanelMode: this.leftTopPanelMode,
                 leftDockVisible: this.leftDockVisible,
                 inspectorDockVisible: this.desktopLayout.inspectorDockVisible,
@@ -573,7 +553,7 @@ export class EditorShell {
             const workspace = this.projectStorage.getWorkspaceName();
             localStorage.setItem(this.getWorkspaceLocalStorageKey("fairygui-editor-online.resource-view.v1"), JSON.stringify({
                 ...this.libraryController.getViewState(),
-                linked: this.libraryLinked,
+                linked: this.projectExplorer.linked,
                 branch: this.activeBranch,
                 language: this.activeLanguagePath,
                 canvas: this.canvasSettings,
@@ -599,7 +579,7 @@ export class EditorShell {
             const raw = this.readWorkspaceLocalStorage("fairygui-editor-online.resource-view.v1");
             const state = raw ? JSON.parse(raw) as Record<string, unknown> : {};
             this.libraryController.restoreViewState(state);
-            this.libraryLinked = state.linked === true;
+            this.projectExplorer.linked = state.linked === true;
             this.activeBranch = typeof state.branch === "string" ? state.branch : "";
             this.activeLanguagePath = typeof state.language === "string" ? state.language : "";
             if (state.canvas && typeof state.canvas === "object") this.canvasSettings = {
@@ -608,7 +588,6 @@ export class EditorShell {
             };
             this.documentAuthoring.usePerDocumentView = state.canvasPerDocumentZoom === true;
             this.desktopSnapEnabled = state.snapToGrid === true;
-            this.panels.library.getChild("btnSync").asButton.selected = this.libraryLinked;
             this.panels.library.getChild("btnTwoColumn").asButton.selected = state.twoColumn === true;
             this.setDebugAttribute(
                 "data-fairy-editor-resource-view-restore",
@@ -756,7 +735,7 @@ export class EditorShell {
             getLocalPackageIds: () => this.libraryController.getLocalPackageIds(),
             setLocalPackageIds: (ids) => {
                 this.libraryController.setLocalPackageIds(ids);
-                this.populateLibraryFromSnapshot();
+                this.projectExplorer.populateLibrary();
             },
             getActiveDialog: () => this.authoringJsonDialog,
             setActiveDialog: (dialog) => { this.authoringJsonDialog = dialog; },
@@ -769,10 +748,10 @@ export class EditorShell {
 
     private populateStaticData(): void {
         this.populateMenuBar();
-        this.populateFallbackLibrary();
+        this.projectExplorer.populateFallbackLibrary();
         this.populateFallbackDocument();
         this.populateFallbackPreview();
-        this.populateFallbackHierarchy();
+        this.projectExplorer.populateFallbackHierarchy();
         this.renderInspectorLines(["正在打开项目…"]);
     }
 
@@ -841,10 +820,6 @@ export class EditorShell {
         this.toolbar.getChild("tbTest").visible = true;
     }
 
-    private populateFallbackLibrary(): void {
-        this.libraryController.populateFallback();
-    }
-
     private populateFallbackDocument(): void {
         const tabs = this.panels.document.getChild("tabs").asList;
         tabs.removeChildrenToPool();
@@ -859,41 +834,24 @@ export class EditorShell {
         this.panels.preview.getChild("desc").text = "Builder/MainView";
     }
 
-    private populateFallbackHierarchy(): void {
-        const tree = this.panels.hierarchy.getChild("list").asTree;
-        this.treeInteraction.resetTree(tree);
-        this.treeInteraction.configureHierarchyTree(tree);
-        for (const childName of ["menuBar", "toolbar", "LibraryView", "DocumentView", "PreviewView", "HierarchyView", "InspectorView"]) {
-            tree.rootNode.addChild(this.createTreeLeaf(childName, "icon_component"));
-        }
-    }
-
     private refreshProjectViews(
         invalidation: ProjectionInvalidation = "refresh-runtime-preview",
     ): void {
         if (this.disposed) return;
         this.refreshToolbarSettingsSelectors();
-        this.populateLibraryFromSnapshot();
-        this.populateFavoritesFromSnapshot();
+        this.projectExplorer.populateLibrary();
+        this.projectExplorer.populateFavorites();
         this.populateDocumentFromSnapshot();
         if (invalidation === "refresh-runtime-preview") {
             this.populatePreviewFromSnapshot();
         } else {
             this.panels.preview.getChild("desc").text = "Authoring model changed; publish/import a matching runtime package to refresh preview.";
         }
-        this.populateHierarchyFromSnapshot();
+        this.projectExplorer.populateHierarchy();
         this.populateInspectorFromSnapshot();
         this.layoutInspectorLines();
-        this.refreshProjectSearch();
-        if (this.leftTopPanelMode === "reference") this.refreshProjectReferences();
-    }
-
-    private populateLibraryFromSnapshot(): void {
-        this.libraryController.populate();
-    }
-
-    private populateFavoritesFromSnapshot(): void {
-        this.libraryController.populateFavorites();
+        this.projectExplorer.refreshProjectSearch();
+        if (this.leftTopPanelMode === "reference") this.projectExplorer.refreshProjectReferences();
     }
 
     private populateDocumentFromSnapshot(): void {
@@ -952,7 +910,7 @@ export class EditorShell {
     private finishDocumentActivation(documentTab: DesktopDocumentTab): void {
         this.clearResourceSelection();
         this.refreshProjectViews();
-        if (this.libraryLinked) this.locateActiveDocumentInLibrary(false);
+        if (this.projectExplorer.linked) this.projectExplorer.locateActiveDocumentInLibrary(false);
         this.setDebugAttribute("data-fairy-editor-active-document", getDesktopDocumentTabId(documentTab));
     }
 
@@ -1040,10 +998,7 @@ export class EditorShell {
             this.resourcePreview.clear();
             this.updatePreviewDescriptionFromSnapshot();
         }
-        this.runtimePreview.setEditorHiddenNodeIds(this.getHierarchyHiddenNodeIds());
-        this.runtimePreview.setShowAllInvisibleNodes(
-            this.hierarchyShowAllInvisibles.has(this.getHierarchyDocumentKey()),
-        );
+        this.projectExplorer.syncRuntimePreviewPresentation();
         this.runtimePreview.refresh(
             this.projectSnapshot ? this.projectSnapshot.project.id : "",
             selectedPackage ? selectedPackage.name : "",
@@ -1059,28 +1014,6 @@ export class EditorShell {
             ? `${selectedPackage.name}/${selectedComponent.name} ${selectedComponent.width}x${selectedComponent.height}`
             : "No component";
         this.panels.preview.getChild("desc").text = suffix ? `${label} · ${suffix}` : label;
-    }
-
-    private populateHierarchyFromSnapshot(): void {
-        const tree = this.panels.hierarchy.getChild("list").asTree;
-        this.treeInteraction.resetTree(tree);
-        this.treeInteraction.configureHierarchyTree(tree);
-        tree.clearSelection();
-
-        const selectedComponent = this.getSelectedComponent();
-        this.updateHierarchyToolbarState(selectedComponent);
-        if (!selectedComponent) return;
-
-        const scopedIds = new Set(this.getScopedDisplayNodeIds(selectedComponent));
-        const visibleIds = this.getHierarchySearchVisibleIds(selectedComponent, scopedIds);
-        const groupPath = this.getActiveGroupPath(selectedComponent);
-        this.appendHierarchyNodes(
-            tree.rootNode,
-            selectedComponent,
-            groupPath[groupPath.length - 1] || "",
-            visibleIds,
-        );
-        this.selectCurrentHierarchyNode(tree);
     }
 
     private populateInspectorFromSnapshot(): void {
@@ -1496,7 +1429,7 @@ export class EditorShell {
     }
 
     private syncDisplayNodeSelectionViews(): void {
-        this.populateHierarchyFromSnapshot();
+        this.projectExplorer.populateHierarchy();
         this.populateInspectorFromSnapshot();
         this.runtimePreview.selectNodes(this.selectedDisplayNodeIds, this.selectedDisplayNodeId);
         this.layoutInspectorLines();
@@ -1594,7 +1527,7 @@ export class EditorShell {
         register(["menu:file", "workspace:showPanel"], () => this.showBrowserWorkspaceSelector());
         register(["menu:resource"], () => this.showSelectedResourceInspector());
         register(["menu:tools"], () => this.openProjectSettingsDialog());
-        register(["menu:view", "hierarchy:expand"], () => this.toggleHierarchyExpansion());
+        register(["menu:view", "hierarchy:expand"], () => this.projectExplorer.toggleHierarchyExpansion());
         register(["toolbar:canvasSettings"], () => this.showCanvasSettings());
         register(["toolbar:branchSettings", "toolbar:languageSettings"], () => this.openProjectSettingsDialog());
         register(["toolbar:test"], () => this.publishedTest.start());
@@ -1613,7 +1546,7 @@ export class EditorShell {
         register(["toolbar:createSlider"], () => this.authoringDialogs.showComponentTemplate("slider"));
         register(["toolbar:createBitmapFont"], () => this.resourceAuthoring.showCreateBitmapFontDialog());
         register(["toolbar:createMovieClip"], () => this.resourceAuthoring.showCreateMovieClipDialog());
-        register(["projectSearch"], () => this.showProjectSearch());
+        register(["projectSearch"], () => this.projectExplorer.showProjectSearch());
         register(["undo"], () => { if (this.commandAdapter.canUndo()) void this.undoCommand(); });
         register(["redo"], () => { if (this.commandAdapter.canRedo()) void this.redoCommand(); });
         register(["nextDocument"], () => { if (this.documentAuthoring.count > 1) this.cycleDocumentTab(1); });
@@ -1649,8 +1582,8 @@ export class EditorShell {
             else this.openSelectedGroup() || this.openReferencedComponent();
         });
         register(["toggleGrid"], () => this.toggleDesktopGridSnap());
-        register(["showLibrary"], () => this.showLibraryPanel());
-        register(["showFavorites"], () => this.showFavoritesPanel());
+        register(["showLibrary"], () => this.projectExplorer.showLibraryPanel());
+        register(["showFavorites"], () => this.projectExplorer.showFavoritesPanel());
         register(["toggleTimeline"], () => this.toggleTimeline());
         register(["toggleConsole"], () => this.toggleDesktopConsole());
     }
@@ -1670,26 +1603,9 @@ export class EditorShell {
         this.listenClick(this.statusLine, this.showDesktopConsole);
         this.listenClick(this.consoleView.getChild("btnClear"), this.clearDesktopConsole);
         this.listenClick(this.consoleView.getChild("btnCopy"), this.copyDesktopConsole);
-        this.listenEvent(this.libraryDock.getChild("tab2"), fgui.Events.CLICK_ITEM, this.onLibraryDockTabClick);
         this.listenClick(this.panels.library.getChild("btnRefresh"), this.onAction, ["library:refresh"]);
-        this.listenClick(this.panels.library.getChild("btnLocate"), this.locateActiveDocumentInLibrary, [true]);
-        this.listenEvent(this.panels.library.getChild("btnSync"), fgui.Events.STATE_CHANGED, this.onLibrarySyncChanged);
-        this.listenClick(this.panels.hierarchy.getChild("expand"), this.onAction, ["hierarchy:expand"]);
-        this.listenClick(this.panels.hierarchy.getChild("status"), this.toggleAllHierarchyVisibility);
         this.listenClick(this.panels.hierarchy.getChild("lock"), this.toggleAllHierarchyLocks);
         this.listenClick(this.panels.hierarchy.getChild("rename"), this.showHierarchyRenameDialog);
-        this.listenClick(this.panels.hierarchy.getChild("warnings"), this.selectDuplicateHierarchyNames);
-        this.listenClick(this.panels.hierarchy.getChild("searchBar").asCom.getChild("cancel"), this.clearHierarchySearch);
-        this.listenEvent(
-            this.panels.hierarchy.getChild("btnRelationDisabled"),
-            fgui.Events.STATE_CHANGED,
-            this.onHierarchyRelationsDisabledChanged,
-        );
-        this.listenEvent(
-            this.panels.hierarchy.getChild("btnShowAllInvisibles"),
-            fgui.Events.STATE_CHANGED,
-            this.onHierarchyShowAllInvisiblesChanged,
-        );
         this.listenClick(this.panels.preview.getChild("play"), this.onAction, ["preview:play"]);
         this.listenClick(this.panels.document.getChild("hand"), this.setDesktopPanTool, [true]);
         this.listenClick(this.panels.document.getChild("arrow"), this.setDesktopPanTool, [false]);
@@ -1707,28 +1623,8 @@ export class EditorShell {
             const button = alignToolbar.getChild(action.childName);
             this.listenClick(button, this.showCustomArrangePanel, [action.mode, button]);
         }
-        this.listenEvent(this.panels.library.getChild("group"), fgui.Events.STATE_CHANGED, this.onLibraryFilterChanged);
-        this.listenEvent(this.panels.library.getChild("listView"), fgui.Events.CLICK_ITEM, this.onLibraryItemClick);
-        this.listenEvent(this.panels.library.getChild("treeView"), fgui.Events.CLICK_ITEM, this.onLibraryTreeItemClick);
         this.listenEvent(this.panels.library.getChild("listView"), Laya.Event.RIGHT_MOUSE_DOWN, this.onLibraryBackgroundRightClick);
         this.listenEvent(this.panels.library.getChild("treeView"), Laya.Event.RIGHT_MOUSE_DOWN, this.onLibraryBackgroundRightClick);
-        this.listenClick(this.panels.library.getChild("btnCollapseAll"), this.collapseLibrary);
-        this.listenEvent(this.panels.library.getChild("btnTwoColumn"), fgui.Events.STATE_CHANGED, this.onLibraryTwoColumnChanged);
-        this.listenEvent(
-            this.panels.library.getChild("iconSize").asCom.getChild("slider"),
-            fgui.Events.STATE_CHANGED,
-            this.onLibraryIconSizeChanged,
-        );
-        this.listenEvent(this.favoritesView.getChild("treeView"), fgui.Events.CLICK_ITEM, this.onLibraryTreeItemClick);
-        this.listenClick(this.favoritesView.getChild("btnCollapseAll"), this.collapseFavorites);
-        this.listenClick(this.favoritesView.getChild("btnExpandAll"), this.expandFavorites);
-        this.listenClick(this.searchView.getChild("find"), this.refreshProjectSearch);
-        this.listenEvent(this.searchInput, Laya.Event.KEY_DOWN, this.onSearchKeywordKeyDown);
-        this.listenEvent(this.searchView.getChild("list"), fgui.Events.CLICK_ITEM, this.onSearchResultClick);
-        this.listenClick(this.referenceView.getChild("find"), this.refreshProjectReferences);
-        this.listenEvent(this.referenceInput, Laya.Event.KEY_DOWN, this.onReferenceInputKeyDown);
-        this.listenEvent(this.referenceView.getController("queryType"), fgui.Events.STATE_CHANGED, this.refreshProjectReferences);
-        this.listenEvent(this.referenceView.getChild("list"), fgui.Events.CLICK_ITEM, this.onReferenceResultClick);
         this.listenClick(this.testView.getChild("contentScaler"), this.openProjectSettingsDialog);
         this.listenEvent(this.panels.hierarchy.getChild("list"), fgui.Events.CLICK_ITEM, this.onHierarchyItemClick);
         this.bindStartSceneLinks();
@@ -1748,13 +1644,6 @@ export class EditorShell {
             fgui.Events.CLICK_ITEM,
             this.onStartSceneRecentWorkspaceClick,
         );
-    }
-
-    private onLibraryDockTabClick(itemObject: fgui.GObject): void {
-        const mode = itemObject.data as "library" | "favorites" | "search" | null;
-        if (mode === "library") this.showLibraryPanel();
-        else if (mode === "favorites") this.showFavoritesPanel();
-        else if (mode === "search") this.showProjectSearch();
     }
 
     private listenClick(target: fgui.GObject, listener: ShellEventListener, args?: any[]): void {
@@ -1823,19 +1712,19 @@ export class EditorShell {
             this.showHierarchyRenameDialog();
             return true;
         }
-        if (event.key === "Escape" && this.hierarchySearchQuery) {
+        if (event.key === "Escape" && this.projectExplorer.hierarchyQuery) {
             event.preventDefault();
-            this.clearHierarchySearch();
+            this.projectExplorer.clearHierarchySearch();
             return true;
         }
         if (event.key === "Backspace") {
             event.preventDefault();
-            this.setHierarchySearchQuery(this.hierarchySearchQuery.slice(0, -1));
+            this.projectExplorer.setHierarchySearchQuery(this.projectExplorer.hierarchyQuery.slice(0, -1));
             return true;
         }
         if (event.key.length !== 1) return false;
         event.preventDefault();
-        this.setHierarchySearchQuery(this.hierarchySearchQuery + event.key.toLocaleLowerCase());
+        this.projectExplorer.setHierarchySearchQuery(this.projectExplorer.hierarchyQuery + event.key.toLocaleLowerCase());
         return true;
     }
 
@@ -2137,10 +2026,10 @@ export class EditorShell {
             case "timelineRemove": void this.controllerTimeline.removeSelectedTimelineItem(); return;
             case "workspace": this.showEditorWorkspace(); this.setTransientStatus("Editor workspace opened."); return;
             case "startScene": this.showStartScene(); return;
-            case "toggleHierarchy": this.toggleHierarchyExpansion(); return;
-            case "search": this.showProjectSearch(); return;
-            case "showLibrary": this.showLibraryPanel(); return;
-            case "showFavorites": this.showFavoritesPanel(); return;
+            case "toggleHierarchy": this.projectExplorer.toggleHierarchyExpansion(); return;
+            case "search": this.projectExplorer.showProjectSearch(); return;
+            case "showLibrary": this.projectExplorer.showLibraryPanel(); return;
+            case "showFavorites": this.projectExplorer.showFavoritesPanel(); return;
             case "showTransitions": this.controllerTimeline.showTransitionList(); return;
             case "toggleLeftDock": this.toggleDesktopDock("left"); return;
             case "toggleInspectorDock": this.toggleDesktopDock("inspector"); return;
@@ -2253,14 +2142,6 @@ export class EditorShell {
         this.setDebugAttribute("data-fairy-editor-file-menu", name === "file" ? "open" : "closed");
         this.setTransientStatus(status);
         menu.show(anchor || undefined);
-    }
-
-    private getSelectedLibraryResourceSelectors(): EditorResourceSelector[] {
-        return this.libraryController.getSelectedResourceSelectors(this.leftTopPanelMode);
-    }
-
-    private applyClickedLibrarySelection(data: LibraryItemData | null, list: fgui.GList): void {
-        this.libraryController.handleItemClick(data, list);
     }
 
     private showToolsMenu(anchor: fgui.GObject): void {
@@ -2555,15 +2436,6 @@ export class EditorShell {
         this.layout();
     }
 
-    private toggleHierarchyExpansion(): void {
-        this.hierarchyExpanded = !this.hierarchyExpanded;
-        const tree = this.panels.hierarchy.getChild("list").asTree;
-        if (this.hierarchyExpanded) tree.expandAll();
-        else tree.collapseAll();
-        this.setDebugAttribute("data-fairy-editor-hierarchy-expanded", String(this.hierarchyExpanded));
-        this.setTransientStatus(`Hierarchy ${this.hierarchyExpanded ? "expanded" : "collapsed"}.`);
-    }
-
     private toggleTimeline(): void {
         this.timelineVisible = !this.timelineVisible;
         if (this.timelineVisible) this.consoleVisible = false;
@@ -2679,75 +2551,6 @@ export class EditorShell {
         this.runtimePreview.setViewState(zoom, 0, 0);
     }
 
-    private onLibraryTreeItemClick(itemObject: fgui.GObject): void {
-        this.controllerTimeline.setKeyboardActive(false);
-        const data = itemObject.treeNode ? (itemObject.treeNode.data as LibraryItemData | null) : null;
-        this.applyClickedLibrarySelection(data, itemObject.parent as fgui.GList);
-        this.libraryController.captureExpansionState();
-    }
-
-    private onLibraryFilterChanged(): void {
-        this.libraryController.handleFilterChanged();
-    }
-
-    private onLibrarySyncChanged(): void {
-        this.libraryLinked = this.panels.library.getChild("btnSync").asButton.selected;
-        this.saveResourceViewState();
-        this.setDebugAttribute("data-fairy-editor-library-linked", String(this.libraryLinked));
-        if (this.libraryLinked) this.locateActiveDocumentInLibrary(false);
-        else this.setStatus("资源库已取消与当前文档联动。");
-    }
-
-    private onLibraryIconSizeChanged(): void {
-        const value = this.panels.library.getChild("iconSize").asCom.getChild("slider").asSlider.value;
-        this.libraryController.setIconSizeStep(value);
-        this.populateLibraryFromSnapshot();
-        this.setDebugAttribute("data-fairy-editor-library-icon-size", String(value));
-        this.setStatus(`资源缩略图尺寸：${value + 1}/6。`);
-    }
-
-    private onLibraryTwoColumnChanged(): void {
-        this.saveResourceViewState();
-        this.layout();
-        this.setStatus(`资源库${this.panels.library.getChild("btnTwoColumn").asButton.selected ? "双列" : "单列"}视图已保存。`);
-    }
-
-    private locateActiveDocumentInLibrary(reportStatus = true): void {
-        const document = this.getActiveDocumentTab();
-        if (!document) {
-            if (reportStatus) this.setStatus("定位当前文档需要先打开一个组件。");
-            return;
-        }
-        this.showEditorWorkspace();
-        if (!this.leftDockVisible) {
-            this.leftDockVisible = true;
-            this.saveDesktopLayoutState();
-        }
-        this.leftTopPanelMode = "library";
-        this.libraryPackageId = document.packageId;
-        this.selectedLibraryResourceSelectors = [{
-            packageId: document.packageId,
-            resourceId: document.componentId,
-        }];
-        this.libraryController.setInspectorSelection({
-            kind: "resource",
-            packageId: document.packageId,
-            resourceId: document.componentId,
-        });
-        this.populateLibraryFromSnapshot();
-        this.layout();
-        this.setDebugAttribute(
-            "data-fairy-editor-library-locate-document",
-            getDesktopDocumentTabId(document),
-        );
-        if (reportStatus) this.setStatus(`已在资源库中定位 ${this.getSelectedComponent()?.name || document.componentId}。`);
-    }
-
-    private onLibraryItemClick(itemObject: fgui.GObject): void {
-        this.controllerTimeline.setKeyboardActive(false);
-        this.applyClickedLibrarySelection(itemObject.data as LibraryItemData | null, itemObject.parent as fgui.GList);
-    }
-
     private openLibraryItem(data: Extract<LibraryItemData, { kind: "component" | "resource" }>): void {
         this.controllerTimeline.setKeyboardActive(false);
         if (data.kind === "component") {
@@ -2780,7 +2583,7 @@ export class EditorShell {
             this.treeInteraction.resetLibrarySelection(list);
             list.addSelection(index);
         }
-        this.applyClickedLibrarySelection(data, list);
+        this.projectExplorer.handleLibraryItemClick(data, list);
         if (data.kind === "component") {
             this.libraryController.setInspectorSelection({
                 kind: "resource",
@@ -2813,217 +2616,6 @@ export class EditorShell {
     private onLibraryBackgroundRightClick(event: Laya.Event): void {
         event.stopPropagation();
         this.resourceAuthoring.showResourceMenu();
-    }
-
-    private showProjectSearch(): void {
-        this.showEditorWorkspace();
-        if (!this.leftDockVisible) {
-            this.leftDockVisible = true;
-            this.saveDesktopLayoutState();
-        }
-        this.leftTopPanelMode = "search";
-        this.refreshProjectSearch();
-        this.layout();
-        this.searchInput.requestFocus();
-        this.setTransientStatus("Project search opened.");
-    }
-
-    private showLibraryPanel(): void {
-        this.leftTopPanelMode = "library";
-        this.selectedLibraryResourceSelectors = [];
-        this.setDebugAttribute("data-fairy-editor-library-resource-selection", "");
-        this.populateLibraryFromSnapshot();
-        this.layout();
-        this.setTransientStatus("Library opened.");
-    }
-
-    private showFavoritesPanel(): void {
-        this.showEditorWorkspace();
-        if (!this.leftDockVisible) {
-            this.leftDockVisible = true;
-            this.saveDesktopLayoutState();
-        }
-        this.leftTopPanelMode = "favorites";
-        this.selectedLibraryResourceSelectors = [];
-        this.setDebugAttribute("data-fairy-editor-library-resource-selection", "");
-        this.populateFavoritesFromSnapshot();
-        this.layout();
-        this.setTransientStatus("Favorites opened.");
-    }
-
-    private collapseFavorites(): void {
-        this.libraryController.collapseFavorites();
-    }
-
-    private collapseLibrary(): void {
-        this.libraryController.collapseLibrary();
-    }
-
-    private expandFavorites(): void {
-        this.libraryController.expandFavorites();
-    }
-
-    private showProjectReferencesForCurrentSelection(): void {
-        const pkg = this.getSelectedPackage();
-        const selectedResource = this.getSelectedResource();
-        const selectedComponent = this.getSelectedComponent();
-        const resourceId = selectedResource?.id || selectedComponent?.id || "";
-        if (!pkg || !resourceId) {
-            this.setStatus("Find References requires a selected resource or component.");
-            return;
-        }
-        this.showEditorWorkspace();
-        if (!this.leftDockVisible) {
-            this.leftDockVisible = true;
-            this.saveDesktopLayoutState();
-        }
-        this.leftTopPanelMode = "reference";
-        this.referenceInput.text = getProjectResourceUrl({ packageId: pkg.id, resourceId });
-        this.refreshProjectReferences();
-        this.layout();
-        this.referenceInput.requestFocus();
-        this.setStatus(`References opened for ${selectedResource?.name || selectedComponent?.name || resourceId}.`);
-    }
-
-    private onSearchKeywordKeyDown(event: Laya.Event): void {
-        if (event.key !== "Enter") return;
-        event.preventDefault();
-        event.stopPropagation();
-        this.refreshProjectSearch();
-    }
-
-    private refreshProjectSearch(): void {
-        const keyword = this.searchInput.text.trim();
-        this.searchResults = this.projectSnapshot && keyword
-            ? searchDesktopProject(this.projectSnapshot, keyword)
-            : [];
-        const list = this.searchView.getChild("list").asList;
-        list.removeChildrenToPool();
-        for (const result of this.searchResults) {
-            const item = list.addItemFromPool().asButton;
-            item.title = result.label;
-            item.data = result;
-            item.tooltips = result.label;
-        }
-        this.searchView.getChild("result").text = keyword
-            ? `${this.searchResults.length} result${this.searchResults.length === 1 ? "" : "s"}`
-            : "Enter a project search term";
-        this.setDebugAttribute("data-fairy-editor-search-query", keyword);
-        this.setDebugAttribute("data-fairy-editor-search-count", String(this.searchResults.length));
-    }
-
-    private onReferenceInputKeyDown(event: Laya.Event): void {
-        if (event.key !== "Enter") return;
-        event.preventDefault();
-        event.stopPropagation();
-        this.refreshProjectReferences();
-    }
-
-    private refreshProjectReferences(): void {
-        const project = this.liveSessionBridge.getWorkingProject();
-        const source = parseProjectResourceUrl(project, this.referenceInput.text);
-        const direction = this.referenceView.getController("queryType").selectedIndex === 0
-            ? "incoming"
-            : "outgoing";
-        const references = source
-            ? queryProjectResourceReferences(project, source, direction)
-            : [];
-        const list = this.referenceView.getChild("list").asList;
-        list.removeChildrenToPool();
-        for (const reference of references) {
-            const item = list.addItemFromPool().asButton;
-            item.title = `${reference.label} · ${reference.count}`;
-            item.data = reference;
-            item.tooltips = `${reference.label} (${reference.count} reference${reference.count === 1 ? "" : "s"})`;
-        }
-        const totalCount = references.reduce(
-            (count, reference) => count + reference.count,
-            0,
-        );
-        this.referenceView.getChild("result").text = source
-            ? `${totalCount} reference${totalCount === 1 ? "" : "s"} in ${references.length} file${references.length === 1 ? "" : "s"}`
-            : "Resource URL not found";
-        this.setDebugAttribute("data-fairy-editor-reference-direction", direction);
-        this.setDebugAttribute("data-fairy-editor-reference-source", this.referenceInput.text.trim());
-        this.setDebugAttribute("data-fairy-editor-reference-count", String(references.length));
-    }
-
-    private onSearchResultClick(itemObject: fgui.GObject): void {
-        const result = itemObject.data as DesktopProjectSearchResult | null;
-        if (!result || !this.navigateProjectResult(result)) return;
-        if (result.kind === "component") {
-            this.setStatus(`Search opened ${result.label}.`);
-        } else if (result.kind === "displayNode") {
-            this.setStatus(`Search selected ${result.label}.`);
-        }
-        this.setDebugAttribute(
-            "data-fairy-editor-search-selection",
-            result.kind === "package"
-                ? `${result.kind}:${result.packageId}`
-                : result.kind === "component"
-                    ? `${result.kind}:${result.packageId}/${result.componentId}`
-                    : result.kind === "resource"
-                        ? `${result.kind}:${result.packageId}/${result.resourceId}`
-                        : `${result.kind}:${result.packageId}/${result.componentId}/${result.nodeId}`,
-        );
-    }
-
-    private onReferenceResultClick(itemObject: fgui.GObject): void {
-        const reference = itemObject.data as ProjectResourceReference | null;
-        if (!reference) return;
-        const result: DesktopProjectSearchResult = reference.kind === "projectSettings"
-            ? {
-                kind: "package",
-                packageId: reference.packageId,
-                label: reference.label,
-            }
-            : reference.resourceKind === "component"
-                ? {
-                    kind: "component",
-                    packageId: reference.packageId,
-                    componentId: reference.resourceId,
-                    label: reference.label,
-                }
-                : {
-                    kind: "resource",
-                    packageId: reference.packageId,
-                    resourceId: reference.resourceId,
-                    label: reference.label,
-                };
-        if (!this.navigateProjectResult(result)) return;
-        this.setDebugAttribute(
-            "data-fairy-editor-reference-selection",
-            `${reference.kind}:${reference.packageId}/${reference.resourceId}`,
-        );
-        this.setStatus(`Reference opened ${reference.label}.`);
-    }
-
-    private navigateProjectResult(result: DesktopProjectSearchResult): boolean {
-        this.libraryPackageId = result.packageId;
-
-        if (result.kind === "package") {
-            this.applyLibrarySelection({ kind: "package", packageId: result.packageId });
-        } else if (result.kind === "component") {
-            if (!this.activateDocumentTab({
-                packageId: result.packageId,
-                componentId: result.componentId,
-            })) return false;
-        } else if (result.kind === "resource") {
-            this.applyLibrarySelection({
-                kind: "resource",
-                packageId: result.packageId,
-                resourceId: result.resourceId,
-            });
-            this.populateLibraryFromSnapshot();
-        } else {
-            if (!this.activateDocumentTab({
-                packageId: result.packageId,
-                componentId: result.componentId,
-            })) return false;
-            this.setDisplayNodeSelection([result.nodeId], result.nodeId);
-            this.refreshProjectViews();
-        }
-        return true;
     }
 
     private applyLibrarySelection(data: LibraryItemData | null, preserveResourceSelection = false): void {
@@ -3220,56 +2812,6 @@ export class EditorShell {
         );
     }
 
-    private selectHierarchyDragNode(data: HierarchyItemData): void {
-        this.documentAuthoring.setActiveSelection(
-            this.selectedPackageId,
-            data.componentId,
-            [data.nodeId],
-            data.nodeId,
-        );
-        this.clearResourceSelection();
-        this.populateInspectorFromSnapshot();
-        this.runtimePreview.selectNodes(this.selectedDisplayNodeIds, this.selectedDisplayNodeId);
-        this.layoutInspectorLines();
-    }
-
-    private getHierarchyDocumentKey(): string {
-        return this.selectedPackageId && this.selectedComponentId
-            ? `${this.selectedPackageId}/${this.selectedComponentId}`
-            : "";
-    }
-
-    private getHierarchyHiddenNodeIds(): Set<string> {
-        return this.hierarchyHiddenNodes.get(this.getHierarchyDocumentKey()) || new Set<string>();
-    }
-
-    private toggleHierarchyNodeHidden(data: HierarchyItemData): void {
-        const key = this.getHierarchyDocumentKey();
-        if (!key || data.componentId !== this.selectedComponentId) return;
-        const hidden = new Set(this.getHierarchyHiddenNodeIds());
-        hidden.has(data.nodeId) ? hidden.delete(data.nodeId) : hidden.add(data.nodeId);
-        if (hidden.size > 0) this.hierarchyHiddenNodes.set(key, hidden);
-        else this.hierarchyHiddenNodes.delete(key);
-        this.runtimePreview.setEditorHiddenNodeIds(hidden);
-        this.populateHierarchyFromSnapshot();
-        this.setDebugAttribute("data-fairy-editor-hierarchy-hidden", [...hidden].join(","));
-        this.setTransientStatus(`${hidden.has(data.nodeId) ? "Hidden" : "Shown"} ${data.nodeId} in the editor.`);
-    }
-
-    private toggleAllHierarchyVisibility(): void {
-        const component = this.getSelectedComponent();
-        const key = this.getHierarchyDocumentKey();
-        if (!component || !key || component.children.length === 0) return;
-        const hidden = this.getHierarchyHiddenNodeIds();
-        if (hidden.size > 0) this.hierarchyHiddenNodes.delete(key);
-        else this.hierarchyHiddenNodes.set(key, new Set(component.children.map((node) => node.id)));
-        const next = this.getHierarchyHiddenNodeIds();
-        this.runtimePreview.setEditorHiddenNodeIds(next);
-        this.populateHierarchyFromSnapshot();
-        this.setDebugAttribute("data-fairy-editor-hierarchy-hidden", [...next].join(","));
-        this.setTransientStatus(next.size > 0 ? "All display nodes hidden in the editor." : "All display nodes shown in the editor.");
-    }
-
     private showHierarchyRenameDialog(): void {
         const node = this.getSelectedDisplayNode();
         const selector = this.getSelectedDisplayNodeSelector();
@@ -3304,25 +2846,6 @@ export class EditorShell {
             this.syncDisplayNodeSelectionViews();
             this.setDebugAttribute("data-fairy-editor-hierarchy-rename", `${selector.displayNodeId}:${newName}`);
         });
-    }
-
-    private onHierarchyRelationsDisabledChanged(): void {
-        const key = this.getHierarchyDocumentKey();
-        if (!key) return;
-        const selected = this.panels.hierarchy.getChild("btnRelationDisabled").asButton.selected;
-        selected ? this.hierarchyRelationsDisabled.add(key) : this.hierarchyRelationsDisabled.delete(key);
-        this.setDebugAttribute("data-fairy-editor-hierarchy-relations-disabled", String(selected));
-        this.setTransientStatus(`Display-list relations ${selected ? "disabled" : "enabled"} for editor transforms.`);
-    }
-
-    private onHierarchyShowAllInvisiblesChanged(): void {
-        const key = this.getHierarchyDocumentKey();
-        if (!key) return;
-        const selected = this.panels.hierarchy.getChild("btnShowAllInvisibles").asButton.selected;
-        selected ? this.hierarchyShowAllInvisibles.add(key) : this.hierarchyShowAllInvisibles.delete(key);
-        this.runtimePreview.setShowAllInvisibleNodes(selected);
-        this.setDebugAttribute("data-fairy-editor-hierarchy-show-invisibles", String(selected));
-        this.setTransientStatus(`${selected ? "Showing" : "Respecting"} invisible display nodes in the editor.`);
     }
 
     private toggleHierarchyNodeLock(data: HierarchyItemData): void {
@@ -3600,7 +3123,7 @@ export class EditorShell {
         this.leftTopPanelMode = "library";
         this.libraryPackageId = selector.packageId;
         this.selectedLibraryResourceSelectors = [selector];
-        this.populateLibraryFromSnapshot();
+        this.projectExplorer.populateLibrary();
         this.layout();
         this.setDebugAttribute(
             "data-fairy-editor-library-resource-selection",
@@ -3629,130 +3152,6 @@ export class EditorShell {
             `Deleted ${deletedIds.length} display node${deletedIds.length === 1 ? "" : "s"} `
             + "Canvas updated. Publish to update the runtime preview.",
         );
-    }
-
-    private setHierarchySearchQuery(value: string): void {
-        this.hierarchySearchQuery = value.toLocaleLowerCase();
-        const searchBar = this.panels.hierarchy.getChild("searchBar").asButton;
-        searchBar.title = this.hierarchySearchQuery;
-        searchBar.visible = this.hierarchySearchQuery.length > 0;
-        if (searchBar.visible) {
-            const width = Math.min(150, Math.max(48, this.hierarchySearchQuery.length * 7 + 32));
-            searchBar.setSize(width, 27);
-            searchBar.getChild("title").setSize(Math.max(11, width - 30), 18);
-        }
-        this.populateHierarchyFromSnapshot();
-        this.setDebugAttribute("data-fairy-editor-hierarchy-search", this.hierarchySearchQuery);
-    }
-
-    private clearHierarchySearch(): void {
-        if (!this.hierarchySearchQuery) return;
-        this.setHierarchySearchQuery("");
-        this.setTransientStatus("Display-list search cleared.");
-    }
-
-    private getHierarchySearchVisibleIds(
-        component: ProjectSnapshotComponent,
-        scopedIds: Set<string>,
-    ): Set<string> {
-        if (!this.hierarchySearchQuery) return scopedIds;
-        const byId = new Map(component.children.map((node) => [node.id, node]));
-        const visible = new Set<string>();
-        for (const node of component.children) {
-            if (!scopedIds.has(node.id)) continue;
-            const label = `${node.name || ""} ${node.id}`.toLocaleLowerCase();
-            if (!label.includes(this.hierarchySearchQuery)) continue;
-            visible.add(node.id);
-            let groupId = node.group;
-            while (groupId && scopedIds.has(groupId) && !visible.has(groupId)) {
-                visible.add(groupId);
-                groupId = byId.get(groupId)?.group || "";
-            }
-        }
-        return visible;
-    }
-
-    private updateHierarchyToolbarState(component: ProjectSnapshotComponent | null): void {
-        const key = this.getHierarchyDocumentKey();
-        const hasNodes = Boolean(component?.children.length);
-        this.panels.hierarchy.getChild("status").grayed = !hasNodes;
-        this.panels.hierarchy.getChild("lock").grayed = !hasNodes;
-        this.panels.hierarchy.getChild("rename").grayed = this.selectedDisplayNodeIds.length !== 1;
-        this.panels.hierarchy.getChild("btnRelationDisabled").asButton.selected = this.hierarchyRelationsDisabled.has(key);
-        this.panels.hierarchy.getChild("btnShowAllInvisibles").asButton.selected = this.hierarchyShowAllInvisibles.has(key);
-
-        const duplicateNames = new Set<string>();
-        const seenNames = new Set<string>();
-        for (const node of component?.children || []) {
-            if (!node.name) continue;
-            seenNames.has(node.name) ? duplicateNames.add(node.name) : seenNames.add(node.name);
-        }
-        const warnings = this.panels.hierarchy.getChild("warnings");
-        warnings.visible = duplicateNames.size > 0;
-        warnings.tooltips = duplicateNames.size > 0
-            ? `重复名称：${[...duplicateNames].join("、")}`
-            : "";
-    }
-
-    private selectDuplicateHierarchyNames(): void {
-        const component = this.getSelectedComponent();
-        if (!component) return;
-        const groups = new Map<string, string[]>();
-        for (const node of component.children) {
-            if (!node.name) continue;
-            const ids = groups.get(node.name) || [];
-            ids.push(node.id);
-            groups.set(node.name, ids);
-        }
-        const duplicate = [...groups.entries()].find(([, ids]) => ids.length > 1);
-        if (!duplicate) return;
-        this.setDisplayNodeSelection(duplicate[1], duplicate[1][0]);
-        this.syncDisplayNodeSelectionViews();
-        this.setTransientStatus(`Selected duplicate display name: ${duplicate[0]}.`);
-    }
-
-    private appendHierarchyNodes(
-        parent: fgui.GTreeNode,
-        component: ProjectSnapshotComponent,
-        parentGroupId: string,
-        scopedIds: Set<string>,
-    ): void {
-        for (const child of component.children) {
-            if (!scopedIds.has(child.id) || child.group !== parentGroupId) continue;
-            const hasChildren = child.type === "GGroup" && component.children.some(
-                (candidate) => scopedIds.has(candidate.id) && candidate.group === child.id,
-            );
-            const node = this.createTreeNode(
-                hasChildren,
-                `${child.name || child.id} [${child.type}]`,
-                this.getDisplayNodeIcon(child.type),
-            );
-            node.expanded = hasChildren && this.hierarchyExpanded;
-            node.data = {
-                kind: "displayNode",
-                componentId: component.id,
-                nodeId: child.id,
-                locked: child.locked,
-                hidden: this.getHierarchyHiddenNodeIds().has(child.id),
-            } as HierarchyItemData;
-            parent.addChild(node);
-            if (hasChildren) this.appendHierarchyNodes(node, component, child.id, scopedIds);
-        }
-    }
-
-    private getDisplayNodeIcon(type: string): string {
-        return DISPLAY_NODE_ICONS[type] || "icon_component";
-    }
-
-    private createTreeNode(hasChildren: boolean, text: string, icon = ""): fgui.GTreeNode {
-        const node = new fgui.GTreeNode(hasChildren);
-        this.treeInteraction.setNodeLabel(node, text);
-        if (icon) this.treeInteraction.setNodeIcon(node, icon);
-        return node;
-    }
-
-    private createTreeLeaf(text: string, icon = ""): fgui.GTreeNode {
-        return this.createTreeNode(false, text, icon);
     }
 
     private async initializeProjectSnapshotNow(): Promise<boolean> {
@@ -4220,24 +3619,6 @@ export class EditorShell {
     private findResource(packageId: string, resourceId: string): ProjectSnapshotResource | null {
         const pkg = this.projectSnapshot?.packages.find((candidate) => candidate.id === packageId);
         return pkg?.resources.find((resource) => resource.id === resourceId) || null;
-    }
-
-    private selectCurrentHierarchyNode(tree: fgui.GTree): void {
-        if (!this.selectedDisplayNodeId) return;
-        const find = (parent: fgui.GTreeNode): fgui.GTreeNode | null => {
-            for (let i = 0; i < parent.numChildren; i += 1) {
-                const child = parent.getChildAt(i);
-                const data = child.data as HierarchyItemData | null;
-                if (data?.nodeId === this.selectedDisplayNodeId) return child;
-                if (child.isFolder) {
-                    const nested = find(child);
-                    if (nested) return nested;
-                }
-            }
-            return null;
-        };
-        const selected = find(tree.rootNode);
-        if (selected) tree.selectNode(selected, true);
     }
 
 }

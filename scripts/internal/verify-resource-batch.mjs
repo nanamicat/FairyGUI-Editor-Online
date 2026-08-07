@@ -12,13 +12,14 @@ const packageVersion = JSON.parse(readFileSync(path.join(moduleRoot, "core/packa
 assert.equal(packageVersion, "0.2.4", "Resource batch verification requires OpenFairyGUI 0.2.4.");
 const editorUiSource = [
     readFileSync("src/editor/EditorShell.ts", "utf8"),
+    readFileSync("src/editor/modules/ProjectExplorerModule.ts", "utf8"),
     readFileSync("src/editor/ui/ProjectTreeInteractionController.ts", "utf8"),
     readFileSync("src/editor/ui/ResourceAuthoringController.ts", "utf8"),
 ].join("\n");
 for (const sourceContract of [
     "prepareDuplicateResources(",
     "prepareRemoveResources(",
-    "applyClickedLibrarySelection(data, itemObject.parent as fgui.GList)",
+    "this.handleLibraryItemClick(data, itemObject.parent as fgui.GList)",
     "list.selectionMode = fgui.ListSelectionMode.Multiple",
     "_lastSelectedIndex = -1",
     "this.selectedLibraryResourceSelectors = [];",
