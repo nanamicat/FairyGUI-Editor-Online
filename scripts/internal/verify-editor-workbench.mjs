@@ -107,6 +107,7 @@ const shellSource = readFileSync("src/editor/EditorShell.ts", "utf8");
 const shellChromeModuleSource = readFileSync("src/editor/modules/ShellChromeModule.ts", "utf8");
 const projectSessionModuleSource = readFileSync("src/editor/modules/ProjectSessionModule.ts", "utf8");
 const documentAuthoringModuleSource = readFileSync("src/editor/modules/DocumentAuthoringModule.ts", "utf8");
+const projectTransferModuleSource = readFileSync("src/editor/modules/ProjectTransferModules.ts", "utf8");
 const browserPluginsModuleSource = readFileSync("src/editor/modules/BrowserPluginsModule.ts", "utf8");
 const resourceHealthModuleSource = readFileSync("src/editor/modules/ResourceHealthModule.ts", "utf8");
 assert(mainSource.includes("createFairyGuiEditorWorkbench(mainView)"));
@@ -116,6 +117,7 @@ assert(productSource.includes("createAuthoringPreviewModule()"));
 assert(productSource.includes("createShellChromeModule()"));
 assert(productSource.includes("createProjectSessionModule()"));
 assert(productSource.includes("createDocumentAuthoringModule()"));
+assert(productSource.includes("createWorkspaceExportModule()"));
 assert(productSource.includes("createBrowserPluginsModule()"));
 assert(productSource.includes("createResourceHealthModule()"));
 assert(productSource.includes([
@@ -125,11 +127,13 @@ assert(productSource.includes([
     "        createProjectSessionModule(),",
     "        createDocumentAuthoringModule(),",
     "        createEditorShellModule(),",
+    "        createWorkspaceExportModule(),",
     "        createBrowserPluginsModule(),",
     "        createResourceHealthModule(),",
 ].join("\n")));
-assert(shellSource.includes("this.toolMenuContributions.values()"));
-assert(shellSource.includes("this.toolMenuProviders"));
+assert(shellChromeModuleSource.includes("getToolMenuContributions()"));
+assert(shellChromeModuleSource.includes("getToolMenuProviders()"));
+assert(shellChromeModuleSource.includes("registerActions(ids: EditorActionId[]"));
 assert(!shellSource.includes("showResourceHealthDialog as openResourceHealthDialog"));
 assert(!shellSource.includes("new BrowserPluginHost()"));
 assert(!shellSource.includes("new BrowserProjectStorage("));
@@ -146,6 +150,10 @@ assert(documentAuthoringModuleSource.includes("new DocumentWorkspaceController("
 assert(documentAuthoringModuleSource.includes("new ActiveDocumentController("));
 assert(documentAuthoringModuleSource.includes("const document = new EditorDocumentAuthoring("));
 assert(documentAuthoringModuleSource.includes("hotReloadable: false"));
+assert(!shellSource.includes("exportBrowserWorkspaceZip"));
+assert(projectTransferModuleSource.includes("createWorkspaceExportModule"));
+assert(projectTransferModuleSource.includes('["toolbar:exportWorkspace"]'));
+assert(projectTransferModuleSource.includes("await inFlight"));
 assert(browserPluginsModuleSource.includes("new BrowserPluginHost()"));
 assert(browserPluginsModuleSource.includes("shell.registerToolMenuProvider"));
 assert(browserPluginsModuleSource.includes("pluginHost.dispose()"));

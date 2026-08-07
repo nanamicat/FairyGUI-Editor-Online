@@ -19,6 +19,7 @@ import {
     DOCUMENT_AUTHORING_SERVICE,
     EditorDocumentAuthoring,
 } from "../modules/DocumentAuthoringModule";
+import { createWorkspaceExportModule } from "../modules/ProjectTransferModules";
 import { EditorWorkbench, type EditorModule } from "../workbench/EditorWorkbench";
 import {
     EDITOR_SHELL_MODULE_HOST_SERVICE,
@@ -49,6 +50,7 @@ export function createFairyGuiEditorProductModules(): EditorModule<FairyGuiEdito
         createProjectSessionModule(),
         createDocumentAuthoringModule(),
         createEditorShellModule(),
+        createWorkspaceExportModule(),
         createBrowserPluginsModule(),
         createResourceHealthModule(),
     ];

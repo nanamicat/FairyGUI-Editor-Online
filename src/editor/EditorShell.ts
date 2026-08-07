@@ -50,7 +50,6 @@ import type { ResourceHealthDialogContext } from "./dialogs/ResourceHealthDialog
 import type {
     BrowserSaveResult,
     BrowserSaveTarget,
-    BrowserWorkspaceLifecycleResult,
 } from "./model/BrowserWorkspace";
 import type {
     ComponentCustomPropertyDefinition,
@@ -189,6 +188,7 @@ import type {
 import { EditorShellChrome } from "./modules/ShellChromeModule";
 import { EditorProjectSession } from "./modules/ProjectSessionModule";
 import { EditorDocumentAuthoring } from "./modules/DocumentAuthoringModule";
+import { downloadBrowserFile, recordWorkspaceLifecycleDebug } from "./modules/ProjectTransferModules";
 
 const EDITOR_REPOSITORY_URL = "https://github.com/OpenFairyGUI/FairyGUI-Editor-Online";
 const FAIRYGUI_WEBSITE_URL = "https://fairygui.com/";
@@ -216,6 +216,7 @@ const DISPLAY_NODE_ICONS: Record<string, string> = {
 
 export class EditorShell {
     private readonly mainView: fgui.GComponent;
+    private readonly chrome: EditorShellChrome;
     private readonly holder: fgui.GObject;
     private readonly menuBar: fgui.GComponent;
     private readonly toolbar: fgui.GComponent;
@@ -243,9 +244,6 @@ export class EditorShell {
     private readonly projectImportDialog: ProjectImportDialog;
     private actionMenu: fgui.PopupMenu | null = null;
     private readonly actionUnbinders: Array<() => void> = [];
-    private readonly editorActions = new Map<EditorActionId, () => void>();
-    private readonly toolMenuContributions = new Map<string, EditorToolMenuContribution>();
-    private readonly toolMenuProviders = new Set<EditorToolMenuProvider>();
     private authoringJsonDialog: fgui.Window | null = null;
     private editorPreferences: EditorPreferences = createDefaultEditorPreferences();
     private readonly desktopLayout: DesktopLayoutController;
@@ -325,7 +323,9 @@ export class EditorShell {
         projectSession: EditorProjectSession,
         documentAuthoring: EditorDocumentAuthoring,
     ) {
+        this.chrome = chrome;
         this.mainView = chrome.mainView;
+        this.actionUnbinders.push(chrome.bindStatusReporter((message, level) => this.setStatus(message, level)));
         this.projectSession = projectSession;
         this.documentAuthoring = documentAuthoring;
         this.unbindDocumentAuthoring = documentAuthoring.bind({
@@ -410,7 +410,7 @@ export class EditorShell {
             isGraphPointEditing: () => this.runtimePreview.isGraphPointEditing(),
             isGraphShapeLocked: () => this.runtimePreview.isGraphShapeLocked(),
             applyPreparation: (preparation) => this.applyAuthoringPreparation(preparation),
-            download: (blob, fileName) => this.downloadWorkspaceExport(blob, fileName),
+            download: downloadBrowserFile,
             activateDocument: (packageId, componentId) => this.activateDocumentTab({ packageId, componentId }),
             onTimelineItemApplied: (itemIndex) => {
                 this.controllerTimeline.setSelectedTimelineItemIndex(itemIndex);
@@ -450,7 +450,7 @@ export class EditorShell {
             showProjectReferences: () => this.showProjectReferencesForCurrentSelection(),
             removeSelectedComponent: () => this.requestAuthoringRemoveComponent(),
             runEditorAction: (action) => this.runEditorAction(action),
-            download: (blob, fileName) => this.downloadWorkspaceExport(blob, fileName),
+            download: downloadBrowserFile,
             setStatus: (message, level) => this.setStatus(message, level),
             setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
         });
@@ -656,8 +656,6 @@ export class EditorShell {
         this.controllerTimeline.dispose();
         this.resourceAuthoring.dispose();
         this.unbindActions();
-        this.toolMenuContributions.clear();
-        this.toolMenuProviders.clear();
         this.projectImportDialog.close();
         this.authoringDialogs.dispose();
         this.actionMenu?.dispose();
@@ -858,7 +856,7 @@ export class EditorShell {
             setActiveDialog: (dialog) => { this.authoringJsonDialog = dialog; },
             applyPreparation: (preparation) => this.applyAuthoringPreparation(preparation),
             applyDisplayNodeCommands: (commands, summary) => this.applyDisplayNodePropsCommands(commands, summary),
-            download: (blob, fileName) => this.downloadWorkspaceExport(blob, fileName),
+            download: downloadBrowserFile,
             runWorkspaceTextFileTask: async (task) => {
                 await this.enqueueAuthoringOperation(async () => {
                     const state = await this.projectStorage.initialize();
@@ -962,6 +960,7 @@ export class EditorShell {
             button.touchable = true;
             button.tooltips = tooltip;
         }
+        this.toolbar.getChild("tbSaveAll").visible = false;
         this.toolbar.getChild("tbTest").visible = true;
     }
 
@@ -2192,7 +2191,7 @@ export class EditorShell {
 
     private registerEditorActions(): void {
         const register = (ids: EditorActionId[], run: () => void): void => {
-            for (const id of ids) this.editorActions.set(id, run);
+            this.actionUnbinders.push(this.chrome.registerActions(ids, run));
         };
         register(["library:refresh"], () => { void this.refreshProjectSnapshot(); });
         register(["menu:file", "workspace:showPanel"], () => this.showBrowserWorkspaceSelector());
@@ -2222,7 +2221,6 @@ export class EditorShell {
         register(["toolbar:importProjectDirectory", "workspace:importProject"], () => this.showProjectImportDialog());
         register(["workspace:importProjectDirectory"], () => this.importProjectDirectory());
         register(["workspace:importProjectZip"], () => this.importProjectZip());
-        register(["toolbar:exportWorkspace"], () => { void this.exportBrowserWorkspaceZip(); });
         register(["preview:play"], () => {
             if (!this.resourcePreview.play()) this.controllerTimeline.playRuntimePreviewTransition();
         });
@@ -2278,10 +2276,7 @@ export class EditorShell {
     }
 
     private runEditorAction(action: EditorActionId): boolean {
-        const run = this.editorActions.get(action);
-        if (!run) return false;
-        run();
-        return true;
+        return this.chrome.runAction(action);
     }
 
     private bindActions(): void {
@@ -2842,9 +2837,11 @@ export class EditorShell {
         this.addMenuItem(menu, "workspaceMenuSave", "保存", () => {
             this.runEditorAction("save");
         }, this.editorPreferences.shortcuts.save);
-        this.addMenuItem(menu, "workspaceMenuExport", "导出工作区 ZIP", () => {
-            this.runEditorAction("toolbar:exportWorkspace");
-        });
+        if (this.chrome.hasAction("toolbar:exportWorkspace")) {
+            this.addMenuItem(menu, "workspaceMenuExport", "导出工作区 ZIP", () => {
+                this.runEditorAction("toolbar:exportWorkspace");
+            });
+        }
         this.showActionMenu(menu, anchor, "file", "已打开文件菜单。");
     }
 
@@ -2903,7 +2900,7 @@ export class EditorShell {
                 setActiveDialog: (dialog) => { this.authoringJsonDialog = dialog; },
                 applyPreparation: (preparation) => this.applyAuthoringPreparation(preparation),
                 applyDisplayNodeCommands: (commands, summary) => this.applyDisplayNodePropsCommands(commands, summary),
-                download: (blob, fileName) => this.downloadWorkspaceExport(blob, fileName),
+                download: downloadBrowserFile,
                 runWorkspaceTextFileTask: async () => undefined,
                 setStatus: (message) => this.setStatus(message),
                 eventOwner: this,
@@ -2913,8 +2910,8 @@ export class EditorShell {
             this.showBrowserWorkspaceSelector();
         });
         const moduleContributions = [
-            ...this.toolMenuContributions.values(),
-            ...[...this.toolMenuProviders].flatMap((provider) => provider()),
+            ...this.chrome.getToolMenuContributions(),
+            ...this.chrome.getToolMenuProviders().flatMap((provider) => provider()),
         ];
         for (const contribution of moduleContributions) {
             const item = this.addMenuItem(menu, contribution.itemName, contribution.title, () => {
@@ -3122,22 +3119,12 @@ export class EditorShell {
         if (!/^[a-z][a-z0-9.-]+$/.test(contribution.id)) {
             throw new Error(`Invalid editor tool contribution id: ${contribution.id}.`);
         }
-        if (this.toolMenuContributions.has(contribution.id)) {
-            throw new Error(`Editor tool contribution ${contribution.id} is already registered.`);
-        }
-        const registered = { ...contribution };
-        this.toolMenuContributions.set(registered.id, registered);
-        return () => {
-            if (this.toolMenuContributions.get(registered.id) === registered) {
-                this.toolMenuContributions.delete(registered.id);
-            }
-        };
+        return this.chrome.registerToolMenuContribution({ ...contribution });
     }
 
     private registerToolMenuProvider(provider: EditorToolMenuProvider): () => void {
         if (this.disposed) throw new Error("Cannot register a tool provider after the editor shell was disposed.");
-        this.toolMenuProviders.add(provider);
-        return () => this.toolMenuProviders.delete(provider);
+        return this.chrome.registerToolMenuProvider(provider);
     }
 
     private showHelpMenu(anchor: fgui.GObject): void {
@@ -3901,10 +3888,7 @@ export class EditorShell {
     }
 
     private setDebugAttribute(name: string, value: string): void {
-        if (this.disposed) return;
-        if (typeof document !== "undefined" && document.body) {
-            document.body.setAttribute(name, value);
-        }
+        this.chrome.setDebugAttribute(name, value);
     }
 
     private async applyLibraryDrop(
@@ -4598,7 +4582,7 @@ export class EditorShell {
                 return;
             }
             if (!result.archive?.blob) throw new Error("Browser runtime ZIP export did not produce a download.");
-            this.downloadWorkspaceExport(result.archive.blob, result.archive.fileName);
+            downloadBrowserFile(result.archive.blob, result.archive.fileName);
             this.resetPublishedRuntimePackages();
             this.populatePreviewFromSnapshot();
             this.setDebugAttribute("data-fairy-editor-preview-projection", "refreshed");
@@ -4834,7 +4818,7 @@ export class EditorShell {
         if (result.ok) {
             this.resetPublishedRuntimePackages();
             const connected = await this.connectBrowserLiveSession();
-            this.recordWorkspaceLifecycleResult(result);
+            recordWorkspaceLifecycleDebug(this.chrome, result);
             if (!connected) {
                 this.setStatus(`Project ${label} imported, but the browser live session did not reconnect.`, "error");
                 return false;
@@ -4843,7 +4827,7 @@ export class EditorShell {
             return true;
         }
 
-        this.recordWorkspaceLifecycleResult(result);
+        recordWorkspaceLifecycleDebug(this.chrome, result);
         this.setStatus(`Project ${label} import failed: ${getWorkspaceLifecycleFailure(result)}.`);
         return false;
     }
@@ -4852,32 +4836,6 @@ export class EditorShell {
         const message = error instanceof Error ? error.message : String(error);
         this.setStatus(`Project ${label} import failed: ${message}`, "error");
         console.error(`[Workspace] project ${label} import failed`, error);
-    }
-
-    private async exportBrowserWorkspaceZip(): Promise<void> {
-        await this.enqueueAuthoringOperation(() => this.exportBrowserWorkspaceZipNow());
-    }
-
-    private async exportBrowserWorkspaceZipNow(): Promise<void> {
-        this.setStatus("Browser workspace export started.");
-
-        try {
-            const result = await this.workspaceLifecycle.exportWorkspaceZip();
-            if (this.disposed) return;
-            if (result.ok && result.export?.blob) {
-                this.downloadWorkspaceExport(result.export.blob, result.export.fileName);
-            }
-            this.recordWorkspaceLifecycleResult(result);
-            this.setStatus(
-                result.ok
-                    ? `Browser workspace exported: ${result.export?.fileName || "ZIP"}.`
-                    : `Browser workspace export failed: ${getWorkspaceLifecycleFailure(result)}.`,
-            );
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            this.setStatus(`Browser workspace export failed: ${message}`, "error");
-            console.error("[Workspace] export failed", error);
-        }
     }
 
     private createBrowserSaveTargetForSelection(): BrowserSaveTarget | undefined {
@@ -4956,40 +4914,6 @@ export class EditorShell {
             console.warn("[Editor Session] browser live session bridge failed", state);
         }
         return false;
-    }
-
-    private recordWorkspaceLifecycleResult(result: BrowserWorkspaceLifecycleResult): void {
-        const materialize = result.results.materialize;
-        const apply = result.results.apply;
-        this.setDebugAttribute("data-fairy-editor-workspace-action", result.mode);
-        this.setDebugAttribute("data-fairy-editor-workspace-ok", result.ok ? "true" : "false");
-        this.setDebugAttribute("data-fairy-editor-workspace-project-file", result.storage.projectFileExists ? "true" : "false");
-        this.setDebugAttribute("data-fairy-editor-workspace-files", String(result.storage.fileCount));
-        this.setDebugAttribute("data-fairy-editor-workspace-materialize-ok", materialize ? String(materialize.ok) : "");
-        this.setDebugAttribute("data-fairy-editor-workspace-materialize-revision", materialize?.revision === undefined ? "" : String(materialize.revision));
-        this.setDebugAttribute("data-fairy-editor-workspace-apply-ok", apply ? String(apply.ok) : "");
-        this.setDebugAttribute("data-fairy-editor-workspace-import-source", result.imported?.source || "");
-        this.setDebugAttribute("data-fairy-editor-workspace-import-fairy", result.imported?.fairyPath || "");
-        this.setDebugAttribute("data-fairy-editor-workspace-export-format", result.export?.format || "");
-        this.setDebugAttribute(
-            "data-fairy-editor-workspace-folder-binding",
-            result.storage.directoryWriteback?.status || "",
-        );
-    }
-
-    private downloadWorkspaceExport(blob: Blob, fileName: string): void {
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = fileName;
-        anchor.style.display = "none";
-        document.body.appendChild(anchor);
-        try {
-            anchor.click();
-        } finally {
-            anchor.remove();
-            window.setTimeout(() => URL.revokeObjectURL(url), 0);
-        }
     }
 
     private recordBrowserSaveResult(result: BrowserSaveResult): void {

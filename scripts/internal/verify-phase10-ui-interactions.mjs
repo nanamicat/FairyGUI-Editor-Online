@@ -22,6 +22,7 @@ const resourceHealthModuleSource = readSource("src/editor/modules/ResourceHealth
 const projectSessionModuleSource = readSource("src/editor/modules/ProjectSessionModule.ts");
 const shellChromeModuleSource = readSource("src/editor/modules/ShellChromeModule.ts");
 const documentAuthoringModuleSource = readSource("src/editor/modules/DocumentAuthoringModule.ts");
+const projectTransferModuleSource = readSource("src/editor/modules/ProjectTransferModules.ts");
 const editorMenuControllerSource = readSource("src/editor/ui/EditorMenuController.ts");
 const resourceAuthoringControllerSource = readSource("src/editor/ui/ResourceAuthoringController.ts");
 const projectTreeInteractionSource = readSource("src/editor/ui/ProjectTreeInteractionController.ts");
@@ -58,6 +59,7 @@ const editorShell = [
     projectSessionModuleSource,
     shellChromeModuleSource,
     documentAuthoringModuleSource,
+    projectTransferModuleSource,
     readSource("src/editor/dialogs/TextGraphPropertyEditors.ts"),
     readSource("src/editor/dialogs/TimelineItemEditor.ts"),
     readSource("src/editor/ui/EditorFormControls.ts"),
@@ -878,7 +880,7 @@ const shellChecks = [
     'openPreferencesDialog({',
     "private resetDesktopLayout(): void",
     "resolveEditorShortcut(event, this.editorPreferences)",
-    "private readonly editorActions = new Map<EditorActionId, () => void>()",
+    "private readonly actions = new Map<EditorActionId, () => void>()",
     "private registerEditorActions(): void",
     'register(["toolbar:save", "save"]',
     "this.runEditorAction(id)",

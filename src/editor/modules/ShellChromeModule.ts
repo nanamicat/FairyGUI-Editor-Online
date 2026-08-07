@@ -1,7 +1,13 @@
 import { EditorTextInput } from "../ui/EditorUiExtensions";
+import type { EditorActionId } from "../EditorShellConfig";
+import type { DesktopConsoleLevel } from "../runtime/DesktopConsoleLog";
 import type { DesktopLayoutPanels } from "../ui/DesktopLayoutController";
 import type { EditorModule } from "../workbench/EditorWorkbench";
-import type { FairyGuiEditorWorkbenchHost } from "../workbench/EditorShellModuleHost";
+import type {
+    EditorToolMenuContribution,
+    EditorToolMenuProvider,
+    FairyGuiEditorWorkbenchHost,
+} from "../workbench/EditorShellModuleHost";
 
 export const SHELL_CHROME_SERVICE = "fairygui.shell-chrome";
 
@@ -25,6 +31,10 @@ export class EditorShellChrome {
     readonly consoleView: fgui.GComponent;
 
     private readonly roots: fgui.GComponent[];
+    private readonly actions = new Map<EditorActionId, () => void>();
+    private readonly toolMenuContributions = new Map<string, EditorToolMenuContribution>();
+    private readonly toolMenuProviders = new Set<EditorToolMenuProvider>();
+    private statusReporter: ((message: string, level: DesktopConsoleLevel) => void) | null = null;
     private disposed = false;
 
     constructor(readonly mainView: fgui.GComponent) {
@@ -82,10 +92,87 @@ export class EditorShellChrome {
     dispose(): void {
         if (this.disposed) return;
         this.disposed = true;
+        this.actions.clear();
+        this.toolMenuContributions.clear();
+        this.toolMenuProviders.clear();
+        this.statusReporter = null;
         for (const panel of this.roots) {
             panel.removeFromParent();
             panel.dispose();
         }
+    }
+
+    bindStatusReporter(reporter: (message: string, level: DesktopConsoleLevel) => void): () => void {
+        if (this.statusReporter) throw new Error("Shell status reporter is already bound.");
+        this.statusReporter = reporter;
+        return () => {
+            if (this.statusReporter === reporter) this.statusReporter = null;
+        };
+    }
+
+    setStatus(message: string, level: DesktopConsoleLevel = "info"): void {
+        if (this.statusReporter) {
+            this.statusReporter(message, level);
+            return;
+        }
+        this.statusLine.title = message;
+        this.setDebugAttribute("data-fairy-editor-status", message);
+    }
+
+    setDebugAttribute(name: string, value: string): void {
+        if (this.disposed) return;
+        if (typeof document !== "undefined" && document.body) document.body.setAttribute(name, value);
+    }
+
+    registerActions(ids: EditorActionId[], handler: () => void): () => void {
+        if (this.disposed) throw new Error("Shell chrome is disposed.");
+        for (const id of ids) {
+            if (this.actions.has(id)) throw new Error(`Editor action ${id} is already registered.`);
+            this.actions.set(id, handler);
+        }
+        return () => {
+            for (const id of ids) {
+                if (this.actions.get(id) === handler) this.actions.delete(id);
+            }
+        };
+    }
+
+    runAction(id: EditorActionId): boolean {
+        const handler = this.actions.get(id);
+        if (!handler) return false;
+        handler();
+        return true;
+    }
+
+    hasAction(id: EditorActionId): boolean {
+        return this.actions.has(id);
+    }
+
+    registerToolMenuContribution(contribution: EditorToolMenuContribution): () => void {
+        if (this.disposed) throw new Error("Shell chrome is disposed.");
+        if (this.toolMenuContributions.has(contribution.id)) {
+            throw new Error(`Editor tool contribution ${contribution.id} is already registered.`);
+        }
+        this.toolMenuContributions.set(contribution.id, contribution);
+        return () => {
+            if (this.toolMenuContributions.get(contribution.id) === contribution) {
+                this.toolMenuContributions.delete(contribution.id);
+            }
+        };
+    }
+
+    registerToolMenuProvider(provider: EditorToolMenuProvider): () => void {
+        if (this.disposed) throw new Error("Shell chrome is disposed.");
+        this.toolMenuProviders.add(provider);
+        return () => this.toolMenuProviders.delete(provider);
+    }
+
+    getToolMenuContributions(): EditorToolMenuContribution[] {
+        return [...this.toolMenuContributions.values()];
+    }
+
+    getToolMenuProviders(): EditorToolMenuProvider[] {
+        return [...this.toolMenuProviders];
     }
 
     private createPanels(): DesktopLayoutPanels {
