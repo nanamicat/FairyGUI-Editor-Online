@@ -81,6 +81,8 @@ export class TimelinePanelController {
 
     dispose(): void {
         this.cancelDrag(true);
+        Laya.stage.off(Laya.Event.MOUSE_MOVE, this, this.onTimelineDragMouseMove);
+        Laya.stage.off(Laya.Event.MOUSE_UP, this, this.onTimelineDragMouseUp);
         this.view.getChild("nameList").off(
             fgui.Events.CLICK_ITEM,
             this,
@@ -91,6 +93,23 @@ export class TimelinePanelController {
             this,
             this.onTimelineRowItemClick,
         );
+        for (const [name, handler] of [
+            ["timelineAddAction", this.callbacks.onAdd],
+            ["timelineEditAction", this.callbacks.onEdit],
+            ["timelineRemoveAction", this.callbacks.onRemove],
+        ] as const) {
+            const button = this.view.getChild(name);
+            if (!button) continue;
+            button.offClick(this, handler);
+            this.view.removeChild(button, true);
+        }
+        for (const name of ["nameList", "list", "timeTitles"] as const) {
+            const list = this.view.getChild(name).asList;
+            list.removeChildrenToPool();
+            list.itemPool.clear();
+        }
+        this.keyboardActive = false;
+        this.liveSession = false;
     }
 
     getSelectedItemIndex(): number {

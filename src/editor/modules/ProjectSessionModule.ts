@@ -13,6 +13,7 @@ import type {
     EditorCommandOperation,
     EditorCommandResult,
     EditorHighRiskTransaction,
+    SetDisplayNodePropsCommand,
 } from "../model/EditorCommand";
 import type { EditorProjectSnapshot } from "../model/ProjectSnapshot";
 import type { BrowserSaveTarget } from "../model/BrowserWorkspace";
@@ -156,6 +157,31 @@ export class EditorProjectSession {
         };
     }
 
+    async applyDisplayNodePropsNow(
+        commands: SetDisplayNodePropsCommand[],
+        summary: string,
+        notify = true,
+    ) {
+        const result = commands.length === 1
+            ? await this.commandAdapter.applySetDisplayNodePropsWithRuntime(commands[0])
+            : await this.commandAdapter.applySetDisplayNodePropsGroupWithRuntime(commands, summary);
+        return this.syncCommandResult(result, notify);
+    }
+
+    async undoNow(notify = true) {
+        return this.syncCommandResult(
+            await this.commandAdapter.undoLastWithRuntime(),
+            notify,
+        );
+    }
+
+    async redoNow(notify = true) {
+        return this.syncCommandResult(
+            await this.commandAdapter.redoLastWithRuntime(),
+            notify,
+        );
+    }
+
     async saveWorkspaceNow(target?: BrowserSaveTarget, notify = true) {
         if (!this.commandAdapter.isLiveSessionAligned()) {
             return { kind: "unaligned" as const };
@@ -212,6 +238,19 @@ export class EditorProjectSession {
         } catch (error) {
             console.warn("[Editor Session] dispose failed to close the live session", error);
         }
+    }
+
+    private syncCommandResult(result: EditorCommandResult, notify: boolean) {
+        this.currentLastResult = result;
+        const operations = result.operations || (result.operation ? [result.operation] : []);
+        const snapshot = result.ok ? this.liveSessionBridge.getProjectSnapshot() : null;
+        if (snapshot) this.syncSnapshot(snapshot, operations, notify);
+        return {
+            kind: "result" as const,
+            result,
+            snapshot,
+            operations,
+        };
     }
 
     private markModifiedPackages(snapshot: EditorProjectSnapshot, operations: EditorCommandOperation[]): void {

@@ -110,7 +110,8 @@ export class ControllerTimelineAuthoringController {
     dispose(): void {
         this.timelinePanel.dispose();
         this.options.documentView.getChild("editingTransBar").offClick(this, this.onEditingTransitionBarClick);
-        this.transitionListView.getChild("list").off(
+        const transitionList = this.transitionListView.getChild("list").asList;
+        transitionList.off(
             fgui.Events.CLICK_ITEM,
             this,
             this.onTransitionListItemClick,
@@ -119,6 +120,11 @@ export class ControllerTimelineAuthoringController {
         this.transitionListView.getChild("rename").offClick(this, this.renameTransitionFromList);
         this.transitionListView.getChild("duplicate").offClick(this, this.duplicateTransitionFromList);
         this.transitionListView.getChild("delete").offClick(this, this.removeTransitionFromList);
+        transitionList.removeChildrenToPool();
+        transitionList.itemPool.clear();
+        const controllerList = this.options.documentView.getChild("controllerPanel").asCom.getChild("list").asList;
+        controllerList.removeChildrenToPool();
+        controllerList.itemPool.clear();
     }
     getSelectedTimelineItemIndex(): number { return this.timelinePanel.getSelectedItemIndex(); }
     setSelectedTimelineItemIndex(index: number): void { this.timelinePanel.setSelectedItemIndex(index); }

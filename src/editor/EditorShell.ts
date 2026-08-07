@@ -5,7 +5,6 @@ import {
     CUSTOM_ARRANGE_ACTIONS,
     MENU_ITEMS,
     OBJECT_TOOLBAR_ACTIONS,
-    PROJECT_SELECTION_STORAGE_KEY,
     TOOLBAR_ACTIONS,
     type EditorActionId,
     type ShellAction,
@@ -96,7 +95,6 @@ import {
 } from "./runtime/DesktopConsoleLog";
 import {
     getDesktopDocumentTabId,
-    resolveDesktopReferencedComponentTab,
     type DesktopDocumentTab,
 } from "./runtime/DesktopDocumentTabs";
 import {
@@ -129,10 +127,7 @@ import {
 } from "./services/BrowserLiveSessionBridge";
 import { createDisplayNodeSaveTarget } from "./services/BrowserSaveTargetVerifier";
 import { loadProjectSnapshot } from "./services/ProjectSnapshotLoader";
-import {
-    type ActiveDocumentSelection,
-    type PersistedEditorSelection,
-} from "./ui/ActiveDocumentController";
+import type { ActiveDocumentSelection } from "./ui/ActiveDocumentController";
 import { AuthoringDialogController } from "./ui/AuthoringDialogController";
 import { ControllerTimelineAuthoringController } from "./ui/ControllerTimelineAuthoringController";
 import {
@@ -262,8 +257,6 @@ export class EditorShell {
         gridSize: 8,
         gridBrightness: 30,
     };
-    private canvasPerDocumentZoom = false;
-    private readonly canvasViewByDocument = new Map<string, { zoom: number; panX: number; panY: number }>();
     private desktopPanToolEnabled = false;
     private desktopObjectTool: PrimitiveDisplayNodeKind | null = null;
     private libraryLinked = false;
@@ -282,8 +275,6 @@ export class EditorShell {
     private get workspaceLifecycle(): WorkspaceLifecycleController { return this.projectSession.workspaceLifecycle; }
     private get projectSnapshot(): EditorProjectSnapshot | null { return this.projectSession.snapshot; }
     private get commandLastResult(): EditorCommandResult | null { return this.projectSession.lastResult; }
-    private get documentWorkspace() { return this.documentAuthoring.workspace; }
-    private get activeDocument() { return this.documentAuthoring.activeDocument; }
     private get runtimePreview(): RuntimePreviewController { return this.documentAuthoring.preview; }
 
     private get leftDockVisible(): boolean { return this.desktopLayout.leftDockVisible; }
@@ -302,10 +293,10 @@ export class EditorShell {
     private set selectedLibraryResourceSelectors(value: EditorResourceSelector[]) {
         this.libraryController.setResourceSelection(value);
     }
-    private get selectedPackageId(): string { return this.activeDocument.packageId; }
-    private get selectedComponentId(): string { return this.activeDocument.componentId; }
-    private get selectedDisplayNodeId(): string { return this.activeDocument.primaryNodeId; }
-    private get selectedDisplayNodeIds(): string[] { return this.activeDocument.nodeIds; }
+    private get selectedPackageId(): string { return this.documentAuthoring.packageId; }
+    private get selectedComponentId(): string { return this.documentAuthoring.componentId; }
+    private get selectedDisplayNodeId(): string { return this.documentAuthoring.primaryNodeId; }
+    private get selectedDisplayNodeIds(): string[] { return this.documentAuthoring.nodeIds; }
     private get selectedResourceFolder(): LibraryResourceFolderSelector | null {
         const selection = this.libraryController.getInspectorSelection();
         return selection?.kind === "folder" ? selection : null;
@@ -329,9 +320,9 @@ export class EditorShell {
         });
         this.documentAuthoring = documentAuthoring;
         this.unbindDocumentAuthoring = documentAuthoring.bind({
-            activateDocument: (tab) => this.activateDocumentFromTab(tab),
-            closeDocument: (tab, event) => this.onDocumentTabClose(tab, event),
-            changeGroupPathDepth: (depth) => this.changeGroupPathDepth(depth),
+            activateDocument: (tab) => this.onDocumentActivated(tab),
+            closeDocument: (tab) => this.onDocumentClosed(tab),
+            changeGroupPathDepth: (depth) => this.onGroupPathDepthChanged(depth),
             selectPreviewNodes: (nodeIds, primaryNodeId) => this.onPreviewNodesSelected(nodeIds, primaryNodeId),
             runtimePackageLoaded: (result) => this.onRuntimePreviewPackageLoad(result),
             commitPositions: (positions) => this.commitPreviewNodePositions(positions),
@@ -346,7 +337,6 @@ export class EditorShell {
             },
             showCanvasContextMenu: () => this.editorMenus.showCanvasContextMenu(),
             refreshPreview: () => this.populatePreviewFromSnapshot(),
-            setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
         });
         this.holder = chrome.holder;
         this.menuBar = chrome.menuBar;
@@ -465,7 +455,7 @@ export class EditorShell {
                 leftDockVisible: this.leftDockVisible,
                 inspectorDockVisible: this.desktopLayout.inspectorDockVisible,
                 consoleVisible: this.consoleVisible,
-                documentCount: this.documentWorkspace.count,
+                documentCount: this.documentAuthoring.count,
                 hasActiveDocument: Boolean(this.getActiveDocumentTab()),
                 hasReferencedComponent: Boolean(this.getReferencedComponentTab()),
             }),
@@ -696,7 +686,7 @@ export class EditorShell {
                 branch: this.activeBranch,
                 language: this.activeLanguagePath,
                 canvas: this.canvasSettings,
-                canvasPerDocumentZoom: this.canvasPerDocumentZoom,
+                canvasPerDocumentZoom: this.documentAuthoring.usePerDocumentView,
                 snapToGrid: this.desktopSnapEnabled,
                 twoColumn: this.panels.library.getChild("btnTwoColumn").asButton.selected,
             }));
@@ -725,7 +715,7 @@ export class EditorShell {
                 ...this.canvasSettings,
                 ...state.canvas as Partial<RuntimePreviewCanvasSettings>,
             };
-            this.canvasPerDocumentZoom = state.canvasPerDocumentZoom === true;
+            this.documentAuthoring.usePerDocumentView = state.canvasPerDocumentZoom === true;
             this.desktopSnapEnabled = state.snapToGrid === true;
             this.panels.library.getChild("btnSync").asButton.selected = this.libraryLinked;
             this.panels.library.getChild("btnTwoColumn").asButton.selected = state.twoColumn === true;
@@ -1018,95 +1008,78 @@ export class EditorShell {
     private populateDocumentFromSnapshot(): void {
         const snapshot = this.projectSnapshot;
         if (!snapshot) return;
-        const selectedPackage = this.getSelectedPackage();
-        const selectedComponent = this.getSelectedComponent();
-        const activeDocument = selectedPackage && selectedComponent
-            ? { packageId: selectedPackage.id, componentId: selectedComponent.id }
-            : null;
-        this.documentWorkspace.render(snapshot, activeDocument);
-        this.persistProjectSelection();
+        this.documentAuthoring.render(snapshot);
         this.controllerTimeline.populateControllerPanel();
         this.controllerTimeline.populateTransitionList();
         this.controllerTimeline.populateTimeline();
     }
 
     private getActiveGroupPath(component: ProjectSnapshotComponent | null = this.getSelectedComponent()): string[] {
-        return this.documentWorkspace.getGroupPath(this.getActiveDocumentTab(), component);
-    }
-
-    private setActiveGroupPath(groupIds: string[]): void {
-        this.documentWorkspace.setGroupPath(this.getActiveDocumentTab(), groupIds);
+        return this.documentAuthoring.getActiveGroupPath(component);
     }
 
     private getScopedDisplayNodeIds(component: ProjectSnapshotComponent): string[] {
-        return this.documentWorkspace.getScopedNodeIds(this.getActiveDocumentTab(), component);
+        return this.documentAuthoring.getScopedNodeIds(component);
     }
 
-    private changeGroupPathDepth(targetDepth: number): void {
-        const path = this.getActiveGroupPath();
-        if (!Number.isInteger(targetDepth) || targetDepth < 0 || targetDepth >= path.length) return;
-        this.setActiveGroupPath(path.slice(0, targetDepth));
-        this.clearDisplayNodeSelection();
-        this.persistProjectSelection();
+    private onGroupPathDepthChanged(targetDepth: number): void {
+        this.clearResourceSelection();
         this.refreshProjectViews();
         this.setStatus(targetDepth === 0 ? "Closed group isolation." : `Group isolation moved to depth ${targetDepth}.`);
     }
 
     private openSelectedGroup(nodeId: string = this.selectedDisplayNodeId): boolean {
-        const component = this.getSelectedComponent();
-        const group = component?.children.find((node) => node.id === nodeId);
-        if (!component || group?.type !== "GGroup") return false;
-        const path = this.documentWorkspace.getPathForGroup(component, group.id);
-        if (path.length === 0) return false;
-        this.setActiveGroupPath(path);
-        this.clearDisplayNodeSelection();
-        this.persistProjectSelection();
+        const path = this.documentAuthoring.openGroup(nodeId);
+        if (!path) return false;
+        this.clearResourceSelection();
         this.refreshProjectViews();
         this.setDebugAttribute("data-fairy-editor-group-isolation", `open:${path.join("/")}`);
-        this.setStatus(`Opened group ${group.name || group.id}; selection is limited to its direct members.`);
+        const group = this.getSelectedComponent()?.children.find((node) => node.id === nodeId);
+        this.setStatus(`Opened group ${group?.name || nodeId}; selection is limited to its direct members.`);
         return true;
     }
 
     private closeSelectedGroup(): void {
-        const path = this.getActiveGroupPath();
-        if (path.length === 0) return;
-        this.setActiveGroupPath(path.slice(0, -1));
-        this.clearDisplayNodeSelection();
-        this.persistProjectSelection();
+        const closedGroupId = this.documentAuthoring.closeGroup();
+        if (!closedGroupId) return;
+        this.clearResourceSelection();
         this.refreshProjectViews();
-        this.setDebugAttribute("data-fairy-editor-group-isolation", `close:${path[path.length - 1]}`);
+        this.setDebugAttribute("data-fairy-editor-group-isolation", `close:${closedGroupId}`);
         this.setStatus("Closed one group-isolation level.");
     }
 
     private getActiveDocumentTab(): DesktopDocumentTab | null {
-        return this.activeDocument.getActiveTab(this.projectSnapshot);
+        return this.documentAuthoring.getActiveTab();
     }
 
     private activateDocumentTab(documentTab: DesktopDocumentTab): boolean {
-        if (!this.activeDocument.activate(this.projectSnapshot, documentTab)) return false;
-        if (this.canvasPerDocumentZoom) {
-            const view = this.canvasViewByDocument.get(getDesktopDocumentTabId(documentTab)) || { zoom: 1, panX: 0, panY: 0 };
-            this.runtimePreview.setViewState(view.zoom, view.panX, view.panY);
-        }
-        this.clearResourceSelection();
-        this.persistProjectSelection();
-        this.refreshProjectViews();
-        if (this.libraryLinked) this.locateActiveDocumentInLibrary(false);
-        this.setDebugAttribute("data-fairy-editor-active-document", getDesktopDocumentTabId(documentTab));
+        if (!this.documentAuthoring.activate(documentTab)) return false;
+        this.finishDocumentActivation(documentTab);
         return true;
     }
 
-    private activateDocumentFromTab(documentTab: DesktopDocumentTab): void {
-        if (!this.activateDocumentTab(documentTab)) return;
+    private finishDocumentActivation(documentTab: DesktopDocumentTab): void {
+        this.clearResourceSelection();
+        this.refreshProjectViews();
+        if (this.libraryLinked) this.locateActiveDocumentInLibrary(false);
+        this.setDebugAttribute("data-fairy-editor-active-document", getDesktopDocumentTabId(documentTab));
+    }
+
+    private onDocumentActivated(documentTab: DesktopDocumentTab): void {
+        this.finishDocumentActivation(documentTab);
         const component = this.getSelectedComponent();
         this.setStatus(`Document activated: ${component?.name || documentTab.componentId}.`);
     }
 
     private onDocumentTabClose(documentTab: DesktopDocumentTab, event?: Laya.Event): void {
         event?.stopPropagation();
-        const activeDocument = this.activeDocument.close(this.projectSnapshot, documentTab);
+        this.documentAuthoring.close(documentTab);
+        this.onDocumentClosed(documentTab);
+    }
+
+    private onDocumentClosed(documentTab: DesktopDocumentTab): void {
+        const activeDocument = this.getActiveDocumentTab();
         this.clearResourceSelection();
-        this.persistProjectSelection();
         this.refreshProjectViews();
         this.setDebugAttribute("data-fairy-editor-document-tab-close", getDesktopDocumentTabId(documentTab));
         this.setStatus(
@@ -1117,47 +1090,29 @@ export class EditorShell {
     }
 
     private closeOtherDocuments(): void {
-        const activeDocument = this.getActiveDocumentTab();
-        if (!activeDocument) return;
-        for (const documentTab of this.documentWorkspace.getOpenTabs()) {
-            if (getDesktopDocumentTabId(documentTab) !== getDesktopDocumentTabId(activeDocument)) {
-                this.documentWorkspace.close(documentTab, activeDocument);
-            }
-        }
-        this.persistProjectSelection();
+        if (!this.documentAuthoring.closeOthers()) return;
         this.refreshProjectViews();
         this.setDebugAttribute("data-fairy-editor-document-tab-close", "others");
         this.setStatus("已关闭其他文档。");
     }
 
     private closeAllDocuments(): void {
-        this.documentWorkspace.clear();
-        this.activeDocument.setActiveSelection(this.projectSnapshot, this.selectedPackageId, "");
+        this.documentAuthoring.closeAll();
         this.clearResourceSelection();
-        this.persistProjectSelection();
         this.refreshProjectViews();
         this.setDebugAttribute("data-fairy-editor-document-tab-close", "all");
         this.setStatus("已关闭所有文档。");
     }
 
     private cycleDocumentTab(delta: number): void {
-        const target = this.activeDocument.cycle(this.projectSnapshot, delta);
+        const target = this.documentAuthoring.cycle(delta);
         if (!target) return;
-        this.clearResourceSelection();
-        this.persistProjectSelection();
-        this.refreshProjectViews();
-        this.setDebugAttribute("data-fairy-editor-active-document", getDesktopDocumentTabId(target));
+        this.finishDocumentActivation(target);
         this.setStatus(`Document activated: ${this.getSelectedComponent()?.name || target.componentId}.`);
     }
 
     private getReferencedComponentTab(nodeId: string = this.selectedDisplayNodeId): DesktopDocumentTab | null {
-        const owner = this.getActiveDocumentTab();
-        if (!owner || !nodeId) return null;
-        return resolveDesktopReferencedComponentTab(
-            this.liveSessionBridge.getWorkingProject(),
-            owner,
-            nodeId,
-        );
+        return this.documentAuthoring.getReferencedComponentTab(nodeId);
     }
 
     private openReferencedComponent(nodeId: string = this.selectedDisplayNodeId): boolean {
@@ -1404,12 +1359,10 @@ export class EditorShell {
         commands: SetDisplayNodePropsCommand[],
         summary: string,
     ): Promise<boolean> {
-        let result: EditorCommandResult;
+        let commandResult: Awaited<ReturnType<EditorProjectSession["applyDisplayNodePropsNow"]>>;
         let projection: AuthoringPreviewProjectionPlan | null = null;
         try {
-            result = commands.length === 1
-                ? await this.commandAdapter.applySetDisplayNodePropsWithRuntime(commands[0])
-                : await this.commandAdapter.applySetDisplayNodePropsGroupWithRuntime(commands, summary);
+            commandResult = await this.projectSession.applyDisplayNodePropsNow(commands, summary, false);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             this.refreshPreviewForSelectedNode();
@@ -1420,20 +1373,17 @@ export class EditorShell {
         }
 
         if (this.disposed) return false;
-        this.projectSession.updateLastResult(result);
-        if (result.ok) {
-            const snapshot = this.liveSessionBridge.getProjectSnapshot();
-            const operations = result.operations || (result.operation ? [result.operation] : []);
-            if (snapshot) projection = this.applyLiveProjectSnapshot(snapshot, operations);
+        if (commandResult.result.ok && commandResult.snapshot) {
+            projection = this.renderLiveProjectSnapshot(commandResult.snapshot, commandResult.operations);
         }
-        if (result.ok) {
+        if (commandResult.result.ok) {
             this.setStatus(`${summary}. ${describeAuthoringPreviewProjection(projection)}`);
         } else {
             this.refreshPreviewForSelectedNode();
             this.populateInspectorFromSnapshot();
-            this.setStatus(`Command failed: ${result.error ? result.error.code : "unknown_error"}.`);
+            this.setStatus(`Command failed: ${commandResult.result.error?.code || "unknown_error"}.`);
         }
-        return result.ok;
+        return commandResult.result.ok;
     }
 
     private async undoCommand(): Promise<void> {
@@ -1441,9 +1391,9 @@ export class EditorShell {
     }
 
     private async undoCommandNow(): Promise<void> {
-        let result: EditorCommandResult;
+        let commandResult: Awaited<ReturnType<EditorProjectSession["undoNow"]>>;
         try {
-            result = await this.commandAdapter.undoLastWithRuntime();
+            commandResult = await this.projectSession.undoNow(false);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             this.setStatus(`Undo failed: ${message}`, "error");
@@ -1451,7 +1401,7 @@ export class EditorShell {
             return;
         }
         if (this.disposed) return;
-        this.applyCommandHistoryResult(result, "Undo");
+        this.applyCommandHistoryResult(commandResult.result, "Undo", commandResult.snapshot);
     }
 
     private async redoCommand(): Promise<void> {
@@ -1459,9 +1409,9 @@ export class EditorShell {
     }
 
     private async redoCommandNow(): Promise<void> {
-        let result: EditorCommandResult;
+        let commandResult: Awaited<ReturnType<EditorProjectSession["redoNow"]>>;
         try {
-            result = await this.commandAdapter.redoLastWithRuntime();
+            commandResult = await this.projectSession.redoNow(false);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             this.setStatus(`Redo failed: ${message}`, "error");
@@ -1469,12 +1419,14 @@ export class EditorShell {
             return;
         }
         if (this.disposed) return;
-        this.applyCommandHistoryResult(result, "Redo");
+        this.applyCommandHistoryResult(commandResult.result, "Redo", commandResult.snapshot);
     }
 
-    private applyCommandHistoryResult(result: EditorCommandResult, action: "Undo" | "Redo"): void {
-        this.projectSession.updateLastResult(result);
-
+    private applyCommandHistoryResult(
+        result: EditorCommandResult,
+        action: "Undo" | "Redo",
+        snapshot: EditorProjectSnapshot | null,
+    ): void {
         const targets = (result.operations || (result.operation ? [result.operation] : []))
             .map((operation) => this.getDisplayNodeSelectorFromOperation(operation))
             .filter((target): target is EditorDisplayNodeSelector => !!target);
@@ -1486,10 +1438,9 @@ export class EditorShell {
             return;
         }
 
-        const snapshot = this.liveSessionBridge.getProjectSnapshot();
         const operations = result.operations || (result.operation ? [result.operation] : []);
         if (snapshot) {
-            const selection = this.activeDocument.resolveCommandTargetSelection(snapshot, targets);
+            const selection = this.documentAuthoring.resolveCommandTargetSelection(snapshot, targets);
             const projection = this.applyLiveProjectSnapshot(
                 snapshot,
                 operations,
@@ -1680,10 +1631,7 @@ export class EditorShell {
     private onPreviewViewChanged(zoom: number, panX: number, panY: number): void {
         this.setDebugAttribute("data-fairy-editor-canvas-zoom", zoom.toFixed(2));
         this.setDebugAttribute("data-fairy-editor-canvas-pan", `${panX},${panY}`);
-        const document = this.getActiveDocumentTab();
-        if (document && this.canvasPerDocumentZoom) {
-            this.canvasViewByDocument.set(getDesktopDocumentTabId(document), { zoom, panX, panY });
-        }
+        this.documentAuthoring.rememberView(zoom, panX, panY);
         const combo = this.toolbar.getChild("viewScale").asComboBox;
         const index = combo.values.indexOf(String(zoom));
         if (index >= 0 && combo.selectedIndex !== index) combo.selectedIndex = index;
@@ -2075,11 +2023,11 @@ export class EditorShell {
     }
 
     private setDisplayNodeSelection(nodeIds: string[], primaryNodeId: string = ""): void {
-        this.activeDocument.setNodeSelection(this.projectSnapshot, nodeIds, primaryNodeId);
+        this.documentAuthoring.setSelection(nodeIds, primaryNodeId);
     }
 
     private clearDisplayNodeSelection(): void {
-        this.activeDocument.clearNodeSelection();
+        this.documentAuthoring.clearSelection();
     }
 
     private clearResourceSelection(): void {
@@ -2087,7 +2035,6 @@ export class EditorShell {
     }
 
     private syncDisplayNodeSelectionViews(): void {
-        this.persistProjectSelection();
         this.populateHierarchyFromSnapshot();
         this.populateInspectorFromSnapshot();
         this.runtimePreview.selectNodes(this.selectedDisplayNodeIds, this.selectedDisplayNodeId);
@@ -2208,8 +2155,8 @@ export class EditorShell {
         register(["projectSearch"], () => this.showProjectSearch());
         register(["undo"], () => { if (this.commandAdapter.canUndo()) void this.undoCommand(); });
         register(["redo"], () => { if (this.commandAdapter.canRedo()) void this.redoCommand(); });
-        register(["nextDocument"], () => { if (this.documentWorkspace.count > 1) this.cycleDocumentTab(1); });
-        register(["previousDocument"], () => { if (this.documentWorkspace.count > 1) this.cycleDocumentTab(-1); });
+        register(["nextDocument"], () => { if (this.documentAuthoring.count > 1) this.cycleDocumentTab(1); });
+        register(["previousDocument"], () => { if (this.documentAuthoring.count > 1) this.cycleDocumentTab(-1); });
         register(["closeDocument"], () => {
             const activeDocument = this.getActiveDocumentTab();
             if (activeDocument) this.onDocumentTabClose(activeDocument);
@@ -2569,7 +2516,6 @@ export class EditorShell {
         if (!await this.applyAuthoringPreparation(preparation)) return;
 
         this.setDisplayNodeSelection(selectedIds, this.selectedDisplayNodeId);
-        this.persistProjectSelection();
         this.refreshProjectViews();
         this.setDebugAttribute("data-fairy-editor-document-depth", `${direction}:${selectedIds.join(",")}`);
         this.setStatus(
@@ -2905,7 +2851,7 @@ export class EditorShell {
         const numeric = (name: string): fgui.GLabel => panel.getChild(name).asLabel;
         check("auxline1").selected = this.canvasSettings.componentEdge;
         check("auxline2").selected = this.canvasSettings.alignmentGuides;
-        check("docScaleOption").selected = this.canvasPerDocumentZoom;
+        check("docScaleOption").selected = this.documentAuthoring.usePerDocumentView;
         check("showGrid").selected = this.canvasSettings.showGrid;
         check("snapToGrid").selected = this.desktopSnapEnabled;
         numeric("gridSize").title = String(this.canvasSettings.gridSize);
@@ -2955,7 +2901,7 @@ export class EditorShell {
                 gridSize: Math.trunc(gridSize),
                 gridBrightness: Math.max(0, Math.min(100, Math.trunc(brightness))),
             };
-            this.canvasPerDocumentZoom = check("docScaleOption").selected;
+            this.documentAuthoring.usePerDocumentView = check("docScaleOption").selected;
             this.desktopSnapEnabled = check("snapToGrid").selected;
             this.runtimePreview.setCanvasSettings(this.canvasSettings);
             this.runtimePreview.setSnapEnabled(this.desktopSnapEnabled, this.canvasSettings.gridSize);
@@ -3706,7 +3652,6 @@ export class EditorShell {
                 componentId: result.componentId,
             })) return false;
             this.setDisplayNodeSelection([result.nodeId], result.nodeId);
-            this.persistProjectSelection();
             this.refreshProjectViews();
         }
         return true;
@@ -3720,12 +3665,10 @@ export class EditorShell {
             this.libraryPackageId = data.packageId;
             this.clearResourceSelection();
             const selectedPackage = this.projectSnapshot?.packages.find((pkg) => pkg.id === data.packageId) || null;
-            this.activeDocument.setActiveSelection(
-                this.projectSnapshot,
+            this.documentAuthoring.setActiveSelection(
                 data.packageId,
                 selectedPackage?.components[0]?.id || "",
             );
-            this.persistProjectSelection();
             this.refreshProjectViews();
             this.setTransientStatus(`Package selected: ${selectedPackage ? selectedPackage.name : data.packageId}.`);
             return;
@@ -3780,16 +3723,13 @@ export class EditorShell {
         const data = itemObject.treeNode ? (itemObject.treeNode.data as HierarchyItemData | null) : null;
         if (!data) return;
 
-        this.activeDocument.setActiveSelection(
-            this.projectSnapshot,
+        this.documentAuthoring.setActiveSelection(
             this.selectedPackageId,
             data.componentId,
             [data.nodeId],
             data.nodeId,
         );
         this.clearResourceSelection();
-
-        this.persistProjectSelection();
         this.populateInspectorFromSnapshot();
         this.runtimePreview.selectNodes(this.selectedDisplayNodeIds, this.selectedDisplayNodeId);
         this.layoutInspectorLines();
@@ -3888,8 +3828,7 @@ export class EditorShell {
             .find((candidate) => candidate.kind === "attachDisplayNode");
         const nodeId = String((operation?.node as { id?: unknown } | null)?.id || "");
 
-        this.activeDocument.setActiveSelection(
-            this.projectSnapshot,
+        this.documentAuthoring.setActiveSelection(
             state.targetPackageId,
             state.targetComponentId,
         );
@@ -3913,15 +3852,13 @@ export class EditorShell {
     }
 
     private selectHierarchyDragNode(data: HierarchyItemData): void {
-        this.activeDocument.setActiveSelection(
-            this.projectSnapshot,
+        this.documentAuthoring.setActiveSelection(
             this.selectedPackageId,
             data.componentId,
             [data.nodeId],
             data.nodeId,
         );
         this.clearResourceSelection();
-        this.persistProjectSelection();
         this.populateInspectorFromSnapshot();
         this.runtimePreview.selectNodes(this.selectedDisplayNodeIds, this.selectedDisplayNodeId);
         this.layoutInspectorLines();
@@ -4075,15 +4012,13 @@ export class EditorShell {
             return;
         }
 
-        this.activeDocument.setActiveSelection(
-            this.projectSnapshot,
+        this.documentAuthoring.setActiveSelection(
             this.selectedPackageId,
             target.componentId,
             [state.nodeId],
             state.nodeId,
         );
         this.clearResourceSelection();
-        this.persistProjectSelection();
         this.refreshProjectViews();
         this.setDebugAttribute("data-fairy-editor-hierarchy-drag", target.kind);
         this.setDebugAttribute(
@@ -4140,7 +4075,6 @@ export class EditorShell {
         );
         if (!await this.applyAuthoringPreparation(preparation)) return;
         this.setDisplayNodeSelection(selectedIds, this.selectedDisplayNodeId || selectedIds[selectedIds.length - 1]);
-        this.persistProjectSelection();
         this.refreshProjectViews();
         const targetLabel = typeof target === "string" ? target : getProjectResourceUrl(target);
         this.setDebugAttribute("data-fairy-editor-display-node-replace", `${selectedIds.join(",")}->${targetLabel}`);
@@ -4594,7 +4528,7 @@ export class EditorShell {
 
     private async switchBrowserWorkspaceNow(entry: BrowserWorkspaceRegistryEntry): Promise<void> {
         if (!this.guardWorkspaceTransition("switch", "data-fairy-editor-workspace-switch")) return;
-        this.persistProjectSelection();
+        this.documentAuthoring.persist();
         this.saveDesktopLayoutState();
         this.setStatus(`正在切换到浏览器工作区 ${entry.name}…`);
         try {
@@ -4602,8 +4536,7 @@ export class EditorShell {
             if (this.disposed) return;
             this.resetPublishedRuntimePackages();
             this.projectSession.clearSnapshot();
-            this.documentWorkspace.clear();
-            this.activeDocument.reset();
+            this.documentAuthoring.reset();
             this.libraryPackageId = "";
             this.clearResourceSelection();
             this.selectedLibraryResourceSelectors = [];
@@ -4630,7 +4563,7 @@ export class EditorShell {
 
     private async closeBrowserWorkspaceNow(): Promise<void> {
         if (!this.guardWorkspaceTransition("close", "data-fairy-editor-workspace-close")) return;
-        this.persistProjectSelection();
+        this.documentAuthoring.persist();
         this.saveDesktopLayoutState();
         const reset = await this.workspaceLifecycle.closeWorkspace();
         if (this.disposed) return;
@@ -4763,7 +4696,7 @@ export class EditorShell {
     ): void {
         if (this.disposed) return;
         if (previous?.project.id !== snapshot.project.id) {
-            this.documentWorkspace.clear();
+            this.documentAuthoring.reset();
         }
         this.clearResourceSelection();
         const preferredPackage = snapshot.packages.find((pkg) => pkg.name === "Builder") || snapshot.packages[0] || null;
@@ -4773,11 +4706,13 @@ export class EditorShell {
                 || null
             : null;
 
-        if (!this.restoreProjectSelection(snapshot)) {
-            this.activeDocument.setActiveSelection(
-                snapshot,
+        if (!this.documentAuthoring.restore(snapshot)) {
+            this.documentAuthoring.setActiveSelection(
                 preferredPackage?.id || "",
                 preferredComponent?.id || "",
+                [],
+                "",
+                snapshot,
             );
         }
         this.refreshProjectViews();
@@ -4803,12 +4738,12 @@ export class EditorShell {
         const previousPackageId = this.selectedPackageId;
         const previousComponentId = this.selectedComponentId;
         if (preferredSelection) {
-            this.activeDocument.setActiveSelection(
-                snapshot,
+            this.documentAuthoring.setActiveSelection(
                 preferredSelection.packageId,
                 preferredSelection.componentId,
                 preferredSelection.nodeIds,
                 preferredSelection.primaryNodeId,
+                snapshot,
             );
             this.clearResourceSelection();
         } else {
@@ -4818,16 +4753,15 @@ export class EditorShell {
             const selectedComponent = selectedPackage?.components.find(
                 (component) => component.id === this.selectedComponentId,
             ) || selectedPackage?.components[0] || null;
-            this.activeDocument.setActiveSelection(
-                snapshot,
+            this.documentAuthoring.setActiveSelection(
                 selectedPackage?.id || "",
                 selectedComponent?.id || "",
                 this.selectedDisplayNodeIds,
                 this.selectedDisplayNodeId,
+                snapshot,
             );
         }
         this.libraryController.reconcileInspectorSelection(snapshot);
-        this.persistProjectSelection();
         const selectionChanged = previousPackageId !== this.selectedPackageId
             || previousComponentId !== this.selectedComponentId;
         const selectedPackage = this.getSelectedPackage();
@@ -4862,67 +4796,12 @@ export class EditorShell {
         return projection;
     }
 
-    private restoreProjectSelection(snapshot: EditorProjectSnapshot): boolean {
-        const selection = this.readProjectSelection();
-        if (!selection || selection.projectId !== snapshot.project.id) return false;
-        return this.activeDocument.restore(snapshot, selection);
-    }
-
-    private persistProjectSelection(): void {
-        if (typeof window === "undefined") return;
-        const selection = this.activeDocument.createPersistedSelection(this.projectSnapshot);
-        if (!selection) return;
-        try {
-            window.localStorage.setItem(
-                this.getWorkspaceLocalStorageKey(PROJECT_SELECTION_STORAGE_KEY),
-                JSON.stringify(selection),
-            );
-        } catch {
-            // Local storage is optional UI state; project persistence remains in browser workspace storage.
-        }
-    }
-
-    private readProjectSelection(): PersistedEditorSelection | null {
-        if (typeof window === "undefined") return null;
-
-        try {
-            const raw = this.readWorkspaceLocalStorage(PROJECT_SELECTION_STORAGE_KEY);
-            if (!raw) return null;
-            const value = JSON.parse(raw) as Partial<PersistedEditorSelection>;
-            if (
-                typeof value.projectId !== "string"
-                || typeof value.packageId !== "string"
-                || typeof value.componentId !== "string"
-                || typeof value.displayNodeId !== "string"
-            ) return null;
-            const openDocuments = Array.isArray(value.openDocuments)
-                ? value.openDocuments.filter((tab): tab is DesktopDocumentTab => (
-                    !!tab
-                    && typeof tab.packageId === "string"
-                    && typeof tab.componentId === "string"
-                ))
-                : undefined;
-            const groupPaths = Array.isArray(value.groupPaths)
-                ? value.groupPaths.filter((entry): entry is DesktopDocumentTab & { groupIds: string[] } => (
-                    !!entry
-                    && typeof entry.packageId === "string"
-                    && typeof entry.componentId === "string"
-                    && Array.isArray(entry.groupIds)
-                    && entry.groupIds.every((groupId) => typeof groupId === "string")
-                ))
-                : undefined;
-            return { ...value, openDocuments, groupPaths } as PersistedEditorSelection;
-        } catch {
-            return null;
-        }
-    }
-
     private getSelectedPackage(): ProjectSnapshotPackage | null {
-        return this.activeDocument.getPackage(this.projectSnapshot);
+        return this.documentAuthoring.getSelectedPackage();
     }
 
     private getSelectedComponent(): ProjectSnapshotComponent | null {
-        return this.activeDocument.getComponent(this.projectSnapshot);
+        return this.documentAuthoring.getSelectedComponent();
     }
 
     private getSelectedResource(): ProjectSnapshotResource | null {

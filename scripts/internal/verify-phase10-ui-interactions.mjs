@@ -885,7 +885,7 @@ const shellChecks = [
     'register(["toolbar:save", "save"]',
     "this.runEditorAction(id)",
     "export class ActiveDocumentController",
-    "return this.activeDocument.restore(snapshot, selection)",
+    "this.activeDocument.restore(snapshot, selection)",
     "createPersistedSelection(",
     'data-fairy-editor-component-preview',
     'data-fairy-editor-layout-reset',
@@ -1549,21 +1549,22 @@ assert(
     stageKeyDown.includes("runtimePreview.hasCanvasFocus()"),
     "Arrow-key nudge must be scoped to canvas focus.",
 );
-const displayPropsApply = editorShell.slice(
-    editorShell.indexOf("private async applyDisplayNodePropsCommand"),
-    editorShell.indexOf("private async undoCommand"),
+const displayPropsApply = projectSessionModuleSource.slice(
+    projectSessionModuleSource.indexOf("async applyDisplayNodePropsNow"),
+    projectSessionModuleSource.indexOf("async undoNow"),
 );
 assert(
-    displayPropsApply.includes("liveSessionBridge.getProjectSnapshot()"),
-    "Low-risk apply must synchronize the EditorShell snapshot from the live bridge.",
+    displayPropsApply.includes("this.syncCommandResult(result, notify)"),
+    "Low-risk apply must synchronize the project session snapshot.",
 );
-const displayPropsUndo = editorShell.slice(
-    editorShell.indexOf("private async undoCommand"),
-    editorShell.indexOf("private async applyAuthoringPreparation"),
+const displayPropsUndo = projectSessionModuleSource.slice(
+    projectSessionModuleSource.indexOf("async undoNow"),
+    projectSessionModuleSource.indexOf("async saveWorkspaceNow"),
 );
 assert(
-    displayPropsUndo.includes("liveSessionBridge.getProjectSnapshot()"),
-    "Low-risk undo must synchronize the EditorShell snapshot from the live bridge.",
+    displayPropsUndo.includes("this.syncCommandResult(")
+        && projectSessionModuleSource.includes("this.liveSessionBridge.getProjectSnapshot()"),
+    "Low-risk undo/redo must synchronize the project session snapshot from the live bridge.",
 );
 const authoringPreparation = editorShellSource.slice(
     editorShellSource.indexOf("private async applyAuthoringPreparation"),
