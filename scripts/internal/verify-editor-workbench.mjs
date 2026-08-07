@@ -102,6 +102,7 @@ await assert.rejects(cleanupWorkbench.dispose(), /cleanup failed/);
 assert.equal(cleanupWorkbench.list()[0].state, "error");
 
 const mainSource = readFileSync("src/Main.ts", "utf8");
+const coreProductSource = readFileSync("src/editor/product/FairyGuiEditorCoreProduct.ts", "utf8");
 const productSource = readFileSync("src/editor/product/FairyGuiEditorProduct.ts", "utf8");
 const shellSource = readFileSync("src/editor/EditorShell.ts", "utf8");
 const shellModuleHostSource = readFileSync("src/editor/workbench/EditorShellModuleHost.ts", "utf8");
@@ -121,16 +122,14 @@ const resourceHealthModuleSource = readFileSync("src/editor/modules/ResourceHeal
 const editorDialogsSource = readFileSync("src/editor/dialogs/EditorDialogs.ts", "utf8");
 assert(mainSource.includes("createFairyGuiEditorWorkbench(mainView)"));
 assert(mainSource.includes("workbench.start()"));
-assert(productSource.includes("createEditorShellModule()"));
-assert(productSource.includes("createAuthoringPreviewModule()"));
-assert(productSource.includes("createShellChromeModule()"));
-assert(productSource.includes("createProjectSessionModule()"));
-assert(productSource.includes("createDocumentAuthoringModule()"));
-assert(productSource.includes("createInspectorModule()"));
-assert(productSource.includes("createProjectExplorerModule()"));
-assert(productSource.includes("createAuthoringDialogsModule()"));
-assert(productSource.includes("createTimelineModule()"));
-assert(productSource.includes("createResourceAuthoringModule()"));
+assert(coreProductSource.includes("export function createEditorShellModule()"));
+assert(coreProductSource.includes("export function createFairyGuiEditorCoreModules()"));
+assert(!coreProductSource.includes("ProjectTransferModules"));
+assert(!coreProductSource.includes("BrowserPluginsModule"));
+assert(!coreProductSource.includes("ResourceHealthModule"));
+assert(!coreProductSource.includes("createFairyPackageExportModule"));
+assert(!coreProductSource.includes("createWorkspaceExportModule"));
+assert(!coreProductSource.includes("createRuntimePublishModule"));
 assert(productSource.includes("createFairyPackageImportModule()"));
 assert(productSource.includes("createFairyPackageExportModule()"));
 assert(productSource.includes("createWorkspaceExportModule()"));
@@ -138,7 +137,7 @@ assert(productSource.includes("createWorkspaceImportModule()"));
 assert(productSource.includes("createRuntimePublishModule()"));
 assert(productSource.includes("createBrowserPluginsModule()"));
 assert(productSource.includes("createResourceHealthModule()"));
-assert(productSource.includes([
+assert(coreProductSource.includes([
     "return [",
     "        createAuthoringPreviewModule(),",
     "        createShellChromeModule(),",
@@ -150,6 +149,10 @@ assert(productSource.includes([
     "        createTimelineModule(),",
     "        createResourceAuthoringModule(),",
     "        createEditorShellModule(),",
+].join("\n")));
+assert(productSource.includes([
+    "return [",
+    "        ...createFairyGuiEditorCoreModules(),",
     "        createFairyPackageImportModule(),",
     "        createFairyPackageExportModule(),",
     "        createWorkspaceImportModule(),",
