@@ -19,6 +19,8 @@ const browserWorkspaceDialogSource = readSource("src/editor/dialogs/BrowserWorks
 const projectImportDialogSource = readSource("src/editor/dialogs/ProjectImportDialog.ts");
 const resourceHealthDialogSource = readSource("src/editor/dialogs/ResourceHealthDialog.ts");
 const resourceHealthModuleSource = readSource("src/editor/modules/ResourceHealthModule.ts");
+const projectSessionModuleSource = readSource("src/editor/modules/ProjectSessionModule.ts");
+const shellChromeModuleSource = readSource("src/editor/modules/ShellChromeModule.ts");
 const editorMenuControllerSource = readSource("src/editor/ui/EditorMenuController.ts");
 const resourceAuthoringControllerSource = readSource("src/editor/ui/ResourceAuthoringController.ts");
 const projectTreeInteractionSource = readSource("src/editor/ui/ProjectTreeInteractionController.ts");
@@ -52,6 +54,8 @@ const editorShell = [
     readSource("src/editor/dialogs/ResourceEditors.ts"),
     resourceHealthDialogSource,
     resourceHealthModuleSource,
+    projectSessionModuleSource,
+    shellChromeModuleSource,
     readSource("src/editor/dialogs/TextGraphPropertyEditors.ts"),
     readSource("src/editor/dialogs/TimelineItemEditor.ts"),
     readSource("src/editor/ui/EditorFormControls.ts"),
@@ -224,13 +228,13 @@ assert(!editorShellSource.includes("const TOOLBAR_ACTIONS"));
 assert(editorShellConfig.includes("export const TOOLBAR_ACTIONS"));
 assert(!editorShellSource.includes("private layoutPanelContents"));
 assert(desktopLayoutControllerSource.includes("private layoutPanelContents"));
-assert(editorShellSource.includes("private authoringOperationQueue: Promise<void> = Promise.resolve();"));
-assert(editorShellSource.includes("this.authoringOperationQueue.then(() => this.liveSessionBridge.reset())"));
-assert(editorShellSource.includes("let pendingEditorShellDisposal: Promise<void> = Promise.resolve();"));
-assert(editorShellSource.includes("const priorDisposal = pendingEditorShellDisposal;"));
-assert(editorShellSource.includes("await priorDisposal;"));
-assert(editorShellSource.includes("pendingEditorShellDisposal = closeLiveSession.then("));
-assert(editorShellSource.includes("this.disposed ? false : task()"));
+assert(projectSessionModuleSource.includes("private operationQueue: Promise<void>"));
+assert(projectSessionModuleSource.includes("this.operationQueue.then(() => this.liveSessionBridge.reset())"));
+assert(projectSessionModuleSource.includes("let pendingProjectSessionDisposal: Promise<void> = Promise.resolve();"));
+assert(projectSessionModuleSource.includes("this.operationQueue = pendingProjectSessionDisposal;"));
+assert(projectSessionModuleSource.includes("pendingProjectSessionDisposal = close.then("));
+assert(editorShellSource.includes("this.projectSession.runExclusive(() => ("));
+assert(editorShellSource.includes("this.disposed ? Promise.resolve(false) : task()"));
 assert(editorShellSource.includes("return this.disposed ? false : this.initializeProjectSnapshotNow();"));
 assert(!editorShellSource.includes("void this.initializeProjectSnapshot();"));
 assert(editorShellSource.includes("runWorkspaceTextFileTask: async (task)"));
@@ -1436,7 +1440,7 @@ for (const snippet of [
     "private toggleAllHierarchyVisibility(): void",
     "prepareRenameDisplayNode(",
 ]) {
-    assert(editorShellSource.includes(snippet), `Missing desktop display-list alignment wiring: ${snippet}`);
+    assert(editorShell.includes(snippet), `Missing desktop display-list alignment wiring: ${snippet}`);
 }
 assert(
     !editorShellSource.includes('const rootNode = this.createTreeNode(true, selectedComponent.name);'),

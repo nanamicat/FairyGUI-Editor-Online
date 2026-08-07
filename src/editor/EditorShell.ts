@@ -1,5 +1,4 @@
 import { findComponent,findDisplayNode,findResource } from "./commands/AuthoringTransactionSupport";
-import { EditorCommandAdapter } from "./commands/EditorCommandAdapter";
 import { createCommonDisplayNodePropsCommands } from "./commands/DisplayNodePropsLogic";
 import {
     ALIGN_TOOLBAR_ACTIONS,
@@ -128,19 +127,14 @@ import type {
     RuntimePreviewNodeRotation,
     RuntimePreviewNodeTransform,
 } from "./runtime/RuntimePreviewController";
-import {
-    WorkspaceLifecycleController,
-    loadBrowserWorkspaceRegistry,
-} from "./runtime/WorkspaceLifecycleController";
+import type { WorkspaceLifecycleController } from "./runtime/WorkspaceLifecycleController";
 import { ResourcePreviewController } from "./ui/ResourcePreviewController";
 import {
-    BrowserLiveSessionBridge,
     type BrowserLiveSessionIdentity,
 } from "./services/BrowserLiveSessionBridge";
 import {
     type BrowserProjectImportResult
 } from "./services/BrowserProjectImport";
-import { BrowserProjectStorage } from "./services/BrowserProjectStorage";
 import { createDisplayNodeSaveTarget } from "./services/BrowserSaveTargetVerifier";
 import { loadProjectSnapshot } from "./services/ProjectSnapshotLoader";
 import {
@@ -164,7 +158,6 @@ import {
 import {
     EditorConsoleItem,
     EditorCustomArrangePanel,
-    EditorTextInput,
 } from "./ui/EditorUiExtensions";
 import {
     EditorMenuController,
@@ -199,8 +192,8 @@ import type {
     EditorToolMenuProvider,
 } from "./workbench/EditorShellModuleHost";
 import type { AuthoringPreviewControllerFactory } from "./modules/AuthoringPreviewModule";
-
-let pendingEditorShellDisposal: Promise<void> = Promise.resolve();
+import { EditorShellChrome } from "./modules/ShellChromeModule";
+import { EditorProjectSession } from "./modules/ProjectSessionModule";
 
 const EDITOR_REPOSITORY_URL = "https://github.com/OpenFairyGUI/FairyGUI-Editor-Online";
 const FAIRYGUI_WEBSITE_URL = "https://fairygui.com/";
@@ -245,44 +238,20 @@ export class EditorShell {
     private readonly transitionListView: fgui.GComponent;
     private readonly testView: fgui.GComponent;
     private readonly publishedTest: PublishedTestController;
-    private readonly panelList: fgui.GComponent[];
     private readonly timelineView: fgui.GComponent;
     private readonly controllerTimeline: ControllerTimelineAuthoringController;
     private readonly consoleView: fgui.GComponent;
     private readonly runtimePreview: RuntimePreviewController;
     private readonly resourcePreview: ResourcePreviewController;
-    private readonly commandAdapter = new EditorCommandAdapter();
-    private readonly initialWorkspaceRegistry = loadBrowserWorkspaceRegistry();
-    private readonly projectStorage = new BrowserProjectStorage(
-        this.initialWorkspaceRegistry.activeId,
-        this.initialWorkspaceRegistry.entries.find(
-            (entry) => entry.id === this.initialWorkspaceRegistry.activeId,
-        )?.fairyPath,
-    );
+    private readonly projectSession: EditorProjectSession;
     private runtimeBundleRevision = 0;
-    private readonly runtimePackageLoader = new AuthoringRuntimePackageLoader(() => {
-        const adapter = this.projectStorage.getAdapter();
-        return adapter
-            ? {
-                adapter,
-                revision: `${this.projectStorage.getWorkspaceName()}:${this.runtimeBundleRevision}`,
-            }
-            : null;
-    });
-    private readonly liveSessionBridge = new BrowserLiveSessionBridge(this.projectStorage);
-    private readonly workspaceLifecycle = new WorkspaceLifecycleController(
-        this.liveSessionBridge,
-        this.projectStorage,
-        this.initialWorkspaceRegistry,
-    );
+    private readonly runtimePackageLoader: AuthoringRuntimePackageLoader;
     private readonly projectImportDialog: ProjectImportDialog;
-    private projectSnapshot: EditorProjectSnapshot | null = null;
     private actionMenu: fgui.PopupMenu | null = null;
     private readonly actionUnbinders: Array<() => void> = [];
     private readonly editorActions = new Map<EditorActionId, () => void>();
     private readonly toolMenuContributions = new Map<string, EditorToolMenuContribution>();
     private readonly toolMenuProviders = new Set<EditorToolMenuProvider>();
-    private commandLastResult: EditorCommandResult | null = null;
     private authoringJsonDialog: fgui.Window | null = null;
     private editorPreferences: EditorPreferences = createDefaultEditorPreferences();
     private readonly documentWorkspace: DocumentWorkspaceController;
@@ -299,7 +268,6 @@ export class EditorShell {
     private readonly hierarchyRelationsDisabled = new Set<string>();
     private readonly hierarchyShowAllInvisibles = new Set<string>();
     private readonly treeInteraction: ProjectTreeInteractionController;
-    private authoringOperationQueue: Promise<void> = Promise.resolve();
     private desktopSnapEnabled = false;
     private canvasSettings: RuntimePreviewCanvasSettings = {
         backgroundColor: "#666666",
@@ -324,6 +292,13 @@ export class EditorShell {
     private customArrangePanel: EditorCustomArrangePanel | null = null;
     private customArrangeSelectionIds: string[] = [];
     private disposed = false;
+
+    private get commandAdapter() { return this.projectSession.commandAdapter; }
+    private get projectStorage() { return this.projectSession.projectStorage; }
+    private get liveSessionBridge() { return this.projectSession.liveSessionBridge; }
+    private get workspaceLifecycle(): WorkspaceLifecycleController { return this.projectSession.workspaceLifecycle; }
+    private get projectSnapshot(): EditorProjectSnapshot | null { return this.projectSession.snapshot; }
+    private get commandLastResult(): EditorCommandResult | null { return this.projectSession.lastResult; }
 
     private get leftDockVisible(): boolean { return this.desktopLayout.leftDockVisible; }
     private set leftDockVisible(value: boolean) { this.desktopLayout.leftDockVisible = value; }
@@ -350,9 +325,23 @@ export class EditorShell {
         return selection?.kind === "folder" ? selection : null;
     }
 
-    constructor(mainView: fgui.GComponent, createAuthoringPreview: AuthoringPreviewControllerFactory) {
-        this.mainView = mainView;
-        this.projectImportDialog = new ProjectImportDialog(mainView, {
+    constructor(
+        chrome: EditorShellChrome,
+        projectSession: EditorProjectSession,
+        createAuthoringPreview: AuthoringPreviewControllerFactory,
+    ) {
+        this.mainView = chrome.mainView;
+        this.projectSession = projectSession;
+        this.runtimePackageLoader = new AuthoringRuntimePackageLoader(() => {
+            const adapter = this.projectStorage.getAdapter();
+            return adapter
+                ? {
+                    adapter,
+                    revision: `${this.projectStorage.getWorkspaceName()}:${this.runtimeBundleRevision}`,
+                }
+                : null;
+        });
+        this.projectImportDialog = new ProjectImportDialog(chrome.mainView, {
             applyImport: (picked, label) => this.applyProjectImport(picked, label),
             onError: (label, error) => this.renderWorkspaceImportError(label, error),
             pickDirectory: () => this.workspaceLifecycle.pickDirectoryProject(),
@@ -361,12 +350,12 @@ export class EditorShell {
             setStatus: (message) => this.setStatus(message),
             showWorkspace: () => this.showEditorWorkspace(),
         });
-        this.holder = this.requireChild(mainView, "holder");
-        this.menuBar = this.requireChild(mainView, "menuBar").asCom;
-        this.toolbar = this.requireChild(mainView, "toolbar").asCom;
-        this.startScene = this.requireChild(mainView, "startScene").asCom;
-        this.statusLine = this.requireChild(mainView, "logItem").asButton;
-        this.panels = this.createPanels();
+        this.holder = chrome.holder;
+        this.menuBar = chrome.menuBar;
+        this.toolbar = chrome.toolbar;
+        this.startScene = chrome.startScene;
+        this.statusLine = chrome.statusLine;
+        this.panels = chrome.panels;
         this.inspectorCommandPanel = new InspectorController(
             this.panels.inspector.getChild("list").asList,
             (action) => this.onInspectorPanelAction(action),
@@ -382,28 +371,15 @@ export class EditorShell {
             this.documentWorkspace,
             (name, value) => this.setDebugAttribute(name, value),
         );
-        this.favoritesView = this.createPanel("FavoritesView", "desktopFavoritesView");
-        this.favoritesView.visible = false;
-        this.mainView.addChild(this.favoritesView);
-        this.searchView = this.createPanel("SearchView", "desktopSearchView");
-        this.searchView.visible = false;
-        this.mainView.addChild(this.searchView);
-        this.searchInput = (this.searchView.getChild("keyword") as EditorTextInput).input;
-        this.libraryDock = this.createLibraryDock();
-        this.hierarchyDock = this.createHierarchyDock();
-        this.referenceView = this.createPanel("ReferenceView", "desktopReferenceView");
-        this.referenceView.visible = false;
-        this.referenceView.getController("c1").selectedIndex = 0;
-        this.referenceView.getChild("showReplace").visible = false;
-        this.mainView.addChild(this.referenceView);
-        this.referenceInput = (this.referenceView.getChild("source") as EditorTextInput).input;
-        this.transitionListView = this.createPanel("TransitionListView", "desktopTransitionListView");
-        this.transitionListView.visible = false;
-        this.transitionListView.getChild("list").asList.selectionMode = fgui.ListSelectionMode.Single;
-        this.mainView.addChild(this.transitionListView);
-        this.testView = this.createPanel("TestView", "desktopTestView");
-        this.testView.visible = false;
-        this.mainView.addChild(this.testView);
+        this.favoritesView = chrome.favoritesView;
+        this.searchView = chrome.searchView;
+        this.searchInput = chrome.searchInput;
+        this.libraryDock = chrome.libraryDock;
+        this.hierarchyDock = chrome.hierarchyDock;
+        this.referenceView = chrome.referenceView;
+        this.referenceInput = chrome.referenceInput;
+        this.transitionListView = chrome.transitionListView;
+        this.testView = chrome.testView;
         this.publishedTest = new PublishedTestController(this.testView, {
             getSelectedPackage: () => this.getSelectedPackage(),
             getSelectedComponent: () => this.getSelectedComponent(),
@@ -416,19 +392,7 @@ export class EditorShell {
             setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
             setStatus: (message) => this.setStatus(message),
         });
-        this.panelList = [
-            this.libraryDock,
-            this.referenceView,
-            this.transitionListView,
-            this.panels.document,
-            this.testView,
-            this.panels.preview,
-            this.hierarchyDock,
-            this.panels.inspector,
-        ];
-        this.timelineView = this.createPanel("TimelineView", "desktopTimelineView");
-        this.timelineView.visible = false;
-        this.panels.document.addChild(this.timelineView);
+        this.timelineView = chrome.timelineView;
         this.authoringDialogs = new AuthoringDialogController({
             eventOwner: this,
             getWorkingProject: () => this.liveSessionBridge.getWorkingProject(),
@@ -531,9 +495,7 @@ export class EditorShell {
             setStatus: (message) => this.setTransientStatus(message),
             setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
         });
-        this.consoleView = this.createPanel("ConsoleView", "desktopConsoleView");
-        this.consoleView.visible = false;
-        this.panels.document.addChild(this.consoleView);
+        this.consoleView = chrome.consoleView;
         this.populateDesktopConsole();
         this.desktopLayout = new DesktopLayoutController({
             mainView: this.mainView,
@@ -675,17 +637,13 @@ export class EditorShell {
             setStatus: (message) => this.setStatus(message),
             setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
         });
-        this.commandAdapter.setLiveSessionRuntime(this.liveSessionBridge);
-
         this.configureMainViewControllers();
         this.populateStaticData();
         this.registerEditorActions();
         this.bindActions();
         this.configureToolbarCapabilities();
         this.layout();
-        const priorDisposal = pendingEditorShellDisposal;
         void this.enqueueAuthoringOperation(async () => {
-            await priorDisposal;
             return this.disposed ? false : this.initializeProjectSnapshotNow();
         });
 
@@ -722,17 +680,6 @@ export class EditorShell {
         this.unbindActions();
         this.toolMenuContributions.clear();
         this.toolMenuProviders.clear();
-        const closeLiveSession = this.authoringOperationQueue.then(() => this.liveSessionBridge.reset());
-        pendingEditorShellDisposal = closeLiveSession.then(
-            (): void => {},
-            (): void => {},
-        );
-        this.authoringOperationQueue = pendingEditorShellDisposal;
-        void closeLiveSession.then((result) => {
-            if (!result.ok) console.warn("[Editor Session] dispose could not close the live session", result);
-        }).catch((error) => {
-            console.warn("[Editor Session] dispose failed to close the live session", error);
-        });
         this.projectImportDialog.close();
         this.authoringDialogs.dispose();
         this.actionMenu?.dispose();
@@ -745,38 +692,11 @@ export class EditorShell {
         this.resourcePreview.dispose();
         this.desktopLayout.dispose();
         this.treeInteraction.dispose();
-        for (const panel of this.panelList) {
-            if (panel.parent) {
-                this.mainView.removeChild(panel, true);
-            }
-        }
     }
 
     layout(): void {
         if (this.disposed) return;
         this.desktopLayout.layout();
-    }
-
-    private createPanels(): ShellPanels {
-        const panels: ShellPanels = {
-            library: this.createPanel("LibraryView", "projectLibraryView"),
-            document: this.createPanel("DocumentView", "projectDocumentView"),
-            preview: this.createPanel("PreviewView", "projectPreviewView"),
-            hierarchy: this.createPanel("HierarchyView", "projectHierarchyView"),
-            inspector: this.createPanel("InspectorView", "projectInspectorView"),
-        };
-
-        for (const panel of [
-            panels.library,
-            panels.document,
-            panels.preview,
-            panels.hierarchy,
-            panels.inspector,
-        ]) {
-            this.mainView.addChild(panel);
-        }
-
-        return panels;
     }
 
     private cancelDockSplitterDrag(restore: boolean): boolean {
@@ -911,61 +831,6 @@ export class EditorShell {
         }
         this.setDebugAttribute("data-fairy-editor-language", language);
         this.setDebugAttribute("data-fairy-editor-ui-font", font);
-    }
-
-    private createPanel(componentName: string, objectName: string): fgui.GComponent {
-        const panel = fgui.UIPackage.createObject("Builder", componentName).asCom;
-        panel.name = objectName;
-        return panel;
-    }
-
-    private createLibraryDock(): fgui.GComponent {
-        const dock = this.createPanel("ViewGrid", "desktopLibraryDock");
-        this.panels.library.getChild("btnTwoColumn").asButton.selected = false;
-        dock.getController("tabLayout").selectedIndex = 1;
-        const content = dock.getChild("content").asCom;
-        for (const panel of [this.panels.library, this.favoritesView, this.searchView]) content.addChild(panel);
-        const tabs = dock.getChild("tab2").asList;
-        tabs.removeChildrenToPool();
-        tabs.selectionMode = fgui.ListSelectionMode.Single;
-        for (const [title, mode, icon] of [
-            ["资源", "library", "panel_lib"],
-            ["收藏", "favorites", "panel_favorite"],
-            ["搜索", "search", "panel_search"],
-        ] as const) {
-            const item = tabs.addItemFromPool().asButton;
-            item.title = title;
-            item.icon = fgui.UIPackage.getItemURL("Builder", icon);
-            item.data = mode;
-        }
-        tabs.selectedIndex = 0;
-        this.mainView.addChild(dock);
-        return dock;
-    }
-
-    private createHierarchyDock(): fgui.GComponent {
-        const dock = this.createPanel("ViewGrid", "desktopHierarchyDock");
-        dock.getController("tabLayout").selectedIndex = 1;
-        dock.getChild("content").asCom.addChild(this.panels.hierarchy);
-        const tabs = dock.getChild("tab2").asList;
-        tabs.removeChildrenToPool();
-        const tab = tabs.addItemFromPool().asButton;
-        tab.title = "显示列表";
-        tab.icon = fgui.UIPackage.getItemURL("Builder", "panel_hierarchy");
-        tabs.selectedIndex = 0;
-
-        for (const name of ["status", "rename", "btnRelationDisabled", "btnShowAllInvisibles"]) {
-            this.panels.hierarchy.getChild(name).visible = true;
-        }
-        this.panels.hierarchy.getChild("warnings").visible = false;
-        const searchBar = this.panels.hierarchy.getChild("searchBar").asButton;
-        searchBar.title = "";
-        searchBar.visible = false;
-        this.panels.hierarchy.getChild("list").tooltips = "选中显示列表后直接键入可搜索，Backspace 删除，Esc 清空";
-        this.panels.hierarchy.getChild("status").tooltips = "隐藏/显示全部元件（仅设计期有效）";
-        this.panels.hierarchy.getChild("lock").tooltips = "锁定/解锁全部元件";
-        this.mainView.addChild(dock);
-        return dock;
     }
 
     private configureMainViewControllers(): void {
@@ -1583,7 +1448,7 @@ export class EditorShell {
         }
 
         if (this.disposed) return false;
-        this.commandLastResult = result;
+        this.projectSession.updateLastResult(result);
         if (result.ok) {
             const snapshot = this.liveSessionBridge.getProjectSnapshot();
             const operations = result.operations || (result.operation ? [result.operation] : []);
@@ -1636,7 +1501,7 @@ export class EditorShell {
     }
 
     private applyCommandHistoryResult(result: EditorCommandResult, action: "Undo" | "Redo"): void {
-        this.commandLastResult = result;
+        this.projectSession.updateLastResult(result);
 
         const targets = (result.operations || (result.operation ? [result.operation] : []))
             .map((operation) => this.getDisplayNodeSelectorFromOperation(operation))
@@ -1740,7 +1605,7 @@ export class EditorShell {
         }
 
         if (this.disposed) return false;
-        this.commandLastResult = result;
+        this.projectSession.updateLastResult(result);
         if (!result.ok) {
             this.setStatus(`Operation failed: ${result.error?.code || "unknown_error"}.`, "error");
             this.populateInspectorFromSnapshot();
@@ -1885,14 +1750,9 @@ export class EditorShell {
     private enqueueAuthoringOperation(
         task: () => Promise<boolean | void>,
     ): Promise<boolean | void> {
-        const result = this.authoringOperationQueue.then(() => (
-            this.disposed ? false : task()
+        return this.projectSession.runExclusive(() => (
+            this.disposed ? Promise.resolve(false) : task()
         ));
-        this.authoringOperationQueue = result.then(
-            (): void => {},
-            (): void => {},
-        );
-        return result;
     }
 
     private async applyDesktopNodePositions(
@@ -4893,7 +4753,7 @@ export class EditorShell {
             await this.workspaceLifecycle.switchWorkspace(entry);
             if (this.disposed) return;
             this.resetPublishedRuntimePackages();
-            this.projectSnapshot = null;
+            this.projectSession.updateSnapshot(null);
             this.documentWorkspace.clear();
             this.activeDocument.reset();
             this.libraryPackageId = "";
@@ -5170,9 +5030,9 @@ export class EditorShell {
         if (this.projectSnapshot?.project.id !== snapshot.project.id) {
             this.documentWorkspace.clear();
         }
-        this.projectSnapshot = snapshot;
+        this.projectSession.updateSnapshot(snapshot);
         this.commandAdapter.reset(snapshot, revision);
-        this.commandLastResult = null;
+        this.projectSession.updateLastResult(null);
         this.clearResourceSelection();
         const preferredPackage = snapshot.packages.find((pkg) => pkg.name === "Builder") || snapshot.packages[0] || null;
         const preferredComponent = preferredPackage
@@ -5201,7 +5061,7 @@ export class EditorShell {
         if (operations.length) this.markModifiedPackages(snapshot, operations);
         const previousPackageId = this.selectedPackageId;
         const previousComponentId = this.selectedComponentId;
-        this.projectSnapshot = snapshot;
+        this.projectSession.updateSnapshot(snapshot);
         this.commandAdapter.updateSnapshot(snapshot);
         if (preferredSelection) {
             this.activeDocument.setActiveSelection(

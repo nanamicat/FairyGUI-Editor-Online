@@ -6,6 +6,16 @@ import {
 } from "../modules/AuthoringPreviewModule";
 import { createBrowserPluginsModule } from "../modules/BrowserPluginsModule";
 import { createResourceHealthModule } from "../modules/ResourceHealthModule";
+import {
+    createShellChromeModule,
+    EditorShellChrome,
+    SHELL_CHROME_SERVICE,
+} from "../modules/ShellChromeModule";
+import {
+    createProjectSessionModule,
+    EditorProjectSession,
+    PROJECT_SESSION_SERVICE,
+} from "../modules/ProjectSessionModule";
 import { EditorWorkbench, type EditorModule } from "../workbench/EditorWorkbench";
 import {
     EDITOR_SHELL_MODULE_HOST_SERVICE,
@@ -22,7 +32,9 @@ function createEditorShellModule(): EditorModule<FairyGuiEditorWorkbenchHost> {
             const createAuthoringPreview = context.requireService<AuthoringPreviewControllerFactory>(
                 AUTHORING_PREVIEW_FACTORY_SERVICE,
             );
-            const shell = new EditorShell(context.host.mainView, createAuthoringPreview);
+            const chrome = context.requireService<EditorShellChrome>(SHELL_CHROME_SERVICE);
+            const session = context.requireService<EditorProjectSession>(PROJECT_SESSION_SERVICE);
+            const shell = new EditorShell(chrome, session, createAuthoringPreview);
             context.provideService(EDITOR_SHELL_MODULE_HOST_SERVICE, shell.createModuleHost());
             return () => shell.dispose();
         },
@@ -32,6 +44,8 @@ function createEditorShellModule(): EditorModule<FairyGuiEditorWorkbenchHost> {
 export function createFairyGuiEditorProductModules(): EditorModule<FairyGuiEditorWorkbenchHost>[] {
     return [
         createAuthoringPreviewModule(),
+        createShellChromeModule(),
+        createProjectSessionModule(),
         createEditorShellModule(),
         createBrowserPluginsModule(),
         createResourceHealthModule(),

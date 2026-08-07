@@ -104,17 +104,23 @@ assert.equal(cleanupWorkbench.list()[0].state, "error");
 const mainSource = readFileSync("src/Main.ts", "utf8");
 const productSource = readFileSync("src/editor/product/FairyGuiEditorProduct.ts", "utf8");
 const shellSource = readFileSync("src/editor/EditorShell.ts", "utf8");
+const shellChromeModuleSource = readFileSync("src/editor/modules/ShellChromeModule.ts", "utf8");
+const projectSessionModuleSource = readFileSync("src/editor/modules/ProjectSessionModule.ts", "utf8");
 const browserPluginsModuleSource = readFileSync("src/editor/modules/BrowserPluginsModule.ts", "utf8");
 const resourceHealthModuleSource = readFileSync("src/editor/modules/ResourceHealthModule.ts", "utf8");
 assert(mainSource.includes("createFairyGuiEditorWorkbench(mainView)"));
 assert(mainSource.includes("workbench.start()"));
 assert(productSource.includes("createEditorShellModule()"));
 assert(productSource.includes("createAuthoringPreviewModule()"));
+assert(productSource.includes("createShellChromeModule()"));
+assert(productSource.includes("createProjectSessionModule()"));
 assert(productSource.includes("createBrowserPluginsModule()"));
 assert(productSource.includes("createResourceHealthModule()"));
 assert(productSource.includes([
     "return [",
     "        createAuthoringPreviewModule(),",
+    "        createShellChromeModule(),",
+    "        createProjectSessionModule(),",
     "        createEditorShellModule(),",
     "        createBrowserPluginsModule(),",
     "        createResourceHealthModule(),",
@@ -123,6 +129,13 @@ assert(shellSource.includes("this.toolMenuContributions.values()"));
 assert(shellSource.includes("this.toolMenuProviders"));
 assert(!shellSource.includes("showResourceHealthDialog as openResourceHealthDialog"));
 assert(!shellSource.includes("new BrowserPluginHost()"));
+assert(!shellSource.includes("new BrowserProjectStorage("));
+assert(!shellSource.includes("new BrowserLiveSessionBridge("));
+assert(!shellSource.includes("new EditorCommandAdapter("));
+assert(shellChromeModuleSource.includes("new EditorShellChrome(context.host.mainView)"));
+assert(projectSessionModuleSource.includes("new EditorProjectSession()"));
+assert(projectSessionModuleSource.includes("runExclusive<T>"));
+assert(projectSessionModuleSource.includes("hotReloadable: false"));
 assert(browserPluginsModuleSource.includes("new BrowserPluginHost()"));
 assert(browserPluginsModuleSource.includes("shell.registerToolMenuProvider"));
 assert(browserPluginsModuleSource.includes("pluginHost.dispose()"));
