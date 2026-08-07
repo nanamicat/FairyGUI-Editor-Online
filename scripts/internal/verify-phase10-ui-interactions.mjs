@@ -14,6 +14,7 @@ const editorShellConfig = readSource("src/editor/EditorShellConfig.ts");
 const desktopLayoutControllerSource = readSource("src/editor/ui/DesktopLayoutController.ts");
 const editorUiExtensions = readSource("src/editor/ui/EditorUiExtensions.ts");
 const browserPluginDialogSource = readSource("src/editor/dialogs/BrowserPluginDialog.ts");
+const browserPluginsModuleSource = readSource("src/editor/modules/BrowserPluginsModule.ts");
 const browserWorkspaceDialogSource = readSource("src/editor/dialogs/BrowserWorkspaceDialog.ts");
 const projectImportDialogSource = readSource("src/editor/dialogs/ProjectImportDialog.ts");
 const resourceHealthDialogSource = readSource("src/editor/dialogs/ResourceHealthDialog.ts");
@@ -38,6 +39,7 @@ const editorShell = [
     readSource("src/editor/dialogs/ComponentTemplateEditors.ts"),
     browserWorkspaceDialogSource,
     browserPluginDialogSource,
+    browserPluginsModuleSource,
     readSource("src/editor/dialogs/ControllerEditors.ts"),
     readSource("src/editor/dialogs/ListPropertyEditors.ts"),
     readSource("src/editor/dialogs/LoaderPropertyEditors.ts"),
@@ -351,6 +353,10 @@ await pluginHost.initialize();
 assert.deepEqual(pluginHost.list().map((plugin) => plugin.id), ["example.user-plugin"]);
 assert.equal(persistedPlugins.includes("fairygui.selection-summary"), false);
 pluginHost.dispose();
+await assert.rejects(
+    pluginHost.install("http://localhost/plugins/late/plugin.json"),
+    /host is disposed/,
+);
 delete globalThis.localStorage;
 delete globalThis.window;
 

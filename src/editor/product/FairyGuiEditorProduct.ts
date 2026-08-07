@@ -4,6 +4,7 @@ import {
     createAuthoringPreviewModule,
     type AuthoringPreviewControllerFactory,
 } from "../modules/AuthoringPreviewModule";
+import { createBrowserPluginsModule } from "../modules/BrowserPluginsModule";
 import { createResourceHealthModule } from "../modules/ResourceHealthModule";
 import { EditorWorkbench, type EditorModule } from "../workbench/EditorWorkbench";
 import {
@@ -32,6 +33,7 @@ export function createFairyGuiEditorProductModules(): EditorModule<FairyGuiEdito
     return [
         createAuthoringPreviewModule(),
         createEditorShellModule(),
+        createBrowserPluginsModule(),
         createResourceHealthModule(),
     ];
 }

@@ -36,10 +36,6 @@ import {
     type ProjectResourceReference
 } from "./commands/HighRiskAuthoringTransactions";
 import { requestEditorTextInput } from "./dialogs/EditorDialogs";
-import {
-    showBrowserPluginDialog as openBrowserPluginDialog,
-    showBrowserPluginPanel as openBrowserPluginPanel,
-} from "./dialogs/BrowserPluginDialog";
 import { showBrowserWorkspaceDialog as openBrowserWorkspaceDialog } from "./dialogs/BrowserWorkspaceDialog";
 import type { ExportedControllerDefinition } from "./dialogs/ComponentInstancePropertyEditors";
 import { showPreferencesDialog as openPreferencesDialog } from "./dialogs/PreferencesDialog";
@@ -82,11 +78,6 @@ import {
     AuthoringRuntimePackageLoader,
     type AuthoringRuntimePackageLoadResult,
 } from "./runtime/AuthoringRuntimePackageLoader";
-import {
-    BrowserPluginHost,
-    type BrowserPluginMenuContribution,
-    validateBrowserPluginWriteCommands,
-} from "./runtime/BrowserPluginHost";
 import {
     DEFAULT_BROWSER_WORKSPACE_ID,
     type BrowserWorkspaceRegistryEntry,
@@ -202,8 +193,10 @@ import {
 } from "./ui/ProjectTreeInteractionController";
 import { ResourceAuthoringController } from "./ui/ResourceAuthoringController";
 import type {
+    BrowserPluginModuleContext,
     EditorShellModuleHost,
     EditorToolMenuContribution,
+    EditorToolMenuProvider,
 } from "./workbench/EditorShellModuleHost";
 import type { AuthoringPreviewControllerFactory } from "./modules/AuthoringPreviewModule";
 
@@ -276,7 +269,6 @@ export class EditorShell {
             }
             : null;
     });
-    private readonly browserPluginHost = new BrowserPluginHost();
     private readonly liveSessionBridge = new BrowserLiveSessionBridge(this.projectStorage);
     private readonly workspaceLifecycle = new WorkspaceLifecycleController(
         this.liveSessionBridge,
@@ -289,6 +281,7 @@ export class EditorShell {
     private readonly actionUnbinders: Array<() => void> = [];
     private readonly editorActions = new Map<EditorActionId, () => void>();
     private readonly toolMenuContributions = new Map<string, EditorToolMenuContribution>();
+    private readonly toolMenuProviders = new Set<EditorToolMenuProvider>();
     private commandLastResult: EditorCommandResult | null = null;
     private authoringJsonDialog: fgui.Window | null = null;
     private editorPreferences: EditorPreferences = createDefaultEditorPreferences();
@@ -700,7 +693,6 @@ export class EditorShell {
         Laya.stage.on(Laya.Event.MOUSE_DOWN, this, this.onStageMouseDown);
         Laya.stage.on(Laya.Event.KEY_DOWN, this, this.onStageKeyDown);
         Laya.stage.on(Laya.Event.KEY_UP, this, this.onStageKeyUp);
-        void this.initializeBrowserPlugins();
         this.setStatus("Loading project snapshot.");
     }
 
@@ -709,8 +701,10 @@ export class EditorShell {
             registerToolMenuContribution: (contribution: EditorToolMenuContribution) => (
                 this.registerToolMenuContribution(contribution)
             ),
+            registerToolMenuProvider: (provider: EditorToolMenuProvider) => this.registerToolMenuProvider(provider),
             isLiveSession: () => this.commandAdapter.getSessionState().liveSession,
             createResourceHealthDialogContext: () => this.createResourceHealthDialogContext(),
+            createBrowserPluginModuleContext: () => this.createBrowserPluginModuleContext(),
         });
     }
 
@@ -727,6 +721,7 @@ export class EditorShell {
         this.resourceAuthoring.dispose();
         this.unbindActions();
         this.toolMenuContributions.clear();
+        this.toolMenuProviders.clear();
         const closeLiveSession = this.authoringOperationQueue.then(() => this.liveSessionBridge.reset());
         pendingEditorShellDisposal = closeLiveSession.then(
             (): void => {},
@@ -739,7 +734,6 @@ export class EditorShell {
             console.warn("[Editor Session] dispose failed to close the live session", error);
         });
         this.projectImportDialog.close();
-        this.browserPluginHost.dispose();
         this.authoringDialogs.dispose();
         this.actionMenu?.dispose();
         this.actionMenu = null;
@@ -3061,9 +3055,6 @@ export class EditorShell {
         this.addMenuItem(menu, "desktopMenuPreferences", "偏好设置…", () => {
             this.showPreferencesDialog();
         });
-        this.addMenuItem(menu, "desktopMenuBrowserPlugins", "浏览器插件…", () => {
-            this.showBrowserPluginDialog();
-        });
         menu.addSeperator();
         this.addMenuItem(menu, "desktopMenuProjectSettings", "项目设置...", () => {
             this.onAction("menu:tools");
@@ -3084,7 +3075,11 @@ export class EditorShell {
         this.addMenuItem(menu, "desktopMenuWorkspace", "浏览器工作区...", () => {
             this.showBrowserWorkspaceSelector();
         });
-        for (const contribution of this.toolMenuContributions.values()) {
+        const moduleContributions = [
+            ...this.toolMenuContributions.values(),
+            ...[...this.toolMenuProviders].flatMap((provider) => provider()),
+        ];
+        for (const contribution of moduleContributions) {
             const item = this.addMenuItem(menu, contribution.itemName, contribution.title, () => {
                 void Promise.resolve(contribution.run()).catch((error) => {
                     this.setStatus(
@@ -3093,15 +3088,6 @@ export class EditorShell {
                 });
             });
             setEditorFormActionEnabled(item, contribution.isEnabled?.() ?? true);
-        }
-        const pluginContributions = this.browserPluginHost.menuContributions();
-        if (pluginContributions.length > 0) {
-            menu.addSeperator();
-            for (const contribution of pluginContributions) {
-                this.addMenuItem(menu, `browserPlugin:${contribution.id}`, contribution.title, () => {
-                    void this.runBrowserPluginContribution(contribution);
-                });
-            }
         }
         this.showActionMenu(menu, anchor, "tools", "已打开工具菜单。");
     }
@@ -3191,150 +3177,53 @@ export class EditorShell {
         this.setStatus("已打开画布显示设置。");
     }
 
-    private async initializeBrowserPlugins(): Promise<void> {
-        try {
-            await this.browserPluginHost.initialize();
-            if (this.disposed) return;
-            this.refreshBrowserPluginDebugState();
-        } catch (error) {
-            this.setDebugAttribute("data-fairy-editor-plugin-host", "error");
-            console.error("[BrowserPlugin] initialization failed", error);
-        }
-    }
-
-    private showBrowserPluginDialog(): void {
-        openBrowserPluginDialog({
-            list: () => this.browserPluginHost.list(),
-            install: () => void this.installBrowserPlugin(),
-            reload: async (pluginId) => {
-                await this.browserPluginHost.reload(pluginId);
-                if (this.disposed) return;
-                this.refreshBrowserPluginDebugState();
-            },
-            setEnabled: async (pluginId, enabled) => {
-                await this.browserPluginHost.setEnabled(pluginId, enabled);
-                if (this.disposed) return;
-                this.refreshBrowserPluginDebugState();
-            },
+    private createBrowserPluginModuleContext(): BrowserPluginModuleContext {
+        return {
             getActiveDialog: () => this.authoringJsonDialog,
             setActiveDialog: (dialog) => { this.authoringJsonDialog = dialog; },
+            requestTextInput: (name, title, message, current, confirmLabel) => (
+                this.authoringDialogs.requestTextInput(name, title, message, current, confirmLabel)
+            ),
+            createInvocationContext: () => {
+                const activeWorkspace = this.workspaceLifecycle.registry.entries.find(
+                    (entry) => entry.id === this.projectStorage.getWorkspaceName(),
+                );
+                const selector = this.getSelectedDisplayNodeSelector();
+                const snapshotNode = this.getSelectedDisplayNode();
+                const liveNode = selector
+                    ? findDisplayNode(this.liveSessionBridge.getWorkingProject(), selector)
+                    : null;
+                return {
+                    workspace: {
+                        id: this.projectStorage.getWorkspaceName(),
+                        name: activeWorkspace?.name || "浏览器工作区",
+                    },
+                    project: this.projectSnapshot ? {
+                        id: this.projectSnapshot.project.id,
+                        packages: this.projectSnapshot.totals.packages,
+                        components: this.projectSnapshot.totals.components,
+                        displayObjects: this.projectSnapshot.totals.displayObjects,
+                    } : null,
+                    selection: selector && snapshotNode && liveNode ? {
+                        selector,
+                        node: {
+                            id: snapshotNode.id,
+                            name: snapshotNode.name,
+                            type: snapshotNode.type,
+                            x: Number(liveNode.position?.x ?? snapshotNode.x),
+                            y: Number(liveNode.position?.y ?? snapshotNode.y),
+                            width: Number(liveNode.size?.width ?? snapshotNode.width),
+                            height: Number(liveNode.size?.height ?? snapshotNode.height),
+                        },
+                    } : null,
+                };
+            },
+            getSelectedDisplayNodeSelector: () => this.getSelectedDisplayNodeSelector(),
+            applyDisplayNodeCommands: (commands, summary) => this.applyDisplayNodePropsCommands(commands, summary),
             setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
             setStatus: (message) => this.setStatus(message),
             eventOwner: this,
-        });
-    }
-
-    private async installBrowserPlugin(): Promise<void> {
-        const manifestUrl = await this.authoringDialogs.requestTextInput(
-            "browserPluginInstallDialog",
-            "安装浏览器插件",
-            "请输入 HTTPS 清单 URL；新插件安装后默认停用。",
-            "",
-            "安装",
-        );
-        if (this.disposed) return;
-        if (manifestUrl === null || !manifestUrl.trim()) return;
-        try {
-            const plugin = await this.browserPluginHost.install(manifestUrl.trim(), false);
-            if (this.disposed) return;
-            this.refreshBrowserPluginDebugState();
-            this.setDebugAttribute("data-fairy-editor-plugin-install", plugin.id);
-            this.setStatus(`浏览器插件 ${plugin.name} 已安装并保持停用；请检查权限后再启用。`);
-            this.showBrowserPluginDialog();
-        } catch (error) {
-            this.setDebugAttribute("data-fairy-editor-plugin-install", "failed");
-            this.setStatus(`浏览器插件安装失败：${error instanceof Error ? error.message : String(error)}`);
-        }
-    }
-
-    private async runBrowserPluginContribution(contribution: BrowserPluginMenuContribution): Promise<void> {
-        this.setDebugAttribute("data-fairy-editor-plugin-invoke", `${contribution.pluginId}:${contribution.id}:pending`);
-        try {
-            const result = await this.browserPluginHost.invoke(
-                contribution.pluginId,
-                contribution.id,
-                this.createBrowserPluginContext(),
-            );
-            if (this.disposed) return;
-            const commands = validateBrowserPluginWriteCommands(
-                result,
-                this.getSelectedDisplayNodeSelector(),
-            );
-            if (commands.length > 0) {
-                const applied = await this.applyDisplayNodePropsCommands(
-                    commands,
-                    `browser plugin ${contribution.id}`,
-                );
-                if (!applied) return;
-            }
-            if (result.panel) this.showBrowserPluginPanel(result.panel.title, result.panel.lines);
-            this.setDebugAttribute(
-                "data-fairy-editor-plugin-invoke",
-                `${contribution.pluginId}:${contribution.id}:ok:${commands.length}`,
-            );
-            this.setStatus(`浏览器插件已完成：${contribution.title}。`);
-        } catch (error) {
-            await this.browserPluginHost.setEnabled(contribution.pluginId, false).catch(() => undefined);
-            this.refreshBrowserPluginDebugState();
-            this.setDebugAttribute("data-fairy-editor-plugin-invoke", `${contribution.pluginId}:${contribution.id}:failed`);
-            this.setStatus(`浏览器插件执行失败并已停用：${error instanceof Error ? error.message : String(error)}`);
-        }
-    }
-
-    private createBrowserPluginContext(): unknown {
-        const activeWorkspace = this.workspaceLifecycle.registry.entries.find(
-            (entry) => entry.id === this.projectStorage.getWorkspaceName(),
-        );
-        const selector = this.getSelectedDisplayNodeSelector();
-        const snapshotNode = this.getSelectedDisplayNode();
-        const liveNode = selector
-            ? findDisplayNode(this.liveSessionBridge.getWorkingProject(), selector)
-            : null;
-        return {
-            workspace: {
-                id: this.projectStorage.getWorkspaceName(),
-                name: activeWorkspace?.name || "浏览器工作区",
-            },
-            project: this.projectSnapshot ? {
-                id: this.projectSnapshot.project.id,
-                packages: this.projectSnapshot.totals.packages,
-                components: this.projectSnapshot.totals.components,
-                displayObjects: this.projectSnapshot.totals.displayObjects,
-            } : null,
-            selection: selector && snapshotNode && liveNode ? {
-                selector,
-                node: {
-                    id: snapshotNode.id,
-                    name: snapshotNode.name,
-                    type: snapshotNode.type,
-                    x: Number(liveNode.position?.x ?? snapshotNode.x),
-                    y: Number(liveNode.position?.y ?? snapshotNode.y),
-                    width: Number(liveNode.size?.width ?? snapshotNode.width),
-                    height: Number(liveNode.size?.height ?? snapshotNode.height),
-                },
-            } : null,
         };
-    }
-
-    private showBrowserPluginPanel(title: string, lines: string[]): void {
-        openBrowserPluginPanel({
-            getActiveDialog: () => this.authoringJsonDialog,
-            setActiveDialog: (dialog) => { this.authoringJsonDialog = dialog; },
-            setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
-            eventOwner: this,
-        }, title, lines);
-    }
-
-    private refreshBrowserPluginDebugState(): void {
-        const plugins = this.browserPluginHost.list();
-        const ready = plugins.filter((plugin) => plugin.enabled && plugin.state === "ready");
-        this.setDebugAttribute("data-fairy-editor-plugin-host", "ready");
-        this.setDebugAttribute("data-fairy-editor-plugin-count", String(plugins.length));
-        this.setDebugAttribute("data-fairy-editor-plugin-ready", String(ready.length));
-        this.setDebugAttribute(
-            "data-fairy-editor-plugin-sandbox",
-            ready.map((plugin) => `${plugin.id}:dom=${plugin.environment?.dom};opfs=${plugin.environment?.opfs}`).join("|"),
-        );
     }
 
     private showPreferencesDialog(): void {
@@ -3406,6 +3295,12 @@ export class EditorShell {
                 this.toolMenuContributions.delete(registered.id);
             }
         };
+    }
+
+    private registerToolMenuProvider(provider: EditorToolMenuProvider): () => void {
+        if (this.disposed) throw new Error("Cannot register a tool provider after the editor shell was disposed.");
+        this.toolMenuProviders.add(provider);
+        return () => this.toolMenuProviders.delete(provider);
     }
 
     private showHelpMenu(anchor: fgui.GObject): void {

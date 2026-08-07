@@ -9,9 +9,14 @@ EditorWorkbench
   ├─ trusted product modules
   │    ├─ fairygui.authoring-preview
   │    ├─ fairygui.editor-shell
+  │    ├─ fairygui.browser-plugins
   │    └─ fairygui.resource-health
   └─ EditorShell
-       └─ sandboxed browser plugins
+       └─ trusted contribution host
+
+fairygui.browser-plugins
+  └─ BrowserPluginHost
+       └─ sandboxed iframe + Worker plugins
 ```
 
 - `EditorWorkbench` 只管理模块状态、启动顺序、服务所有权、依赖保护和逆序清理。
@@ -43,7 +48,8 @@ interface EditorModule<THost> {
 
 1. `fairygui.authoring-preview`：提供 `RuntimePreviewController` factory，使其他同栈产品可以替换预览实现而不修改 Shell 构造逻辑。
 2. `fairygui.editor-shell`：构造现有在线编辑器 Shell，并提供可信 UI contribution host；它绑定当前 `Builder/MainView` 生命周期，不允许单独热重载。
-3. `fairygui.resource-health`：通过 contribution host 注册“资源健康”工具菜单，可独立 deactivate、activate 或 reload。
+3. `fairygui.browser-plugins`：拥有外部插件 Host、管理菜单、动态 contribution、插件弹窗和 sandbox 生命周期；模块停用时统一撤销和清理。
+4. `fairygui.resource-health`：通过 contribution host 注册“资源健康”工具菜单，可独立 deactivate、activate 或 reload。
 
 不同方向的编辑器可以复用 `EditorWorkbench`，用自己的 host 和模块列表替换 `fairygui.editor-shell`。需要共享现有 FairyGUI Shell 时，则复用当前产品模块并增删叶子模块。
 
