@@ -121,15 +121,12 @@ import type {
     RuntimePreviewNodeTransform,
 } from "./runtime/RuntimePreviewController";
 import type { WorkspaceLifecycleController } from "./runtime/WorkspaceLifecycleController";
-import { ResourcePreviewController } from "./ui/ResourcePreviewController";
 import {
     type BrowserLiveSessionIdentity,
 } from "./services/BrowserLiveSessionBridge";
 import { createDisplayNodeSaveTarget } from "./services/BrowserSaveTargetVerifier";
 import { loadProjectSnapshot } from "./services/ProjectSnapshotLoader";
 import type { ActiveDocumentSelection } from "./ui/ActiveDocumentController";
-import { AuthoringDialogController } from "./ui/AuthoringDialogController";
-import { ControllerTimelineAuthoringController } from "./ui/ControllerTimelineAuthoringController";
 import {
     DesktopLayoutController,
     type DesktopLeftTopPanelMode,
@@ -146,27 +143,19 @@ import {
     EditorMenuController,
     type EditorMenuCommand,
 } from "./ui/EditorMenuController";
-import {
-    InspectorController,
-    type InspectorPanelAction,
-} from "./ui/InspectorController";
+import type { InspectorPanelAction } from "./ui/InspectorController";
 import {
     describeAuthoringPreviewProjection,
     getBrowserSaveFailure,
 } from "./ui/InspectorPresentation";
+import type { LibraryResourceFolderSelector } from "./ui/LibraryController";
 import {
-    LibraryController,
-    type LibraryResourceFolderSelector,
-} from "./ui/LibraryController";
-import {
-    ProjectTreeInteractionController,
     type HierarchyDragState,
     type HierarchyDropTarget,
     type HierarchyItemData,
     type LibraryDragState,
     type LibraryItemData,
 } from "./ui/ProjectTreeInteractionController";
-import { ResourceAuthoringController } from "./ui/ResourceAuthoringController";
 import type {
     BrowserPluginModuleContext,
     EditorShellModuleHost,
@@ -176,6 +165,11 @@ import type {
 import { EditorShellChrome } from "./modules/ShellChromeModule";
 import { EditorProjectSession } from "./modules/ProjectSessionModule";
 import { EditorDocumentAuthoring } from "./modules/DocumentAuthoringModule";
+import { EditorInspector } from "./modules/InspectorModule";
+import { EditorProjectExplorer } from "./modules/ProjectExplorerModule";
+import { EditorAuthoringDialogs } from "./modules/AuthoringDialogsModule";
+import { EditorTimeline } from "./modules/TimelineModule";
+import { EditorResourceAuthoring } from "./modules/ResourceAuthoringModule";
 import { downloadBrowserFile } from "./modules/ProjectTransferModules";
 
 const EDITOR_REPOSITORY_URL = "https://github.com/OpenFairyGUI/FairyGUI-Editor-Online";
@@ -211,7 +205,8 @@ export class EditorShell {
     private readonly startScene: fgui.GComponent;
     private readonly statusLine: fgui.GButton;
     private readonly panels: ShellPanels;
-    private readonly inspectorCommandPanel: InspectorController;
+    private readonly inspectorCommandPanel: EditorInspector;
+    private readonly unbindInspectorActions: () => void;
     private readonly libraryDock: fgui.GComponent;
     private readonly hierarchyDock: fgui.GComponent;
     private readonly favoritesView: fgui.GComponent;
@@ -223,9 +218,10 @@ export class EditorShell {
     private readonly testView: fgui.GComponent;
     private readonly publishedTest: PublishedTestController;
     private readonly timelineView: fgui.GComponent;
-    private readonly controllerTimeline: ControllerTimelineAuthoringController;
+    private readonly controllerTimeline: EditorTimeline["controller"];
+    private readonly unbindTimeline: () => void;
     private readonly consoleView: fgui.GComponent;
-    private readonly resourcePreview: ResourcePreviewController;
+    private readonly resourcePreview: EditorProjectExplorer["resourcePreview"];
     private readonly projectSession: EditorProjectSession;
     private readonly unbindProjectSnapshot: () => void;
     private readonly unbindLiveProjectSnapshot: () => void;
@@ -236,9 +232,12 @@ export class EditorShell {
     private authoringJsonDialog: fgui.Window | null = null;
     private editorPreferences: EditorPreferences = createDefaultEditorPreferences();
     private readonly desktopLayout: DesktopLayoutController;
-    private readonly libraryController: LibraryController;
-    private readonly authoringDialogs: AuthoringDialogController;
-    private readonly resourceAuthoring: ResourceAuthoringController;
+    private readonly libraryController: EditorProjectExplorer["library"];
+    private readonly unbindProjectExplorer: () => void;
+    private readonly authoringDialogs: EditorAuthoringDialogs["controller"];
+    private readonly unbindAuthoringDialogs: () => void;
+    private readonly resourceAuthoring: EditorResourceAuthoring["controller"];
+    private readonly unbindResourceAuthoring: () => void;
     private readonly editorMenus: EditorMenuController;
     private hierarchyExpanded = true;
     private hierarchyKeyboardActive = false;
@@ -246,7 +245,7 @@ export class EditorShell {
     private readonly hierarchyHiddenNodes = new Map<string, Set<string>>();
     private readonly hierarchyRelationsDisabled = new Set<string>();
     private readonly hierarchyShowAllInvisibles = new Set<string>();
-    private readonly treeInteraction: ProjectTreeInteractionController;
+    private readonly treeInteraction: EditorProjectExplorer["treeInteraction"];
     private desktopSnapEnabled = false;
     private canvasSettings: RuntimePreviewCanvasSettings = {
         backgroundColor: "#666666",
@@ -306,6 +305,11 @@ export class EditorShell {
         chrome: EditorShellChrome,
         projectSession: EditorProjectSession,
         documentAuthoring: EditorDocumentAuthoring,
+        inspector: EditorInspector,
+        projectExplorer: EditorProjectExplorer,
+        authoringDialogs: EditorAuthoringDialogs,
+        timeline: EditorTimeline,
+        resourceAuthoring: EditorResourceAuthoring,
     ) {
         this.chrome = chrome;
         this.mainView = chrome.mainView;
@@ -344,11 +348,34 @@ export class EditorShell {
         this.startScene = chrome.startScene;
         this.statusLine = chrome.statusLine;
         this.panels = chrome.panels;
-        this.inspectorCommandPanel = new InspectorController(
-            this.panels.inspector.getChild("list").asList,
-            (action) => this.onInspectorPanelAction(action),
-            (name, value) => this.setDebugAttribute(name, value),
-        );
+        this.resourcePreview = projectExplorer.resourcePreview;
+        this.treeInteraction = projectExplorer.treeInteraction;
+        this.libraryController = projectExplorer.library;
+        this.unbindProjectExplorer = projectExplorer.bind({
+            editPackageGroups: () => this.showPackageGroupsEditor(),
+            applyLibrarySelection: (data, preserve) => this.applyLibrarySelection(data, preserve),
+            clearLibrarySelection: () => {
+                this.clearResourceSelection();
+                this.populateInspectorFromSnapshot();
+                this.layoutInspectorLines();
+            },
+            resourceViewStateChanged: () => this.saveResourceViewState(),
+            showLibraryContextMenu: (cell, data) => this.showLibraryContextMenu(cell, data),
+            showHierarchyContextMenu: (cell, data) => this.showHierarchyContextMenu(cell, data),
+            openLibraryItem: (data) => this.openLibraryItem(data),
+            selectHierarchyNode: (data) => this.selectHierarchyDragNode(data),
+            toggleHierarchyNodeLock: (data) => this.toggleHierarchyNodeLock(data),
+            toggleHierarchyNodeHidden: (data) => this.toggleHierarchyNodeHidden(data),
+            applyLibraryDrop: (state, point) => this.applyLibraryDrop(state, point),
+            applyHierarchyDrop: (state, target) => this.applyHierarchyDrop(state, target),
+            getComponentPreviewEnabled: () => this.editorPreferences.componentPreviewEnabled,
+            setComponentPreviewEnabled: (enabled) => this.updateEditorPreferences({
+                ...this.editorPreferences,
+                componentPreviewEnabled: enabled,
+            }),
+        });
+        this.inspectorCommandPanel = inspector;
+        this.unbindInspectorActions = inspector.bindActions((action) => this.onInspectorPanelAction(action));
         this.favoritesView = chrome.favoritesView;
         this.searchView = chrome.searchView;
         this.searchInput = chrome.searchInput;
@@ -371,28 +398,32 @@ export class EditorShell {
             setStatus: (message) => this.setStatus(message),
         });
         this.timelineView = chrome.timelineView;
-        this.authoringDialogs = new AuthoringDialogController({
-            eventOwner: this,
-            getWorkingProject: () => this.liveSessionBridge.getWorkingProject(),
-            getProjectSnapshot: () => this.projectSnapshot,
+        this.controllerTimeline = timeline.controller;
+        this.unbindTimeline = timeline.bind({
+            applyPreparation: (preparation, identity) => this.applyAuthoringPreparation(preparation, identity),
+            getTimelineVisible: () => this.timelineVisible,
+            setTimelineVisible: (visible) => { this.timelineVisible = visible; },
+            setConsoleVisible: (visible) => { this.consoleVisible = visible; },
+            getLeftDockVisible: () => this.leftDockVisible,
+            setLeftDockVisible: (visible) => { this.leftDockVisible = visible; },
+            setLeftTopPanelMode: (mode) => { this.leftTopPanelMode = mode; },
+            showEditorWorkspace: () => this.showEditorWorkspace(),
+            layout: () => this.layout(),
+            saveLayout: () => this.saveDesktopLayoutState(),
+        });
+        this.authoringDialogs = authoringDialogs.controller;
+        this.unbindAuthoringDialogs = authoringDialogs.bind({
             getSelectedPackage: () => this.getLibraryActionPackage(),
             getSelectedComponent: () => this.getLibraryActionComponent(),
             getSelectedResource: () => this.getSelectedResource(),
-            getSelectedDisplayNode: () => this.getSelectedDisplayNode(),
-            getSelectedDisplayNodeSelector: () => this.getSelectedDisplayNodeSelector(),
             getSelectedComponentSelector: () => this.getLibraryActionComponentSelector(),
             getSelectedControllerName: () => this.controllerTimeline.selectedControllerName,
             setSelectedControllerName: (name) => { this.controllerTimeline.selectedControllerName = name; },
             getSelectedTransitionName: () => this.controllerTimeline.selectedTransitionName,
-            isLiveSession: () => this.commandAdapter.getSessionState().liveSession,
             getCustomPropertyDefinitions: () => this.getSelectedComponentCustomPropertyDefinitions(),
             getExportedControllers: () => this.getSelectedComponentExportedControllers(),
             applyDisplayNodeCommand: (command, summary) => this.applyDisplayNodePropsCommand(command, summary),
-            setGraphPointEditing: (enabled, shapeLocked) => this.runtimePreview.setGraphPointEditing(enabled, shapeLocked),
-            isGraphPointEditing: () => this.runtimePreview.isGraphPointEditing(),
-            isGraphShapeLocked: () => this.runtimePreview.isGraphShapeLocked(),
-            applyPreparation: (preparation) => this.applyAuthoringPreparation(preparation),
-            download: downloadBrowserFile,
+            applyPreparation: (preparation, identity) => this.applyAuthoringPreparation(preparation, identity),
             activateDocument: (packageId, componentId) => this.activateDocumentTab({ packageId, componentId }),
             onTimelineItemApplied: (itemIndex) => {
                 this.controllerTimeline.setSelectedTimelineItemIndex(itemIndex);
@@ -400,27 +431,14 @@ export class EditorShell {
             },
             createActionMenu: () => this.createActionMenu(),
             addMenuItem: (menu, name, title, handler) => this.addMenuItem(menu, name, title, handler),
-            setStatus: (message) => this.setStatus(message),
-            setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
         });
-        this.resourceAuthoring = new ResourceAuthoringController({
-            liveSessionBridge: this.liveSessionBridge,
-            dialogs: this.authoringDialogs,
-            isLiveSession: () => this.commandAdapter.getSessionState().liveSession,
+        this.resourceAuthoring = resourceAuthoring.controller;
+        this.unbindResourceAuthoring = resourceAuthoring.bind({
             getSelectedPackage: () => this.getLibraryActionPackage(),
             getSelectedComponent: () => this.getLibraryActionComponent(),
             getSelectedResource: () => this.getSelectedResource(),
             getSelectedResourceFolder: () => this.getSelectedResourceFolder(),
-            getPackages: () => this.projectSnapshot?.packages || [],
             getSelectedComponentSelector: () => this.getLibraryActionComponentSelector(),
-            getSelectedResourceFolderSelector: () => this.selectedResourceFolder,
-            setSelectedResourceFolderSelector: (selector) => {
-                this.libraryController.setInspectorSelection(selector ? { kind: "folder", ...selector } : null);
-            },
-            getSelectedPackageId: () => this.selectedPackageId,
-            getWorkspaceId: () => this.projectStorage.getWorkspaceName(),
-            getLibraryPackageId: () => this.libraryPackageId,
-            setLibraryPackageId: (packageId) => { this.libraryPackageId = packageId; },
             getSelectedLibraryResourceSelectors: () => this.libraryController.getSelectedResourceSelectors(this.leftTopPanelMode),
             applyPreparation: (preparation, identity) => this.applyAuthoringPreparation(preparation, identity),
             applyLibrarySelection: (data, preserve) => this.applyLibrarySelection(data, preserve),
@@ -432,9 +450,6 @@ export class EditorShell {
             showProjectReferences: () => this.showProjectReferencesForCurrentSelection(),
             removeSelectedComponent: () => this.requestAuthoringRemoveComponent(),
             runEditorAction: (action) => this.runEditorAction(action),
-            download: downloadBrowserFile,
-            setStatus: (message, level) => this.setStatus(message, level),
-            setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
         });
         this.editorMenus = new EditorMenuController({
             getState: () => ({
@@ -502,100 +517,9 @@ export class EditorShell {
             setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
             setStatus: (message) => this.setStatus(message),
         });
-        this.resourcePreview = new ResourcePreviewController(
-            this.panels.preview,
-            () => this.liveSessionBridge.getWorkingProject(),
-            (projectId, packageName, componentName) => this.runtimePreview.createLibraryComponentPreview(
-                projectId,
-                packageName,
-                componentName,
-            ),
-            () => this.editorPreferences.componentPreviewEnabled,
-            (enabled) => this.updateEditorPreferences({
-                ...this.editorPreferences,
-                componentPreviewEnabled: enabled,
-            }),
-            (name, value) => this.setDebugAttribute(name, value),
-            (message) => this.setStatus(message),
-        );
-        this.treeInteraction = new ProjectTreeInteractionController(
-            this.mainView,
-            this.panels.library.getChild("listView").asList,
-            this.panels.hierarchy.getChild("list").asTree,
-            {
-                getSelectedPackageId: () => this.selectedPackageId,
-                getSelectedComponentId: () => this.selectedComponentId,
-                getSelectedPackage: () => this.getSelectedPackage(),
-                getSelectedComponent: () => this.getSelectedComponent(),
-                findResourceType: (packageId, resourceId) => this.findResource(packageId, resourceId)?.type || "",
-                isComponentExported: (packageId, componentId) => (
-                    this.findResource(packageId, componentId)?.exported
-                    ?? this.projectSnapshot?.packages.find((pkg) => pkg.id === packageId)
-                        ?.components.find((component) => component.id === componentId)?.exported
-                    ?? false
-                ),
-                showLibraryContextMenu: (cell, data) => this.showLibraryContextMenu(cell, data),
-                showHierarchyContextMenu: (cell, data) => this.showHierarchyContextMenu(cell, data),
-                openLibraryItem: (data) => this.openLibraryItem(data),
-                resolveAuthoringDropPoint: (stageX, stageY) => this.runtimePreview.resolveAuthoringDropPoint(stageX, stageY),
-                selectHierarchyNode: (data) => this.selectHierarchyDragNode(data),
-                toggleHierarchyNodeLock: (data) => this.toggleHierarchyNodeLock(data),
-                toggleHierarchyNodeHidden: (data) => this.toggleHierarchyNodeHidden(data),
-                applyLibraryDrop: (state, point) => this.applyLibraryDrop(state, point),
-                applyHierarchyDrop: (state, target) => this.applyHierarchyDrop(state, target),
-                setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
-                setStatus: (message) => this.setStatus(message),
-            },
-        );
-        this.libraryController = new LibraryController(
-            this.panels.library,
-            this.favoritesView,
-            this.treeInteraction,
-            {
-                getSnapshot: () => this.projectSnapshot,
-                getSelectedPackageId: () => this.selectedPackageId,
-                getWorkingProject: () => this.liveSessionBridge.getWorkingProject(),
-                editPackageGroups: () => this.showPackageGroupsEditor(),
-                applySelection: (data, preserveResourceSelection) => {
-                    this.applyLibrarySelection(data, preserveResourceSelection);
-                },
-                clearSelection: () => {
-                    this.clearResourceSelection();
-                    this.populateInspectorFromSnapshot();
-                    this.layoutInspectorLines();
-                },
-                setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
-                setStatus: (message) => this.setStatus(message),
-                onViewStateChanged: () => this.saveResourceViewState(),
-            },
-        );
         this.restoreEditorPreferences();
         this.restoreDesktopLayoutState();
         this.restoreResourceViewState();
-        this.controllerTimeline = new ControllerTimelineAuthoringController({
-            documentView: this.panels.document,
-            transitionListView: this.transitionListView,
-            timelineView: this.timelineView,
-            liveSessionBridge: this.liveSessionBridge,
-            runtimePreview: this.runtimePreview,
-            dialogs: this.authoringDialogs,
-            isLiveSession: () => this.commandAdapter.getSessionState().liveSession,
-            getSelectedComponentSelector: () => this.getSelectedComponentSelector(),
-            getSelectedComponent: () => this.getSelectedComponent(),
-            getSelectedDisplayNodeId: () => this.selectedDisplayNodeId,
-            applyPreparation: (preparation, identity) => this.applyAuthoringPreparation(preparation, identity),
-            getTimelineVisible: () => this.timelineVisible,
-            setTimelineVisible: (visible) => { this.timelineVisible = visible; },
-            setConsoleVisible: (visible) => { this.consoleVisible = visible; },
-            getLeftDockVisible: () => this.leftDockVisible,
-            setLeftDockVisible: (visible) => { this.leftDockVisible = visible; },
-            setLeftTopPanelMode: (mode) => { this.leftTopPanelMode = mode; },
-            showEditorWorkspace: () => this.showEditorWorkspace(),
-            layout: () => this.layout(),
-            saveLayout: () => this.saveDesktopLayoutState(),
-            setStatus: (message) => this.setStatus(message),
-            setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
-        });
         this.configureMainViewControllers();
         this.populateStaticData();
         this.registerEditorActions();
@@ -636,19 +560,18 @@ export class EditorShell {
         this.unbindProjectSnapshot();
         this.unbindLiveProjectSnapshot();
         this.unbindDocumentAuthoring();
-        this.controllerTimeline.dispose();
-        this.resourceAuthoring.dispose();
+        this.unbindInspectorActions();
+        this.unbindProjectExplorer();
+        this.unbindResourceAuthoring();
+        this.unbindTimeline();
+        this.unbindAuthoringDialogs();
         this.unbindActions();
-        this.authoringDialogs.dispose();
         this.actionMenu?.dispose();
         this.actionMenu = null;
         this.customArrangePanel?.dispose();
         this.customArrangePanel = null;
-        this.inspectorCommandPanel.clear();
         this.publishedTest.dispose();
-        this.resourcePreview.dispose();
         this.desktopLayout.dispose();
-        this.treeInteraction.dispose();
     }
 
     layout(): void {

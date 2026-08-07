@@ -20,6 +20,31 @@ import {
     EditorDocumentAuthoring,
 } from "../modules/DocumentAuthoringModule";
 import {
+    createInspectorModule,
+    EditorInspector,
+    INSPECTOR_SERVICE,
+} from "../modules/InspectorModule";
+import {
+    createProjectExplorerModule,
+    EditorProjectExplorer,
+    PROJECT_EXPLORER_SERVICE,
+} from "../modules/ProjectExplorerModule";
+import {
+    AUTHORING_DIALOGS_SERVICE,
+    createAuthoringDialogsModule,
+    EditorAuthoringDialogs,
+} from "../modules/AuthoringDialogsModule";
+import {
+    createTimelineModule,
+    EditorTimeline,
+    TIMELINE_SERVICE,
+} from "../modules/TimelineModule";
+import {
+    createResourceAuthoringModule,
+    EditorResourceAuthoring,
+    RESOURCE_AUTHORING_SERVICE,
+} from "../modules/ResourceAuthoringModule";
+import {
     createWorkspaceExportModule,
     createWorkspaceImportModule,
     createRuntimePublishModule,
@@ -40,7 +65,21 @@ function createEditorShellModule(): EditorModule<FairyGuiEditorWorkbenchHost> {
             const chrome = context.requireService<EditorShellChrome>(SHELL_CHROME_SERVICE);
             const session = context.requireService<EditorProjectSession>(PROJECT_SESSION_SERVICE);
             const document = context.requireService<EditorDocumentAuthoring>(DOCUMENT_AUTHORING_SERVICE);
-            const shell = new EditorShell(chrome, session, document);
+            const inspector = context.requireService<EditorInspector>(INSPECTOR_SERVICE);
+            const explorer = context.requireService<EditorProjectExplorer>(PROJECT_EXPLORER_SERVICE);
+            const dialogs = context.requireService<EditorAuthoringDialogs>(AUTHORING_DIALOGS_SERVICE);
+            const timeline = context.requireService<EditorTimeline>(TIMELINE_SERVICE);
+            const resourceAuthoring = context.requireService<EditorResourceAuthoring>(RESOURCE_AUTHORING_SERVICE);
+            const shell = new EditorShell(
+                chrome,
+                session,
+                document,
+                inspector,
+                explorer,
+                dialogs,
+                timeline,
+                resourceAuthoring,
+            );
             context.provideService(EDITOR_SHELL_MODULE_HOST_SERVICE, shell.createModuleHost());
             return () => shell.dispose();
         },
@@ -53,6 +92,11 @@ export function createFairyGuiEditorProductModules(): EditorModule<FairyGuiEdito
         createShellChromeModule(),
         createProjectSessionModule(),
         createDocumentAuthoringModule(),
+        createInspectorModule(),
+        createProjectExplorerModule(),
+        createAuthoringDialogsModule(),
+        createTimelineModule(),
+        createResourceAuthoringModule(),
         createEditorShellModule(),
         createWorkspaceImportModule(),
         createWorkspaceExportModule(),

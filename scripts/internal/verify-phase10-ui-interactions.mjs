@@ -22,6 +22,11 @@ const resourceHealthModuleSource = readSource("src/editor/modules/ResourceHealth
 const projectSessionModuleSource = readSource("src/editor/modules/ProjectSessionModule.ts");
 const shellChromeModuleSource = readSource("src/editor/modules/ShellChromeModule.ts");
 const documentAuthoringModuleSource = readSource("src/editor/modules/DocumentAuthoringModule.ts");
+const inspectorModuleSource = readSource("src/editor/modules/InspectorModule.ts");
+const projectExplorerModuleSource = readSource("src/editor/modules/ProjectExplorerModule.ts");
+const authoringDialogsModuleSource = readSource("src/editor/modules/AuthoringDialogsModule.ts");
+const timelineModuleSource = readSource("src/editor/modules/TimelineModule.ts");
+const resourceAuthoringModuleSource = readSource("src/editor/modules/ResourceAuthoringModule.ts");
 const projectTransferModuleSource = readSource("src/editor/modules/ProjectTransferModules.ts");
 const editorMenuControllerSource = readSource("src/editor/ui/EditorMenuController.ts");
 const resourceAuthoringControllerSource = readSource("src/editor/ui/ResourceAuthoringController.ts");
@@ -59,6 +64,11 @@ const editorShell = [
     projectSessionModuleSource,
     shellChromeModuleSource,
     documentAuthoringModuleSource,
+    inspectorModuleSource,
+    projectExplorerModuleSource,
+    authoringDialogsModuleSource,
+    timelineModuleSource,
+    resourceAuthoringModuleSource,
     projectTransferModuleSource,
     readSource("src/editor/dialogs/TextGraphPropertyEditors.ts"),
     readSource("src/editor/dialogs/TimelineItemEditor.ts"),
@@ -1698,8 +1708,8 @@ assert(
 );
 assert(
     editorShellSource.includes("if (!this.resourcePreview.play())")
-        && editorShellSource.includes("this.resourcePreview.dispose()"),
-    "Resource preview playback and disposal must be wired through EditorShell.",
+        && projectExplorerModuleSource.includes("this.resourcePreview.dispose()"),
+    "Resource preview playback and module-owned disposal must be wired.",
 );
 assert(
     libraryControllerSource.includes("pkg.id === this.currentPackageId")

@@ -107,6 +107,11 @@ const shellSource = readFileSync("src/editor/EditorShell.ts", "utf8");
 const shellChromeModuleSource = readFileSync("src/editor/modules/ShellChromeModule.ts", "utf8");
 const projectSessionModuleSource = readFileSync("src/editor/modules/ProjectSessionModule.ts", "utf8");
 const documentAuthoringModuleSource = readFileSync("src/editor/modules/DocumentAuthoringModule.ts", "utf8");
+const inspectorModuleSource = readFileSync("src/editor/modules/InspectorModule.ts", "utf8");
+const projectExplorerModuleSource = readFileSync("src/editor/modules/ProjectExplorerModule.ts", "utf8");
+const authoringDialogsModuleSource = readFileSync("src/editor/modules/AuthoringDialogsModule.ts", "utf8");
+const timelineModuleSource = readFileSync("src/editor/modules/TimelineModule.ts", "utf8");
+const resourceAuthoringModuleSource = readFileSync("src/editor/modules/ResourceAuthoringModule.ts", "utf8");
 const projectTransferModuleSource = readFileSync("src/editor/modules/ProjectTransferModules.ts", "utf8");
 const browserPluginsModuleSource = readFileSync("src/editor/modules/BrowserPluginsModule.ts", "utf8");
 const resourceHealthModuleSource = readFileSync("src/editor/modules/ResourceHealthModule.ts", "utf8");
@@ -117,6 +122,11 @@ assert(productSource.includes("createAuthoringPreviewModule()"));
 assert(productSource.includes("createShellChromeModule()"));
 assert(productSource.includes("createProjectSessionModule()"));
 assert(productSource.includes("createDocumentAuthoringModule()"));
+assert(productSource.includes("createInspectorModule()"));
+assert(productSource.includes("createProjectExplorerModule()"));
+assert(productSource.includes("createAuthoringDialogsModule()"));
+assert(productSource.includes("createTimelineModule()"));
+assert(productSource.includes("createResourceAuthoringModule()"));
 assert(productSource.includes("createWorkspaceExportModule()"));
 assert(productSource.includes("createWorkspaceImportModule()"));
 assert(productSource.includes("createRuntimePublishModule()"));
@@ -128,6 +138,11 @@ assert(productSource.includes([
     "        createShellChromeModule(),",
     "        createProjectSessionModule(),",
     "        createDocumentAuthoringModule(),",
+    "        createInspectorModule(),",
+    "        createProjectExplorerModule(),",
+    "        createAuthoringDialogsModule(),",
+    "        createTimelineModule(),",
+    "        createResourceAuthoringModule(),",
     "        createEditorShellModule(),",
     "        createWorkspaceImportModule(),",
     "        createWorkspaceExportModule(),",
@@ -154,6 +169,22 @@ assert(documentAuthoringModuleSource.includes("new DocumentWorkspaceController("
 assert(documentAuthoringModuleSource.includes("new ActiveDocumentController("));
 assert(documentAuthoringModuleSource.includes("const document = new EditorDocumentAuthoring("));
 assert(documentAuthoringModuleSource.includes("hotReloadable: false"));
+assert(!shellSource.includes("new InspectorController("));
+assert(inspectorModuleSource.includes("new EditorInspector("));
+assert(inspectorModuleSource.includes("hotReloadable: false"));
+assert(!shellSource.includes("new ResourcePreviewController("));
+assert(!shellSource.includes("new ProjectTreeInteractionController("));
+assert(!shellSource.includes("new LibraryController("));
+assert(projectExplorerModuleSource.includes("new ResourcePreviewController("));
+assert(projectExplorerModuleSource.includes("new ProjectTreeInteractionController("));
+assert(projectExplorerModuleSource.includes("new LibraryController("));
+assert(!shellSource.includes("new AuthoringDialogController("));
+assert(authoringDialogsModuleSource.includes("new AuthoringDialogController("));
+assert(!shellSource.includes("new ControllerTimelineAuthoringController("));
+assert(timelineModuleSource.includes("new ControllerTimelineAuthoringController("));
+assert(!shellSource.includes("new ResourceAuthoringController("));
+assert(resourceAuthoringModuleSource.includes("new ResourceAuthoringController("));
+assert(resourceAuthoringModuleSource.includes("hotReloadable: false"));
 assert(!shellSource.includes("exportBrowserWorkspaceZip"));
 assert(!shellSource.includes("new ProjectImportDialog("));
 assert(!shellSource.includes("applyProjectImportNow"));
