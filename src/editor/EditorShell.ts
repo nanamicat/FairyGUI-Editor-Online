@@ -38,13 +38,11 @@ import { requestEditorTextInput } from "./dialogs/EditorDialogs";
 import { showBrowserWorkspaceDialog as openBrowserWorkspaceDialog } from "./dialogs/BrowserWorkspaceDialog";
 import type { ExportedControllerDefinition } from "./dialogs/ComponentInstancePropertyEditors";
 import { showPreferencesDialog as openPreferencesDialog } from "./dialogs/PreferencesDialog";
-import { ProjectImportDialog } from "./dialogs/ProjectImportDialog";
 import {
     showProjectSettingsEditor as openProjectSettingsEditor,
     showStringsFunctionDialog as openStringsFunctionDialog,
 } from "./dialogs/ProjectSettingsEditor";
 import { showPackageGroupsEditor as openPackageGroupsEditor } from "./dialogs/PackageGroupsEditor";
-import { showPublishSettingsEditor as openPublishSettingsEditor } from "./dialogs/PublishSettingsEditor";
 import { showReplaceObjectDialog as openReplaceObjectDialog } from "./dialogs/ReplaceObjectDialog";
 import type { ResourceHealthDialogContext } from "./dialogs/ResourceHealthDialog";
 import type {
@@ -56,7 +54,6 @@ import type {
     EditorCommandOperation,
     EditorCommandResult,
     EditorDisplayNodeSelector,
-    EditorHighRiskTransaction,
     EditorResourceSelector,
     SetDisplayNodePropsCommand
 } from "./model/EditorCommand";
@@ -130,9 +127,6 @@ import { ResourcePreviewController } from "./ui/ResourcePreviewController";
 import {
     type BrowserLiveSessionIdentity,
 } from "./services/BrowserLiveSessionBridge";
-import {
-    type BrowserProjectImportResult
-} from "./services/BrowserProjectImport";
 import { createDisplayNodeSaveTarget } from "./services/BrowserSaveTargetVerifier";
 import { loadProjectSnapshot } from "./services/ProjectSnapshotLoader";
 import {
@@ -164,7 +158,6 @@ import {
 import {
     describeAuthoringPreviewProjection,
     getBrowserSaveFailure,
-    getWorkspaceLifecycleFailure,
 } from "./ui/InspectorPresentation";
 import {
     LibraryController,
@@ -188,7 +181,7 @@ import type {
 import { EditorShellChrome } from "./modules/ShellChromeModule";
 import { EditorProjectSession } from "./modules/ProjectSessionModule";
 import { EditorDocumentAuthoring } from "./modules/DocumentAuthoringModule";
-import { downloadBrowserFile, recordWorkspaceLifecycleDebug } from "./modules/ProjectTransferModules";
+import { downloadBrowserFile } from "./modules/ProjectTransferModules";
 
 const EDITOR_REPOSITORY_URL = "https://github.com/OpenFairyGUI/FairyGUI-Editor-Online";
 const FAIRYGUI_WEBSITE_URL = "https://fairygui.com/";
@@ -239,9 +232,10 @@ export class EditorShell {
     private readonly consoleView: fgui.GComponent;
     private readonly resourcePreview: ResourcePreviewController;
     private readonly projectSession: EditorProjectSession;
+    private readonly unbindProjectSnapshot: () => void;
+    private readonly unbindLiveProjectSnapshot: () => void;
     private readonly documentAuthoring: EditorDocumentAuthoring;
     private readonly unbindDocumentAuthoring: () => void;
-    private readonly projectImportDialog: ProjectImportDialog;
     private actionMenu: fgui.PopupMenu | null = null;
     private readonly actionUnbinders: Array<() => void> = [];
     private authoringJsonDialog: fgui.Window | null = null;
@@ -270,7 +264,6 @@ export class EditorShell {
     };
     private canvasPerDocumentZoom = false;
     private readonly canvasViewByDocument = new Map<string, { zoom: number; panX: number; panY: number }>();
-    private readonly modifiedPackageIds = new Set<string>();
     private desktopPanToolEnabled = false;
     private desktopObjectTool: PrimitiveDisplayNodeKind | null = null;
     private libraryLinked = false;
@@ -326,7 +319,14 @@ export class EditorShell {
         this.chrome = chrome;
         this.mainView = chrome.mainView;
         this.actionUnbinders.push(chrome.bindStatusReporter((message, level) => this.setStatus(message, level)));
+        this.actionUnbinders.push(chrome.bindLayoutRequester(() => this.layout()));
         this.projectSession = projectSession;
+        this.unbindProjectSnapshot = projectSession.onDidResetSnapshot((snapshot, previous) => {
+            this.renderProjectSnapshot(snapshot, previous);
+        });
+        this.unbindLiveProjectSnapshot = projectSession.onDidSyncSnapshot((snapshot, operations) => {
+            this.renderLiveProjectSnapshot(snapshot, operations);
+        });
         this.documentAuthoring = documentAuthoring;
         this.unbindDocumentAuthoring = documentAuthoring.bind({
             activateDocument: (tab) => this.activateDocumentFromTab(tab),
@@ -345,16 +345,8 @@ export class EditorShell {
                 this.openSelectedGroup(nodeId) || this.openReferencedComponent(nodeId);
             },
             showCanvasContextMenu: () => this.editorMenus.showCanvasContextMenu(),
+            refreshPreview: () => this.populatePreviewFromSnapshot(),
             setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
-        });
-        this.projectImportDialog = new ProjectImportDialog(chrome.mainView, {
-            applyImport: (picked, label) => this.applyProjectImport(picked, label),
-            onError: (label, error) => this.renderWorkspaceImportError(label, error),
-            pickDirectory: () => this.workspaceLifecycle.pickDirectoryProject(),
-            pickZip: () => this.workspaceLifecycle.pickZipProject(),
-            setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
-            setStatus: (message) => this.setStatus(message),
-            showWorkspace: () => this.showEditorWorkspace(),
         });
         this.holder = chrome.holder;
         this.menuBar = chrome.menuBar;
@@ -516,7 +508,6 @@ export class EditorShell {
                 this.publishedTest.layout();
                 this.runtimePreview.layout();
                 this.layoutInspectorLines();
-                this.projectImportDialog.layout();
             },
             setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
             setStatus: (message) => this.setStatus(message),
@@ -652,11 +643,12 @@ export class EditorShell {
         Laya.stage.off(Laya.Event.MOUSE_DOWN, this, this.onStageMouseDown);
         Laya.stage.off(Laya.Event.KEY_DOWN, this, this.onStageKeyDown);
         Laya.stage.off(Laya.Event.KEY_UP, this, this.onStageKeyUp);
+        this.unbindProjectSnapshot();
+        this.unbindLiveProjectSnapshot();
         this.unbindDocumentAuthoring();
         this.controllerTimeline.dispose();
         this.resourceAuthoring.dispose();
         this.unbindActions();
-        this.projectImportDialog.close();
         this.authoringDialogs.dispose();
         this.actionMenu?.dispose();
         this.actionMenu = null;
@@ -672,6 +664,7 @@ export class EditorShell {
     layout(): void {
         if (this.disposed) return;
         this.desktopLayout.layout();
+        this.chrome.notifyLayout();
     }
 
     private cancelDockSplitterDrag(restore: boolean): boolean {
@@ -960,7 +953,10 @@ export class EditorShell {
             button.touchable = true;
             button.tooltips = tooltip;
         }
+        this.toolbar.getChild("tbImport").visible = false;
         this.toolbar.getChild("tbSaveAll").visible = false;
+        this.toolbar.getChild("tbPublish").visible = false;
+        this.toolbar.getChild("tbPublishSettings").visible = false;
         this.toolbar.getChild("tbTest").visible = true;
     }
 
@@ -1556,23 +1552,9 @@ export class EditorShell {
         preparation: HighRiskTransactionPreparation,
         preparationIdentity: BrowserLiveSessionIdentity | null,
     ): Promise<boolean> {
-        if (preparation.ok === false) {
-            this.setStatus(`Operation unavailable: ${preparation.code}. ${preparation.message}`);
-            return false;
-        }
-        if (!preparationIdentity || !this.liveSessionBridge.isSessionIdentityCurrent(preparationIdentity)) {
-            this.setStatus(
-                "Operation cancelled because the project changed while it was queued. Retry the action.",
-                "warning",
-            );
-            return false;
-        }
-
-        let result: EditorCommandResult;
+        let outcome: Awaited<ReturnType<EditorProjectSession["applyPreparationNow"]>>;
         try {
-            result = await this.commandAdapter.applyHighRiskTransactionWithRuntime(
-                preparation.transaction as EditorHighRiskTransaction,
-            );
+            outcome = await this.projectSession.applyPreparationNow(preparation, preparationIdentity, false);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             this.setStatus(`Operation failed: ${message}`, "error");
@@ -1581,25 +1563,32 @@ export class EditorShell {
         }
 
         if (this.disposed) return false;
-        this.projectSession.updateLastResult(result);
+        if (outcome.kind === "unavailable") {
+            this.setStatus(`Operation unavailable: ${outcome.preparation.code}. ${outcome.preparation.message}`);
+            return false;
+        }
+        if (outcome.kind === "stale") {
+            this.setStatus(
+                "Operation cancelled because the project changed while it was queued. Retry the action.",
+                "warning",
+            );
+            return false;
+        }
+        const { result, snapshot, operations, summary } = outcome;
         if (!result.ok) {
             this.setStatus(`Operation failed: ${result.error?.code || "unknown_error"}.`, "error");
             this.populateInspectorFromSnapshot();
             return false;
         }
 
-        const snapshot = this.liveSessionBridge.getProjectSnapshot();
         if (snapshot) {
-            const projection = this.applyLiveProjectSnapshot(
-                snapshot,
-                result.operations || (result.operation ? [result.operation] : []),
-            );
+            const projection = this.renderLiveProjectSnapshot(snapshot, operations);
             this.setStatus(
-                `${preparation.transaction.summary}. ${describeAuthoringPreviewProjection(projection)}`,
+                `${summary}. ${describeAuthoringPreviewProjection(projection)}`,
             );
             return true;
         }
-        this.setStatus(`${preparation.transaction.summary}. Canvas could not be refreshed.`);
+        this.setStatus(`${summary}. Canvas could not be refreshed.`);
         return true;
     }
 
@@ -2198,29 +2187,12 @@ export class EditorShell {
         register(["menu:resource"], () => this.showSelectedResourceInspector());
         register(["menu:tools"], () => this.openProjectSettingsDialog());
         register(["menu:view", "hierarchy:expand"], () => this.toggleHierarchyExpansion());
-        register(["toolbar:publish", "menu:publish", "publish"], () => {
-            void this.publishBrowserRuntimeBundle(this.editorPreferences.publishAction);
-        });
-        register(["toolbar:publishSettings"], () => {
-            openPublishSettingsEditor({
-                getWorkingProject: () => this.liveSessionBridge.getWorkingProject(),
-                getActiveDialog: () => this.authoringJsonDialog,
-                setActiveDialog: (dialog) => { this.authoringJsonDialog = dialog; },
-                applyPreparation: (preparation) => this.applyAuthoringPreparation(preparation),
-                publish: (mode) => this.publishBrowserRuntimeBundle(mode),
-                setStatus: (message) => this.setStatus(message),
-                eventOwner: this,
-            });
-        });
         register(["toolbar:canvasSettings"], () => this.showCanvasSettings());
         register(["toolbar:branchSettings", "toolbar:languageSettings"], () => this.openProjectSettingsDialog());
         register(["toolbar:test"], () => this.publishedTest.start());
         register(["toolbar:stopTest"], () => this.publishedTest.stop());
         register(["toolbar:reloadTest"], () => this.publishedTest.reload());
         register(["toolbar:save", "save"], () => { void this.saveBrowserWorkspace(); });
-        register(["toolbar:importProjectDirectory", "workspace:importProject"], () => this.showProjectImportDialog());
-        register(["workspace:importProjectDirectory"], () => this.importProjectDirectory());
-        register(["workspace:importProjectZip"], () => this.importProjectZip());
         register(["preview:play"], () => {
             if (!this.resourcePreview.play()) this.controllerTimeline.playRuntimePreviewTransition();
         });
@@ -2788,14 +2760,12 @@ export class EditorShell {
         }
 
         if (link === "open" || link === "import_project") {
-            this.showEditorWorkspace();
-            this.showProjectImportDialog();
+            this.runEditorAction("workspace:importProject");
             return;
         }
 
         if (link === "open_folder") {
-            this.showEditorWorkspace();
-            this.importProjectDirectory();
+            this.runEditorAction("workspace:importProjectDirectory");
             return;
         }
 
@@ -2812,16 +2782,18 @@ export class EditorShell {
     private showFileMenu(anchor: fgui.GObject): void {
         const menu = this.createActionMenu();
 
-        this.addMenuItem(menu, "workspaceMenuImportProject", "导入项目...", () => {
-            this.showProjectImportDialog();
-        });
-        this.addMenuItem(menu, "workspaceMenuImportFolder", "从文件夹导入...", () => {
-            this.importProjectDirectory();
-        });
-        this.addMenuItem(menu, "workspaceMenuImportZip", "从 ZIP 导入...", () => {
-            this.importProjectZip();
-        });
-        menu.addSeperator();
+        if (this.chrome.hasAction("workspace:importProject")) {
+            this.addMenuItem(menu, "workspaceMenuImportProject", "导入项目...", () => {
+                this.runEditorAction("workspace:importProject");
+            });
+            this.addMenuItem(menu, "workspaceMenuImportFolder", "从文件夹导入...", () => {
+                this.runEditorAction("workspace:importProjectDirectory");
+            });
+            this.addMenuItem(menu, "workspaceMenuImportZip", "从 ZIP 导入...", () => {
+                this.runEditorAction("workspace:importProjectZip");
+            });
+            menu.addSeperator();
+        }
         this.addMenuItem(menu, "browserWorkspaceNewMenu", "新建浏览器工作区…", () => {
             void this.createBrowserWorkspace();
         });
@@ -4484,7 +4456,7 @@ export class EditorShell {
         try {
             const snapshot = await loadProjectSnapshot();
             if (this.disposed) return false;
-            this.applyProjectSnapshot(snapshot);
+            this.projectSession.resetSnapshot(snapshot);
             await this.workspaceLifecycle.restoreWorkspaceBinding();
             if (this.disposed) return false;
             if (!await this.connectBrowserLiveSession() || this.disposed) return false;
@@ -4522,119 +4494,34 @@ export class EditorShell {
         });
     }
 
-    private async publishBrowserRuntimeBundle(mode: "current" | "modified" | "all" = "modified"): Promise<void> {
-        await this.enqueueAuthoringOperation(() => this.publishBrowserRuntimeBundleNow(mode));
-    }
-
-    private async publishBrowserRuntimeBundleNow(mode: "current" | "modified" | "all" = "modified"): Promise<void> {
-        if (!this.commandAdapter.isLiveSessionAligned()) {
-            this.setStatus(
-                "Browser runtime publish blocked: reconnect the browser live session before publishing.",
-                "error",
-            );
-            return;
-        }
-        const snapshot = this.projectSnapshot;
-        if (!snapshot) {
-            this.setStatus("Browser publish unavailable: no authoring project is loaded.");
-            return;
-        }
-        if (this.commandAdapter.getSessionState().dirty && this.editorPreferences.saveBeforePublish) {
-            this.setStatus("发布前正在自动保存工作区...");
-            await this.saveBrowserWorkspaceNow();
-        }
-        if (this.commandAdapter.getSessionState().dirty) {
-            this.setStatus("Browser publish blocked: save changes first.");
-            return;
-        }
-        const packageIds = mode === "all"
-            ? snapshot.packages.map((pkg) => pkg.id)
-            : mode === "current"
-                ? [this.getSelectedPackage()?.id || ""].filter(Boolean)
-                : this.modifiedPackageIds.size
-                    ? [...this.modifiedPackageIds]
-                    : this.runtimePreview.requiresRuntimePublish()
-                        ? snapshot.packages.map((pkg) => pkg.id)
-                        : [];
-        if (!packageIds.length) {
-            this.setStatus("没有需要发布的已修改包。");
-            return;
-        }
-
-        const waitingDialog = new fgui.Window();
-        waitingDialog.modal = true;
-        waitingDialog.name = "publishWaitingDialog";
-        const waitingContent = fgui.UIPackage.createObject("Builder", "WaitingDialog").asCom;
-        waitingDialog.contentPane = waitingContent;
-        waitingContent.getChild("title").asTextField.text = "发布中...";
-        waitingContent.getChild("cancel").visible = false;
-        waitingDialog.show();
-        waitingDialog.centerOn(fgui.GRoot.inst, true);
-        this.setStatus("Publishing browser workspace runtime bundle...");
-        try {
-            const result = await this.liveSessionBridge.publishRuntimeBundle(snapshot, {
-                packageIds,
-                branch: this.activeBranch,
-            });
-            if (this.disposed) return;
-            if (!result.success) {
-                this.setStatus("Browser runtime publish failed.");
-                return;
-            }
-            if (!result.archive?.blob) throw new Error("Browser runtime ZIP export did not produce a download.");
-            downloadBrowserFile(result.archive.blob, result.archive.fileName);
-            this.resetPublishedRuntimePackages();
-            this.populatePreviewFromSnapshot();
-            this.setDebugAttribute("data-fairy-editor-preview-projection", "refreshed");
-            this.setDebugAttribute("data-fairy-editor-preview-runtime-status", "current");
-            this.setDebugAttribute("data-fairy-editor-preview-projection-reason", "browser_publish");
-            packageIds.forEach((id) => this.modifiedPackageIds.delete(id));
-            this.setStatus(`Browser runtime publish complete: ${result.packageCount} package(s), ${result.fileCount} file(s); downloaded ${result.archive.fileName}.`);
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            this.setStatus(`Browser runtime publish failed: ${message}`);
-            console.error("[Publish] browser runtime publish failed", error);
-        } finally {
-            waitingDialog.dispose();
-        }
-    }
-
     private async saveBrowserWorkspace(): Promise<void> {
         await this.enqueueAuthoringOperation(() => this.saveBrowserWorkspaceNow());
     }
 
     private async saveBrowserWorkspaceNow(): Promise<void> {
-        if (!this.commandAdapter.isLiveSessionAligned()) {
-            this.setStatus(
-                "Browser workspace save blocked: reconnect the browser live session before saving.",
-                "error",
-            );
-            return;
-        }
-        const checkpointStateId = this.commandAdapter.getCurrentStateId();
-        const checkpointRevision = this.commandAdapter.getRevision();
         const target = this.createBrowserSaveTargetForSelection();
         this.setStatus("Browser workspace save started.");
 
         try {
-            const result = await this.workspaceLifecycle.save(target);
+            const outcome = await this.projectSession.saveWorkspaceNow(target, false);
             if (this.disposed) return;
+            if (outcome.kind === "unaligned") {
+                this.setStatus(
+                    "Browser workspace save blocked: reconnect the browser live session before saving.",
+                    "error",
+                );
+                return;
+            }
+            const { result } = outcome;
             this.recordBrowserSaveResult(result);
-            const browserWorkspaceSaved = result.results.save.ok && result.results.reload.ok;
-            const checkpointSaved = browserWorkspaceSaved
-                && result.results.save.revision === checkpointRevision;
-            if (checkpointSaved) {
-                this.commandAdapter.markSaved(checkpointStateId);
-                const reloadedSnapshot = this.liveSessionBridge.getProjectSnapshot();
-                if (reloadedSnapshot) {
-                    const operations = this.commandLastResult?.operations
-                        || (this.commandLastResult?.operation ? [this.commandLastResult.operation] : []);
-                    this.applyLiveProjectSnapshot(reloadedSnapshot, operations);
+            if (outcome.checkpointSaved) {
+                if (outcome.snapshot) {
+                    this.renderLiveProjectSnapshot(outcome.snapshot, outcome.operations);
                 } else {
                     this.populateInspectorFromSnapshot();
                 }
                 this.recordBrowserSaveResult(result);
-            } else if (browserWorkspaceSaved) {
+            } else if (outcome.newerEdits) {
                 this.setStatus(
                     "Save completed, but newer edits were detected. Save again.",
                     "error",
@@ -4714,7 +4601,7 @@ export class EditorShell {
             await this.workspaceLifecycle.switchWorkspace(entry);
             if (this.disposed) return;
             this.resetPublishedRuntimePackages();
-            this.projectSession.updateSnapshot(null);
+            this.projectSession.clearSnapshot();
             this.documentWorkspace.clear();
             this.activeDocument.reset();
             this.libraryPackageId = "";
@@ -4786,58 +4673,6 @@ export class EditorShell {
         this.setStatus(result.message || (result.ok ? "No external changes detected." : "External changes detected."));
     }
 
-    private showProjectImportDialog(): void {
-        this.projectImportDialog.show();
-    }
-
-    private importProjectDirectory(): void {
-        this.projectImportDialog.pickDirectory();
-    }
-
-    private importProjectZip(): void {
-        this.projectImportDialog.pickZip();
-    }
-
-    private async applyProjectImport(
-        picked: BrowserProjectImportResult,
-        label: string,
-    ): Promise<boolean> {
-        return this.enqueueAuthoringOperation(() => this.applyProjectImportNow(picked, label));
-    }
-
-    private async applyProjectImportNow(
-        picked: BrowserProjectImportResult,
-        label: string,
-    ): Promise<boolean> {
-        if (!this.guardWorkspaceTransition("import", "data-fairy-editor-workspace-import")) return false;
-        this.setStatus(`Project ${label} import started.`);
-
-        const result = await this.workspaceLifecycle.importWorkspace(picked);
-        if (this.disposed) return false;
-
-        if (result.ok) {
-            this.resetPublishedRuntimePackages();
-            const connected = await this.connectBrowserLiveSession();
-            recordWorkspaceLifecycleDebug(this.chrome, result);
-            if (!connected) {
-                this.setStatus(`Project ${label} imported, but the browser live session did not reconnect.`, "error");
-                return false;
-            }
-            this.setStatus(`Project ${label} imported: files ${result.storage.fileCount}.`);
-            return true;
-        }
-
-        recordWorkspaceLifecycleDebug(this.chrome, result);
-        this.setStatus(`Project ${label} import failed: ${getWorkspaceLifecycleFailure(result)}.`);
-        return false;
-    }
-
-    private renderWorkspaceImportError(label: string, error: unknown): void {
-        const message = error instanceof Error ? error.message : String(error);
-        this.setStatus(`Project ${label} import failed: ${message}`, "error");
-        console.error(`[Workspace] project ${label} import failed`, error);
-    }
-
     private createBrowserSaveTargetForSelection(): BrowserSaveTarget | undefined {
         const lastOperation = this.commandLastResult?.operation;
         if (lastOperation && lastOperation.kind !== "setDisplayNodeProps") {
@@ -4873,7 +4708,7 @@ export class EditorShell {
         this.populateInspectorFromSnapshot();
         this.layoutInspectorLines();
 
-        const state = await this.liveSessionBridge.connect();
+        const { state, synchronized } = await this.projectSession.connectNow();
         if (this.disposed) return false;
         this.setDebugAttribute("data-fairy-editor-session-status", state.status);
         this.setDebugAttribute("data-fairy-editor-session-source", state.projectSource);
@@ -4886,20 +4721,17 @@ export class EditorShell {
         this.layoutInspectorLines();
 
         if (state.status === "connected") {
-            const liveSnapshot = this.liveSessionBridge.getProjectSnapshot();
-            if (!liveSnapshot) {
+            if (!synchronized) {
                 const message = "Browser live session connected without a synchronized project snapshot.";
                 this.setDebugAttribute("data-fairy-editor-session-error", "snapshot_sync_missing");
                 this.setStatus(message, "error");
                 console.warn(`[Editor Session] ${message}`);
-                await this.liveSessionBridge.reset();
                 return false;
             }
             if (state.projectSource === "browser_workspace") {
                 // Storage is initialized only after the first static preview request; retry now so a saved workspace bundle wins.
                 this.resetPublishedRuntimePackages();
             }
-            this.applyProjectSnapshot(liveSnapshot, state.revision);
             this.setStatus(
                 "Editor session connected.",
             );
@@ -4925,14 +4757,14 @@ export class EditorShell {
         );
     }
 
-    private applyProjectSnapshot(snapshot: EditorProjectSnapshot, revision = 0): void {
+    private renderProjectSnapshot(
+        snapshot: EditorProjectSnapshot,
+        previous: EditorProjectSnapshot | null,
+    ): void {
         if (this.disposed) return;
-        if (this.projectSnapshot?.project.id !== snapshot.project.id) {
+        if (previous?.project.id !== snapshot.project.id) {
             this.documentWorkspace.clear();
         }
-        this.projectSession.updateSnapshot(snapshot);
-        this.commandAdapter.reset(snapshot, revision);
-        this.projectSession.updateLastResult(null);
         this.clearResourceSelection();
         const preferredPackage = snapshot.packages.find((pkg) => pkg.name === "Builder") || snapshot.packages[0] || null;
         const preferredComponent = preferredPackage
@@ -4957,12 +4789,19 @@ export class EditorShell {
         invalidation: ProjectionInvalidation = "preserve-runtime-preview",
         preferredSelection: ActiveDocumentSelection | null = null,
     ): AuthoringPreviewProjectionPlan | null {
+        this.projectSession.syncSnapshot(snapshot, operations, false);
+        return this.renderLiveProjectSnapshot(snapshot, operations, invalidation, preferredSelection);
+    }
+
+    private renderLiveProjectSnapshot(
+        snapshot: EditorProjectSnapshot,
+        operations: EditorCommandOperation[] = [],
+        invalidation: ProjectionInvalidation = "preserve-runtime-preview",
+        preferredSelection: ActiveDocumentSelection | null = null,
+    ): AuthoringPreviewProjectionPlan | null {
         if (this.disposed) return null;
-        if (operations.length) this.markModifiedPackages(snapshot, operations);
         const previousPackageId = this.selectedPackageId;
         const previousComponentId = this.selectedComponentId;
-        this.projectSession.updateSnapshot(snapshot);
-        this.commandAdapter.updateSnapshot(snapshot);
         if (preferredSelection) {
             this.activeDocument.setActiveSelection(
                 snapshot,
@@ -5021,26 +4860,6 @@ export class EditorShell {
                 : "Authoring canvas unaffected",
         );
         return projection;
-    }
-
-    private markModifiedPackages(snapshot: EditorProjectSnapshot, operations: EditorCommandOperation[]): void {
-        const validIds = new Set(snapshot.packages.map((pkg) => pkg.id));
-        const found = new Set<string>();
-        let projectWide = false;
-        const visit = (value: unknown): void => {
-            if (!value || typeof value !== "object") return;
-            const record = value as Record<string, unknown>;
-            if (record.kind === "updateProjectSettings") projectWide = true;
-            if (typeof record.packageId === "string" && validIds.has(record.packageId)) found.add(record.packageId);
-            if (record.kind === "addPackage" && record.package && typeof record.package === "object") {
-                const id = String((record.package as Record<string, unknown>).id || "");
-                if (validIds.has(id)) found.add(id);
-            }
-            Object.values(record).forEach(visit);
-        };
-        operations.forEach(visit);
-        if (projectWide || !found.size) snapshot.packages.forEach((pkg) => this.modifiedPackageIds.add(pkg.id));
-        else found.forEach((id) => this.modifiedPackageIds.add(id));
     }
 
     private restoreProjectSelection(snapshot: EditorProjectSnapshot): boolean {

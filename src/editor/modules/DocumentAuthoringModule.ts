@@ -36,6 +36,7 @@ export type DocumentAuthoringEvents = {
     createNode(point: { x: number; y: number }): Promise<boolean>;
     openNode(nodeId: string): void;
     showCanvasContextMenu(): void;
+    refreshPreview(): void;
     setDebugAttribute(name: string, value: string): void;
 };
 
@@ -104,6 +105,10 @@ export class EditorDocumentAuthoring {
     resetRuntimePackages(): void {
         this.runtimeBundleRevision += 1;
         this.preview.resetRuntimePackages();
+    }
+
+    refreshPreview(): void {
+        this.events?.refreshPreview();
     }
 
     dispose(): void {

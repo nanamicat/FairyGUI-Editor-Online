@@ -419,11 +419,11 @@ assert.equal(editorPreferences.normalizeEditorShortcut("cmd + shift + tab"), "Ct
 for (const snippet of [
     '"使用指南"',
     '"快捷键说明"',
-    "this.editorPreferences.publishAction",
-    "this.editorPreferences.saveBeforePublish",
+    "preferences.publishAction",
+    "preferences.saveBeforePublish",
     "Laya.Config.defaultFont = font",
 ]) {
-    assert(editorShellSource.includes(snippet), `Preferences or Help product wiring is missing: ${snippet}`);
+    assert(editorShell.includes(snippet), `Preferences or Help product wiring is missing: ${snippet}`);
 }
 for (const snippet of [
     "fairygui-editor-online.resource-imports.v1:",
@@ -1570,8 +1570,8 @@ const authoringPreparation = editorShellSource.slice(
     editorShellSource.indexOf("private refreshPreviewForSelectedNode"),
 );
 assert(authoringPreparation.includes("this.liveSessionBridge.captureSessionIdentity()"));
-assert(authoringPreparation.includes("this.liveSessionBridge.isSessionIdentityCurrent(preparationIdentity)"));
-assert(authoringPreparation.includes("Operation cancelled because the project changed while it was queued."));
+assert(projectSessionModuleSource.includes("this.liveSessionBridge.isSessionIdentityCurrent(identity)"));
+assert(editorShell.includes("Operation cancelled because the project changed while it was queued."));
 assert((editorShell.match(/applyAuthoringPreparation\(preparation, preparationIdentity\)/g) || []).length >= 9);
 assert(editorShellSource.includes("const preparation = prepareDetachDisplayNodes("));
 assert(!editorShell.includes("let preparation: HighRiskTransactionPreparation | null = null;"));
@@ -1592,35 +1592,42 @@ const projectRefresh = editorShellSource.slice(
 assert(projectRefresh.includes("enqueueAuthoringOperation"));
 assert(projectRefresh.includes("applyLiveProjectSnapshot(snapshot)"));
 assert(!projectRefresh.includes("commandAdapter.reset"));
-const projectReset = editorShellSource.slice(
-    editorShellSource.indexOf("private applyProjectSnapshot"),
-    editorShellSource.indexOf("private applyLiveProjectSnapshot"),
+const projectReset = projectSessionModuleSource.slice(
+    projectSessionModuleSource.indexOf("resetSnapshot("),
+    projectSessionModuleSource.indexOf("syncSnapshot("),
 );
 assert(projectReset.includes("commandAdapter.reset(snapshot, revision)"));
-const browserPublish = editorShellSource.slice(
-    editorShellSource.indexOf("private async publishBrowserRuntimeBundle"),
-    editorShellSource.indexOf("private async saveBrowserWorkspace"),
+const browserPublish = projectTransferModuleSource.slice(
+    projectTransferModuleSource.indexOf("createRuntimePublishModule"),
 );
-assert(browserPublish.includes("if (!this.commandAdapter.isLiveSessionAligned())"));
+assert(browserPublish.includes("if (!session.commandAdapter.isLiveSessionAligned())"));
 const browserSave = editorShellSource.slice(
     editorShellSource.indexOf("private async saveBrowserWorkspace"),
     editorShellSource.indexOf("private renderBrowserSaveResult"),
 );
 assert(browserSave.includes("enqueueAuthoringOperation"));
-assert(browserSave.includes("getCurrentStateId()"));
-assert(browserSave.includes("markSaved(checkpointStateId)"));
-assert(browserSave.includes("result.results.save.revision === checkpointRevision"));
+const sessionSave = projectSessionModuleSource.slice(
+    projectSessionModuleSource.indexOf("saveWorkspaceNow("),
+    projectSessionModuleSource.indexOf("runExclusive<T>"),
+);
+assert(sessionSave.includes("getCurrentStateId()"));
+assert(sessionSave.includes("markSaved(checkpointStateId)"));
+assert(sessionSave.includes("result.results.save.revision === checkpointRevision"));
 const createWorkspace = editorShellSource.slice(
     editorShellSource.indexOf("private async createBrowserWorkspace"),
     editorShellSource.indexOf("private async switchBrowserWorkspace"),
 );
 assert(createWorkspace.indexOf("enqueueAuthoringOperation") < createWorkspace.indexOf("workspaceLifecycle.addWorkspace(name)"));
-for (const transition of ["switch", "close", "import"]) {
+for (const transition of ["switch", "close"]) {
     assert(
         editorShellSource.includes(`guardWorkspaceTransition("${transition}"`),
         `${transition} must share the dirty workspace-transition guard.`,
     );
 }
+assert(
+    projectTransferModuleSource.includes('"data-fairy-editor-workspace-import", "blocked-dirty"'),
+    "Import must share the dirty workspace-transition guard.",
+);
 assert(
     libraryControllerSource.includes("this.treeInteraction.configureLibraryTree(tree);"),
     "Snapshot refresh must restore Library drag handlers after resetting the tree.",

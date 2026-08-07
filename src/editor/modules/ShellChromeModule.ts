@@ -35,6 +35,8 @@ export class EditorShellChrome {
     private readonly toolMenuContributions = new Map<string, EditorToolMenuContribution>();
     private readonly toolMenuProviders = new Set<EditorToolMenuProvider>();
     private statusReporter: ((message: string, level: DesktopConsoleLevel) => void) | null = null;
+    private layoutRequester: (() => void) | null = null;
+    private readonly layoutParticipants = new Set<() => void>();
     private disposed = false;
 
     constructor(readonly mainView: fgui.GComponent) {
@@ -96,6 +98,8 @@ export class EditorShellChrome {
         this.toolMenuContributions.clear();
         this.toolMenuProviders.clear();
         this.statusReporter = null;
+        this.layoutRequester = null;
+        this.layoutParticipants.clear();
         for (const panel of this.roots) {
             panel.removeFromParent();
             panel.dispose();
@@ -108,6 +112,27 @@ export class EditorShellChrome {
         return () => {
             if (this.statusReporter === reporter) this.statusReporter = null;
         };
+    }
+
+    bindLayoutRequester(requester: () => void): () => void {
+        if (this.layoutRequester) throw new Error("Shell layout requester is already bound.");
+        this.layoutRequester = requester;
+        return () => {
+            if (this.layoutRequester === requester) this.layoutRequester = null;
+        };
+    }
+
+    requestLayout(): void {
+        this.layoutRequester?.();
+    }
+
+    registerLayoutParticipant(participant: () => void): () => void {
+        this.layoutParticipants.add(participant);
+        return () => this.layoutParticipants.delete(participant);
+    }
+
+    notifyLayout(): void {
+        for (const participant of this.layoutParticipants) participant();
     }
 
     setStatus(message: string, level: DesktopConsoleLevel = "info"): void {

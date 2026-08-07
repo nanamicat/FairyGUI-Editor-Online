@@ -118,6 +118,8 @@ assert(productSource.includes("createShellChromeModule()"));
 assert(productSource.includes("createProjectSessionModule()"));
 assert(productSource.includes("createDocumentAuthoringModule()"));
 assert(productSource.includes("createWorkspaceExportModule()"));
+assert(productSource.includes("createWorkspaceImportModule()"));
+assert(productSource.includes("createRuntimePublishModule()"));
 assert(productSource.includes("createBrowserPluginsModule()"));
 assert(productSource.includes("createResourceHealthModule()"));
 assert(productSource.includes([
@@ -127,7 +129,9 @@ assert(productSource.includes([
     "        createProjectSessionModule(),",
     "        createDocumentAuthoringModule(),",
     "        createEditorShellModule(),",
+    "        createWorkspaceImportModule(),",
     "        createWorkspaceExportModule(),",
+    "        createRuntimePublishModule(),",
     "        createBrowserPluginsModule(),",
     "        createResourceHealthModule(),",
 ].join("\n")));
@@ -151,7 +155,14 @@ assert(documentAuthoringModuleSource.includes("new ActiveDocumentController("));
 assert(documentAuthoringModuleSource.includes("const document = new EditorDocumentAuthoring("));
 assert(documentAuthoringModuleSource.includes("hotReloadable: false"));
 assert(!shellSource.includes("exportBrowserWorkspaceZip"));
+assert(!shellSource.includes("new ProjectImportDialog("));
+assert(!shellSource.includes("applyProjectImportNow"));
+assert(!shellSource.includes("publishBrowserRuntimeBundle"));
 assert(projectTransferModuleSource.includes("createWorkspaceExportModule"));
+assert(projectTransferModuleSource.includes("createWorkspaceImportModule"));
+assert(projectTransferModuleSource.includes("createRuntimePublishModule"));
+assert(projectTransferModuleSource.includes("publishRuntimeBundle(snapshot"));
+assert(projectTransferModuleSource.includes("new ProjectImportDialog("));
 assert(projectTransferModuleSource.includes('["toolbar:exportWorkspace"]'));
 assert(projectTransferModuleSource.includes("await inFlight"));
 assert(browserPluginsModuleSource.includes("new BrowserPluginHost()"));
