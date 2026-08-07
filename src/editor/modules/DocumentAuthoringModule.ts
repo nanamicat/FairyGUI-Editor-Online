@@ -26,7 +26,7 @@ import type {
     ProjectSnapshotDisplayNode,
     ProjectSnapshotPackage,
 } from "../model/ProjectSnapshot";
-import type { SetDisplayNodePropsCommand } from "../model/EditorCommand";
+import type { EditorDisplayNodeSelector, SetDisplayNodePropsCommand } from "../model/EditorCommand";
 import {
     createDesktopCanvasPositionCommands,
     createDesktopCanvasRotationCommands,
@@ -155,6 +155,17 @@ export class EditorDocumentAuthoring {
 
     getSelectedNode(snapshot: EditorProjectSnapshot | null = this.session.snapshot): ProjectSnapshotDisplayNode | null {
         return this.getSelectedComponent(snapshot)?.children.find((node) => node.id === this.primaryNodeId) || null;
+    }
+
+    getSelectedNodeSelector(snapshot: EditorProjectSnapshot | null = this.session.snapshot): EditorDisplayNodeSelector | null {
+        const tab = this.getActiveTab(snapshot);
+        return tab && this.primaryNodeId
+            ? {
+                packageId: tab.packageId,
+                componentResourceId: tab.componentId,
+                displayNodeId: this.primaryNodeId,
+            }
+            : null;
     }
 
     getSelectedNodes(snapshot: EditorProjectSnapshot | null = this.session.snapshot): ProjectSnapshotDisplayNode[] {

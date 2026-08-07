@@ -52,10 +52,7 @@ import {
     createRuntimePublishModule,
 } from "../modules/ProjectTransferModules";
 import { EditorWorkbench, type EditorModule } from "../workbench/EditorWorkbench";
-import {
-    EDITOR_SHELL_MODULE_HOST_SERVICE,
-    type FairyGuiEditorWorkbenchHost,
-} from "../workbench/EditorShellModuleHost";
+import type { FairyGuiEditorWorkbenchHost } from "../workbench/EditorShellModuleHost";
 
 export const EDITOR_SHELL_MODULE_ID = "fairygui.editor-shell";
 
@@ -82,7 +79,6 @@ function createEditorShellModule(): EditorModule<FairyGuiEditorWorkbenchHost> {
                 timeline,
                 resourceAuthoring,
             );
-            context.provideService(EDITOR_SHELL_MODULE_HOST_SERVICE, shell.createModuleHost());
             return () => shell.dispose();
         },
     };

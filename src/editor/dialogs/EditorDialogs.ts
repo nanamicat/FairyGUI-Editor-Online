@@ -169,6 +169,7 @@ export function showEditorConfirmation(
     cancelMessage: string,
     onConfirm: () => void,
 ): void {
+    options.getActiveDialog()?.dispose();
     const dialog = new fgui.Window();
     dialog.modal = true;
     dialog.contentPane = fgui.UIPackage.createObject("Builder", "ConfirmDialog").asCom;
@@ -181,16 +182,24 @@ export function showEditorConfirmation(
     const cancel = content.getChild("n3").asButton;
     confirm.title = confirmTitle;
     cancel.title = "Cancel";
+    const close = (): void => {
+        dialog.dispose();
+        if (options.getActiveDialog() === dialog) options.setActiveDialog(null);
+    };
     confirm.onClick(options.eventOwner, () => {
         options.setDebugAttribute(debugAttribute, "confirmed");
-        dialog.dispose();
+        close();
         onConfirm();
     });
     cancel.onClick(options.eventOwner, () => {
         options.setDebugAttribute(debugAttribute, "cancelled");
-        dialog.dispose();
+        close();
         options.setStatus(cancelMessage);
     });
+    dialog.on(Laya.Event.UNDISPLAY, options.eventOwner, () => {
+        if (options.getActiveDialog() === dialog) options.setActiveDialog(null);
+    });
+    options.setActiveDialog(dialog);
     dialog.show();
     options.setDebugAttribute(debugAttribute, "open");
     options.setStatus(pendingMessage);

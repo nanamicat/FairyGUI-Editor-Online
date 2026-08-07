@@ -104,6 +104,7 @@ assert.equal(cleanupWorkbench.list()[0].state, "error");
 const mainSource = readFileSync("src/Main.ts", "utf8");
 const productSource = readFileSync("src/editor/product/FairyGuiEditorProduct.ts", "utf8");
 const shellSource = readFileSync("src/editor/EditorShell.ts", "utf8");
+const shellModuleHostSource = readFileSync("src/editor/workbench/EditorShellModuleHost.ts", "utf8");
 const shellChromeModuleSource = readFileSync("src/editor/modules/ShellChromeModule.ts", "utf8");
 const projectSessionModuleSource = readFileSync("src/editor/modules/ProjectSessionModule.ts", "utf8");
 const documentAuthoringModuleSource = readFileSync("src/editor/modules/DocumentAuthoringModule.ts", "utf8");
@@ -117,6 +118,7 @@ const projectTransferModuleSource = readFileSync("src/editor/modules/ProjectTran
 const browserDownloadSource = readFileSync("src/editor/services/BrowserDownload.ts", "utf8");
 const browserPluginsModuleSource = readFileSync("src/editor/modules/BrowserPluginsModule.ts", "utf8");
 const resourceHealthModuleSource = readFileSync("src/editor/modules/ResourceHealthModule.ts", "utf8");
+const editorDialogsSource = readFileSync("src/editor/dialogs/EditorDialogs.ts", "utf8");
 assert(mainSource.includes("createFairyGuiEditorWorkbench(mainView)"));
 assert(mainSource.includes("workbench.start()"));
 assert(productSource.includes("createEditorShellModule()"));
@@ -161,6 +163,11 @@ assert(shellChromeModuleSource.includes("getToolMenuProviders()"));
 assert(shellChromeModuleSource.includes("registerActions(ids: EditorActionId[]"));
 assert(!shellSource.includes("showResourceHealthDialog as openResourceHealthDialog"));
 assert(!shellSource.includes("new BrowserPluginHost()"));
+assert(!shellSource.includes("createModuleHost()"));
+assert(!shellSource.includes("createBrowserPluginModuleContext"));
+assert(!shellSource.includes("createResourceHealthDialogContext"));
+assert(!productSource.includes("EDITOR_SHELL_MODULE_HOST_SERVICE"));
+assert(!shellModuleHostSource.includes("EditorShellModuleHost"));
 assert(!shellSource.includes("new BrowserProjectStorage("));
 assert(!shellSource.includes("new BrowserLiveSessionBridge("));
 assert(!shellSource.includes("new EditorCommandAdapter("));
@@ -215,12 +222,17 @@ assert(projectTransferModuleSource.includes("new ProjectImportDialog("));
 assert(projectTransferModuleSource.includes('["toolbar:exportWorkspace"]'));
 assert(projectTransferModuleSource.includes("await inFlight"));
 assert(browserPluginsModuleSource.includes("new BrowserPluginHost()"));
-assert(browserPluginsModuleSource.includes("shell.registerToolMenuProvider"));
+assert(browserPluginsModuleSource.includes("chrome.registerToolMenuProvider"));
+assert(browserPluginsModuleSource.includes("session.runExclusive"));
+assert(browserPluginsModuleSource.includes("Promise.allSettled([...inFlight])"));
 assert(browserPluginsModuleSource.includes("pluginHost.dispose()"));
 assert(browserPluginsModuleSource.includes('ui.setDebugAttribute("data-fairy-editor-plugin-host", "detached")'));
-assert(resourceHealthModuleSource.includes("shell.registerToolMenuContribution"));
-assert(resourceHealthModuleSource.includes('dialog?.name !== "desktopResourceHealthDialog"'));
+assert(resourceHealthModuleSource.includes("chrome.registerToolMenuContribution"));
+assert(resourceHealthModuleSource.includes("resourceAuthoring.selectLibraryResource"));
+assert(resourceHealthModuleSource.includes("resourceAuthoring.repairResourceHealthIssue"));
+assert(resourceHealthModuleSource.includes('["desktopResourceHealthDialog", "resourceHealthRepairDialog"]'));
 assert(resourceHealthModuleSource.includes("dialog.dispose()"));
+assert(editorDialogsSource.includes("options.setActiveDialog(dialog)"));
 
 console.log(JSON.stringify({
     ok: true,

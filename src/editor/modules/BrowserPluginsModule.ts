@@ -7,13 +7,14 @@ import {
     type BrowserPluginMenuContribution,
     validateBrowserPluginWriteCommands,
 } from "../runtime/BrowserPluginHost";
+import { findDisplayNode } from "../commands/AuthoringTransactionSupport";
+import type { EditorDisplayNodeSelector, SetDisplayNodePropsCommand } from "../model/EditorCommand";
 import type { EditorModule } from "../workbench/EditorWorkbench";
-import {
-    EDITOR_SHELL_MODULE_HOST_SERVICE,
-    type BrowserPluginModuleContext,
-    type EditorShellModuleHost,
-    type FairyGuiEditorWorkbenchHost,
-} from "../workbench/EditorShellModuleHost";
+import type { FairyGuiEditorWorkbenchHost } from "../workbench/EditorShellModuleHost";
+import { AUTHORING_DIALOGS_SERVICE, EditorAuthoringDialogs } from "./AuthoringDialogsModule";
+import { DOCUMENT_AUTHORING_SERVICE, EditorDocumentAuthoring } from "./DocumentAuthoringModule";
+import { EditorProjectSession, PROJECT_SESSION_SERVICE } from "./ProjectSessionModule";
+import { EditorShellChrome, SHELL_CHROME_SERVICE } from "./ShellChromeModule";
 
 export const BROWSER_PLUGINS_MODULE_ID = "fairygui.browser-plugins";
 
@@ -21,10 +22,63 @@ export function createBrowserPluginsModule(): EditorModule<FairyGuiEditorWorkben
     return {
         id: BROWSER_PLUGINS_MODULE_ID,
         async activate(context) {
-            const shell = context.requireService<EditorShellModuleHost>(EDITOR_SHELL_MODULE_HOST_SERVICE);
-            const ui = shell.createBrowserPluginModuleContext();
+            const chrome = context.requireService<EditorShellChrome>(SHELL_CHROME_SERVICE);
+            const session = context.requireService<EditorProjectSession>(PROJECT_SESSION_SERVICE);
+            const document = context.requireService<EditorDocumentAuthoring>(DOCUMENT_AUTHORING_SERVICE);
+            const dialogs = context.requireService<EditorAuthoringDialogs>(AUTHORING_DIALOGS_SERVICE);
             const pluginHost = new BrowserPluginHost();
             let active = true;
+            const inFlight = new Set<Promise<void>>();
+            const ui = {
+                getActiveDialog: () => dialogs.controller.getActiveDialog(),
+                setActiveDialog: (dialog: fgui.Window | null) => dialogs.controller.setActiveDialog(dialog),
+                requestTextInput: (
+                    name: string,
+                    title: string,
+                    message: string,
+                    current: string,
+                    confirmLabel: string,
+                ) => dialogs.controller.requestTextInput(name, title, message, current, confirmLabel),
+                createInvocationContext: () => {
+                    const activeWorkspace = session.workspaceLifecycle.registry.entries.find(
+                        (entry) => entry.id === session.projectStorage.getWorkspaceName(),
+                    );
+                    const selector = document.getSelectedNodeSelector();
+                    const snapshotNode = document.getSelectedNode();
+                    const liveNode = selector
+                        ? findDisplayNode(session.liveSessionBridge.getWorkingProject(), selector)
+                        : null;
+                    const snapshot = session.snapshot;
+                    return {
+                        workspace: {
+                            id: session.projectStorage.getWorkspaceName(),
+                            name: activeWorkspace?.name || "浏览器工作区",
+                        },
+                        project: snapshot ? {
+                            id: snapshot.project.id,
+                            packages: snapshot.totals.packages,
+                            components: snapshot.totals.components,
+                            displayObjects: snapshot.totals.displayObjects,
+                        } : null,
+                        selection: selector && snapshotNode && liveNode ? {
+                            selector,
+                            node: {
+                                id: snapshotNode.id,
+                                name: snapshotNode.name,
+                                type: snapshotNode.type,
+                                x: Number(liveNode.position?.x ?? snapshotNode.x),
+                                y: Number(liveNode.position?.y ?? snapshotNode.y),
+                                width: Number(liveNode.size?.width ?? snapshotNode.width),
+                                height: Number(liveNode.size?.height ?? snapshotNode.height),
+                            },
+                        } : null,
+                    };
+                },
+                getSelectedDisplayNodeSelector: () => document.getSelectedNodeSelector(),
+                setDebugAttribute: (name: string, value: string) => chrome.setDebugAttribute(name, value),
+                setStatus: (message: string) => chrome.setStatus(message),
+                eventOwner: pluginHost,
+            };
 
             const refreshDebugState = (): void => {
                 const plugins = pluginHost.list();
@@ -39,6 +93,41 @@ export function createBrowserPluginsModule(): EditorModule<FairyGuiEditorWorkben
                     )).join("|"),
                 );
             };
+
+            const sameSelector = (
+                left: EditorDisplayNodeSelector | null,
+                right: EditorDisplayNodeSelector | null,
+            ): boolean => Boolean(
+                left
+                && right
+                && left.packageId === right.packageId
+                && left.componentResourceId === right.componentResourceId
+                && left.displayNodeId === right.displayNodeId,
+            );
+            const applyDisplayNodeCommands = (
+                commands: SetDisplayNodePropsCommand[],
+                summary: string,
+                selector: EditorDisplayNodeSelector | null,
+            ): Promise<boolean> => session.runExclusive(async () => {
+                if (!active || !sameSelector(selector, document.getSelectedNodeSelector())) return false;
+                try {
+                    const { result } = await session.applyDisplayNodePropsNow(commands, summary);
+                    if (result.ok) {
+                        chrome.setStatus(`${summary}.`);
+                        return true;
+                    }
+                    document.refreshPreview();
+                    chrome.setStatus(`Command failed: ${result.error?.code || "unknown_error"}.`, "error");
+                    return false;
+                } catch (error) {
+                    document.refreshPreview();
+                    chrome.setStatus(
+                        `Command failed: ${error instanceof Error ? error.message : String(error)}`,
+                        "error",
+                    );
+                    return false;
+                }
+            });
 
             const runBrowserPluginContribution = async (
                 contribution: BrowserPluginMenuContribution,
@@ -55,14 +144,13 @@ export function createBrowserPluginsModule(): EditorModule<FairyGuiEditorWorkben
                         ui.createInvocationContext(),
                     );
                     if (!active) return;
-                    const commands = validateBrowserPluginWriteCommands(
-                        result,
-                        ui.getSelectedDisplayNodeSelector(),
-                    );
+                    const selector = ui.getSelectedDisplayNodeSelector();
+                    const commands = validateBrowserPluginWriteCommands(result, selector);
                     if (commands.length > 0) {
-                        const applied = await ui.applyDisplayNodeCommands(
+                        const applied = await applyDisplayNodeCommands(
                             commands,
                             `browser plugin ${contribution.id}`,
+                            selector,
                         );
                         if (!applied || !active) return;
                     }
@@ -86,6 +174,15 @@ export function createBrowserPluginsModule(): EditorModule<FairyGuiEditorWorkben
                         `浏览器插件执行失败并已停用：${error instanceof Error ? error.message : String(error)}`,
                     );
                 }
+            };
+            const trackContribution = (contribution: BrowserPluginMenuContribution): Promise<void> => {
+                const task = runBrowserPluginContribution(contribution);
+                inFlight.add(task);
+                void task.then(
+                    () => inFlight.delete(task),
+                    () => inFlight.delete(task),
+                );
+                return task;
             };
 
             const showManager = (): void => {
@@ -132,23 +229,13 @@ export function createBrowserPluginsModule(): EditorModule<FairyGuiEditorWorkben
                 }
             };
 
+            context.onDeactivate(() => {
+                ui.setDebugAttribute("data-fairy-editor-plugin-host", "detached");
+                ui.setDebugAttribute("data-fairy-editor-plugin-ready", "0");
+                ui.setDebugAttribute("data-fairy-editor-plugin-sandbox", "");
+            });
+            context.onDeactivate(async () => { await Promise.allSettled([...inFlight]); });
             context.onDeactivate(() => pluginHost.dispose());
-            context.onDeactivate(shell.registerToolMenuContribution({
-                id: `${BROWSER_PLUGINS_MODULE_ID}.manager`,
-                itemName: "desktopMenuBrowserPlugins",
-                title: "浏览器插件…",
-                run: showManager,
-            }));
-            context.onDeactivate(shell.registerToolMenuProvider(() => (
-                active
-                    ? pluginHost.menuContributions().map((contribution) => ({
-                        id: `${BROWSER_PLUGINS_MODULE_ID}.${contribution.id}`,
-                        itemName: `browserPlugin:${contribution.id}`,
-                        title: contribution.title,
-                        run: () => runBrowserPluginContribution(contribution),
-                    }))
-                    : []
-            )));
             context.onDeactivate(() => {
                 active = false;
                 const dialog = ui.getActiveDialog();
@@ -158,12 +245,22 @@ export function createBrowserPluginsModule(): EditorModule<FairyGuiEditorWorkben
                 dialog?.dispose();
                 if (ui.getActiveDialog() === dialog) ui.setActiveDialog(null);
             });
-            context.onDeactivate(() => {
-                ui.setDebugAttribute("data-fairy-editor-plugin-host", "detached");
-                ui.setDebugAttribute("data-fairy-editor-plugin-ready", "0");
-                ui.setDebugAttribute("data-fairy-editor-plugin-sandbox", "");
-            });
-
+            context.onDeactivate(chrome.registerToolMenuContribution({
+                id: `${BROWSER_PLUGINS_MODULE_ID}.manager`,
+                itemName: "desktopMenuBrowserPlugins",
+                title: "浏览器插件…",
+                run: showManager,
+            }));
+            context.onDeactivate(chrome.registerToolMenuProvider(() => (
+                active
+                    ? pluginHost.menuContributions().map((contribution) => ({
+                        id: `${BROWSER_PLUGINS_MODULE_ID}.${contribution.id}`,
+                        itemName: `browserPlugin:${contribution.id}`,
+                        title: contribution.title,
+                        run: () => trackContribution(contribution),
+                    }))
+                    : []
+            )));
             try {
                 await pluginHost.initialize();
                 if (active) refreshDebugState();

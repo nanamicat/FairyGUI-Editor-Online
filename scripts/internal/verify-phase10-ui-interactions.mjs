@@ -882,7 +882,7 @@ const shellChecks = [
     "private showPopup(anchor: fgui.GObject): void",
     "private toggleTooltips(anchor: fgui.GObject): void",
     "resolvePublishedTestViewport(",
-    "showResourceHealthDialog(shell.createResourceHealthDialogContext())",
+    "showResourceHealthDialog(dialogContext)",
     "repairResourceHealthIssue(issue: ResourceHealthIssue, entries: ResourceHealthEntry[]): void",
     "prepareRemoveResources(project, entries)",
     "private prepareResourceHealthConflictRename(",

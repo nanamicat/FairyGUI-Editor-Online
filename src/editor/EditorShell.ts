@@ -42,7 +42,6 @@ import {
 } from "./dialogs/ProjectSettingsEditor";
 import { showPackageGroupsEditor as openPackageGroupsEditor } from "./dialogs/PackageGroupsEditor";
 import { showReplaceObjectDialog as openReplaceObjectDialog } from "./dialogs/ReplaceObjectDialog";
-import type { ResourceHealthDialogContext } from "./dialogs/ResourceHealthDialog";
 import type {
     BrowserSaveResult,
     BrowserSaveTarget,
@@ -147,12 +146,6 @@ import {
     type LibraryDragState,
     type LibraryItemData,
 } from "./ui/ProjectTreeInteractionController";
-import type {
-    BrowserPluginModuleContext,
-    EditorShellModuleHost,
-    EditorToolMenuContribution,
-    EditorToolMenuProvider,
-} from "./workbench/EditorShellModuleHost";
 import { EditorShellChrome } from "./modules/ShellChromeModule";
 import { EditorProjectSession } from "./modules/ProjectSessionModule";
 import { EditorDocumentAuthoring } from "./modules/DocumentAuthoringModule";
@@ -220,7 +213,6 @@ export class EditorShell {
     private readonly unbindDocumentAuthoring: () => void;
     private actionMenu: fgui.PopupMenu | null = null;
     private readonly actionUnbinders: Array<() => void> = [];
-    private authoringJsonDialog: fgui.Window | null = null;
     private editorPreferences: EditorPreferences = createDefaultEditorPreferences();
     private readonly desktopLayout: DesktopLayoutController;
     private readonly libraryController: EditorProjectExplorer["library"];
@@ -266,6 +258,8 @@ export class EditorShell {
     private get projectSnapshot(): EditorProjectSnapshot | null { return this.projectSession.snapshot; }
     private get commandLastResult(): EditorCommandResult | null { return this.projectSession.lastResult; }
     private get runtimePreview(): RuntimePreviewController { return this.documentAuthoring.preview; }
+    private get authoringJsonDialog(): fgui.Window | null { return this.authoringDialogs.getActiveDialog(); }
+    private set authoringJsonDialog(dialog: fgui.Window | null) { this.authoringDialogs.setActiveDialog(dialog); }
 
     private get leftDockVisible(): boolean { return this.desktopLayout.leftDockVisible; }
     private set leftDockVisible(value: boolean) { this.desktopLayout.leftDockVisible = value; }
@@ -521,18 +515,6 @@ export class EditorShell {
         Laya.stage.on(Laya.Event.KEY_DOWN, this, this.onStageKeyDown);
         Laya.stage.on(Laya.Event.KEY_UP, this, this.onStageKeyUp);
         this.setStatus("Loading project snapshot.");
-    }
-
-    createModuleHost(): EditorShellModuleHost {
-        return Object.freeze({
-            registerToolMenuContribution: (contribution: EditorToolMenuContribution) => (
-                this.registerToolMenuContribution(contribution)
-            ),
-            registerToolMenuProvider: (provider: EditorToolMenuProvider) => this.registerToolMenuProvider(provider),
-            isLiveSession: () => this.commandAdapter.getSessionState().liveSession,
-            createResourceHealthDialogContext: () => this.createResourceHealthDialogContext(),
-            createBrowserPluginModuleContext: () => this.createBrowserPluginModuleContext(),
-        });
     }
 
     dispose(): void {
@@ -2408,55 +2390,6 @@ export class EditorShell {
         this.setStatus("已打开画布显示设置。");
     }
 
-    private createBrowserPluginModuleContext(): BrowserPluginModuleContext {
-        return {
-            getActiveDialog: () => this.authoringJsonDialog,
-            setActiveDialog: (dialog) => { this.authoringJsonDialog = dialog; },
-            requestTextInput: (name, title, message, current, confirmLabel) => (
-                this.authoringDialogs.requestTextInput(name, title, message, current, confirmLabel)
-            ),
-            createInvocationContext: () => {
-                const activeWorkspace = this.workspaceLifecycle.registry.entries.find(
-                    (entry) => entry.id === this.projectStorage.getWorkspaceName(),
-                );
-                const selector = this.getSelectedDisplayNodeSelector();
-                const snapshotNode = this.getSelectedDisplayNode();
-                const liveNode = selector
-                    ? findDisplayNode(this.liveSessionBridge.getWorkingProject(), selector)
-                    : null;
-                return {
-                    workspace: {
-                        id: this.projectStorage.getWorkspaceName(),
-                        name: activeWorkspace?.name || "浏览器工作区",
-                    },
-                    project: this.projectSnapshot ? {
-                        id: this.projectSnapshot.project.id,
-                        packages: this.projectSnapshot.totals.packages,
-                        components: this.projectSnapshot.totals.components,
-                        displayObjects: this.projectSnapshot.totals.displayObjects,
-                    } : null,
-                    selection: selector && snapshotNode && liveNode ? {
-                        selector,
-                        node: {
-                            id: snapshotNode.id,
-                            name: snapshotNode.name,
-                            type: snapshotNode.type,
-                            x: Number(liveNode.position?.x ?? snapshotNode.x),
-                            y: Number(liveNode.position?.y ?? snapshotNode.y),
-                            width: Number(liveNode.size?.width ?? snapshotNode.width),
-                            height: Number(liveNode.size?.height ?? snapshotNode.height),
-                        },
-                    } : null,
-                };
-            },
-            getSelectedDisplayNodeSelector: () => this.getSelectedDisplayNodeSelector(),
-            applyDisplayNodeCommands: (commands, summary) => this.applyDisplayNodePropsCommands(commands, summary),
-            setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
-            setStatus: (message) => this.setStatus(message),
-            eventOwner: this,
-        };
-    }
-
     private showPreferencesDialog(): void {
         openPreferencesDialog({
             getPreferences: () => this.editorPreferences,
@@ -2479,49 +2412,6 @@ export class EditorShell {
             current,
             "应用",
         );
-    }
-
-    private createResourceHealthDialogContext(): ResourceHealthDialogContext {
-        return {
-            getWorkingProject: () => this.liveSessionBridge.getWorkingProject(),
-            getActiveDialog: () => this.authoringJsonDialog,
-            setActiveDialog: (dialog) => { this.authoringJsonDialog = dialog; },
-            countIncomingReferences: (selector) => queryProjectResourceReferences(
-                this.liveSessionBridge.getWorkingProject(),
-                selector,
-                "incoming",
-            ).reduce((count, reference) => count + reference.count, 0),
-            locate: (entry) => {
-                this.navigateProjectResult({
-                    kind: "resource",
-                    packageId: entry.packageId,
-                    resourceId: entry.resourceId,
-                    label: `${entry.packageName}/${entry.name}`,
-                });
-                this.setDebugAttribute(
-                    "data-fairy-editor-resource-health-selection",
-                    `${entry.packageId}/${entry.resourceId}`,
-                );
-                this.setStatus(`已在资源库中定位 ${entry.packageName}/${entry.name}。`);
-            },
-            repair: (issue, entries) => this.resourceAuthoring.repairResourceHealthIssue(issue, entries),
-            setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
-            setStatus: (message) => this.setStatus(message),
-            eventOwner: this,
-        };
-    }
-
-    private registerToolMenuContribution(contribution: EditorToolMenuContribution): () => void {
-        if (this.disposed) throw new Error("Cannot register a tool contribution after the editor shell was disposed.");
-        if (!/^[a-z][a-z0-9.-]+$/.test(contribution.id)) {
-            throw new Error(`Invalid editor tool contribution id: ${contribution.id}.`);
-        }
-        return this.chrome.registerToolMenuContribution({ ...contribution });
-    }
-
-    private registerToolMenuProvider(provider: EditorToolMenuProvider): () => void {
-        if (this.disposed) throw new Error("Cannot register a tool provider after the editor shell was disposed.");
-        return this.chrome.registerToolMenuProvider(provider);
     }
 
     private showHelpMenu(anchor: fgui.GObject): void {

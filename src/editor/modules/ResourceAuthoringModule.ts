@@ -10,6 +10,7 @@ import type {
     ProjectSnapshotResourceFolder,
 } from "../model/ProjectSnapshot";
 import type { BrowserLiveSessionIdentity } from "../services/BrowserLiveSessionBridge";
+import type { ResourceHealthEntry, ResourceHealthIssue } from "../runtime/ResourceHealthAudit";
 import type { EditorActionId } from "../EditorShellConfig";
 import type { LibraryResourceFolderSelector } from "../ui/LibraryController";
 import type { LibraryItemData } from "../ui/ProjectTreeInteractionController";
@@ -116,8 +117,18 @@ export class EditorResourceAuthoring {
         this.events?.applyLibrarySelection({ kind: "package", packageId });
     }
 
+    selectLibraryResource(packageId: string, resourceId: string): void {
+        this.explorer.library.setPackageId(packageId);
+        this.events?.applyLibrarySelection({ kind: "resource", packageId, resourceId });
+        this.explorer.library.populate();
+    }
+
     getSelectedLibraryResourceSelectors(): EditorResourceSelector[] {
         return this.events?.getSelectedLibraryResourceSelectors() || [];
+    }
+
+    repairResourceHealthIssue(issue: ResourceHealthIssue, entries: ResourceHealthEntry[]): void {
+        this.controller.repairResourceHealthIssue(issue, entries);
     }
 
     dispose(): void {
