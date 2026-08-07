@@ -80,7 +80,10 @@ import type {
     AuthoringPreviewProjectionPlan,
     ProjectionInvalidation,
 } from "./runtime/AuthoringPreviewProjection";
-import type { AuthoringRuntimePackageLoadResult } from "./runtime/AuthoringRuntimePackageLoader";
+import {
+    AuthoringRuntimePackageLoader,
+    type AuthoringRuntimePackageLoadResult,
+} from "./runtime/AuthoringRuntimePackageLoader";
 import {
     BrowserPluginHost,
     type BrowserPluginMenuContribution,
@@ -260,6 +263,16 @@ export class EditorShell {
             (entry) => entry.id === this.initialWorkspaceRegistry.activeId,
         )?.fairyPath,
     );
+    private runtimeBundleRevision = 0;
+    private readonly runtimePackageLoader = new AuthoringRuntimePackageLoader(() => {
+        const adapter = this.projectStorage.getAdapter();
+        return adapter
+            ? {
+                adapter,
+                revision: `${this.projectStorage.getWorkspaceName()}:${this.runtimeBundleRevision}`,
+            }
+            : null;
+    });
     private readonly browserPluginHost = new BrowserPluginHost();
     private readonly liveSessionBridge = new BrowserLiveSessionBridge(this.projectStorage);
     private readonly workspaceLifecycle = new WorkspaceLifecycleController(
@@ -630,7 +643,7 @@ export class EditorShell {
             (nodeIds, primaryNodeId) => this.onPreviewNodesSelected(nodeIds, primaryNodeId),
             null,
             (result) => this.onRuntimePreviewPackageLoad(result),
-            this.projectStorage,
+            this.runtimePackageLoader,
             (positions) => this.commitPreviewNodePositions(positions),
             (transforms) => this.commitPreviewNodeTransforms(transforms),
             (transforms) => this.commitPreviewNodeRotations(transforms),
@@ -3579,7 +3592,7 @@ export class EditorShell {
         fgui.UIPackage.branch = branch;
         this.libraryController.setActiveBranch(branch);
         const testActive = this.publishedTest.isActive();
-        this.runtimePreview.resetRuntimePackages();
+        this.resetRuntimePreviewPackages();
         this.refreshProjectViews();
         if (testActive) this.publishedTest.reload();
         this.setDebugAttribute("data-fairy-editor-active-branch", branch || "main");
@@ -3606,7 +3619,7 @@ export class EditorShell {
             fgui.UIPackage.setStringsSource(source);
             this.activeLanguagePath = path;
             const testActive = this.publishedTest.isActive();
-            this.runtimePreview.resetRuntimePackages();
+            this.resetRuntimePreviewPackages();
             this.refreshProjectViews();
             if (testActive) this.publishedTest.reload();
             this.setDebugAttribute("data-fairy-editor-active-language", path || "default");
@@ -5120,6 +5133,11 @@ export class EditorShell {
 
     private resetPublishedRuntimePackages(): void {
         this.publishedTest.stop(false);
+        this.resetRuntimePreviewPackages();
+    }
+
+    private resetRuntimePreviewPackages(): void {
+        this.runtimeBundleRevision += 1;
         this.runtimePreview.resetRuntimePackages();
     }
 

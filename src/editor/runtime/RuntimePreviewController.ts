@@ -1,5 +1,4 @@
 import type { ProjectSnapshotComponent, ProjectSnapshotDisplayNode } from "../model/ProjectSnapshot";
-import type { BrowserProjectStorage } from "../services/BrowserProjectStorage";
 import {
     AuthoringRuntimePackageLoader,
     type AuthoringRuntimePackageLoadResult,
@@ -225,6 +224,7 @@ export class RuntimePreviewController {
     private previewRoot: fgui.GComponent | null = null;
     private previewPackageName = "";
     private previewComponentId = "";
+    private previewSourceRevision = "";
     private projectedComponent: ProjectSnapshotComponent | null = null;
     private selectedNodeId = "";
     private selectedNodeIds = new Set<string>();
@@ -272,7 +272,7 @@ export class RuntimePreviewController {
         onSelectNode: RuntimePreviewSelectionHandler,
         placeholder: fgui.GObject | null = null,
         onRuntimePackageLoad?: RuntimePreviewPackageLoadHandler,
-        projectStorage: BrowserProjectStorage | null = null,
+        runtimePackageLoader: AuthoringRuntimePackageLoader = new AuthoringRuntimePackageLoader(),
         onMoveNode?: RuntimePreviewNodeMoveHandler,
         onResizeNode?: RuntimePreviewNodeResizeHandler,
         onRotateNode?: RuntimePreviewNodeRotateHandler,
@@ -297,7 +297,7 @@ export class RuntimePreviewController {
         this.onCreateNode = onCreateNode;
         this.onOpenNode = onOpenNode;
         this.onContextMenu = onContextMenu;
-        this.runtimePackageLoader = new AuthoringRuntimePackageLoader(projectStorage);
+        this.runtimePackageLoader = runtimePackageLoader;
 
         this.canvasBackground = new fgui.GGraph();
         this.canvasBackground.name = CANVAS_BACKGROUND_NAME;
@@ -417,13 +417,19 @@ export class RuntimePreviewController {
         if (this.disposed) return;
         const refreshRevision = ++this.refreshRevision;
         this.selectNodes(selectedNodeIds);
+        const sourceRevision = this.runtimePackageLoader.getSourceRevision();
 
         if (!packageName || !component) {
             this.clearPreview();
             return;
         }
 
-        if (this.previewRoot && this.previewPackageName === packageName && this.previewComponentId === component.id) {
+        if (
+            this.previewRoot
+            && this.previewPackageName === packageName
+            && this.previewComponentId === component.id
+            && this.previewSourceRevision === sourceRevision
+        ) {
             this.projectedComponent = component;
             this.synchronizeAuthoringObjects(component);
             this.layout();
@@ -468,16 +474,17 @@ export class RuntimePreviewController {
 
         this.onRuntimePackageLoad?.(result);
         if (!result.ok) {
-            this.createPreview(packageName, component, true);
+            this.createPreview(packageName, component, result.sourceRevision, true);
             return;
         }
 
-        this.createPreview(packageName, component);
+        this.createPreview(packageName, component, result.sourceRevision);
     }
 
     private createPreview(
         packageName: string,
         component: ProjectSnapshotComponent,
+        sourceRevision: string,
         authoringOnly = false,
     ): void {
         const created = authoringOnly ? null : fgui.UIPackage.createObject(packageName, component.name);
@@ -492,6 +499,7 @@ export class RuntimePreviewController {
         this.previewRoot = root;
         this.previewPackageName = packageName;
         this.previewComponentId = component.id;
+        this.previewSourceRevision = sourceRevision;
         this.projectedComponent = component;
         this.setPlaceholderVisible(false);
         this.owner.addChild(root);
@@ -1042,6 +1050,7 @@ export class RuntimePreviewController {
         this.previewRoot = null;
         this.previewPackageName = "";
         this.previewComponentId = "";
+        this.previewSourceRevision = "";
         this.projectedComponent = null;
         this.lastClickNodeId = "";
         this.lastClickAt = 0;

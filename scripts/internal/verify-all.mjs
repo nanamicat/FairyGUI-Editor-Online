@@ -41,6 +41,7 @@ const steps = [
 	['Phase 9 transaction matrix', process.execPath, ['scripts/internal/verify-phase9-high-risk-transaction.mjs', moduleRoot], 0],
 	['Command history', process.execPath, ['scripts/internal/verify-command-history.mjs'], 0],
 	['Preview projection', process.execPath, ['scripts/internal/verify-authoring-preview-projection.mjs'], 0],
+	['Runtime preview source lifecycle', process.execPath, ['scripts/internal/verify-runtime-preview-source-lifecycle.mjs'], 0],
 	['Desktop console', process.execPath, ['scripts/internal/verify-desktop-console-log.mjs'], 0],
 	['Project search', process.execPath, ['scripts/internal/verify-desktop-project-search.mjs'], 0],
 	['Bitmap font import', process.execPath, ['scripts/internal/verify-bitmap-font-import.mjs'], 0],

@@ -1,5 +1,3 @@
-import type { BrowserProjectStorage, BrowserProjectStorageAdapter } from "../services/BrowserProjectStorage";
-
 export type AuthoringRuntimePackageLoadStatus = "loaded" | "unavailable" | "failed";
 export type AuthoringRuntimePackageSource = "workspace" | "static";
 
@@ -8,8 +6,23 @@ export interface AuthoringRuntimePackageLoadResult {
     packageName: string;
     status: AuthoringRuntimePackageLoadStatus;
     source?: AuthoringRuntimePackageSource;
+    sourceRevision: string;
     message: string;
 }
+
+export interface AuthoringRuntimeWorkspaceStorage {
+    readFile(filePath: string): Promise<string>;
+    readFileRaw(filePath: string): Promise<Uint8Array>;
+    exists(filePath: string): Promise<boolean>;
+    join(...paths: string[]): string;
+}
+
+export interface AuthoringRuntimeWorkspaceSource {
+    adapter: AuthoringRuntimeWorkspaceStorage;
+    revision: string;
+}
+
+export type AuthoringRuntimeWorkspaceSourceResolver = () => AuthoringRuntimeWorkspaceSource | null;
 
 interface AuthoringRuntimePackageManifest {
     schemaVersion: 1;
@@ -29,10 +42,11 @@ interface AuthoringRuntimePackageManifestEntry {
 
 interface RuntimePackageCandidate {
     source: AuthoringRuntimePackageSource;
+    sourceRevision: string;
     manifest: AuthoringRuntimePackageManifest;
     entry: AuthoringRuntimePackageManifestEntry;
     workspace?: {
-        adapter: BrowserProjectStorageAdapter;
+        adapter: AuthoringRuntimeWorkspaceStorage;
         rootPath: string;
     };
 }
@@ -48,6 +62,7 @@ const MANIFEST_URLS = [
     "resources/editor/authoring-runtime/manifest.json",
     "assets/resources/editor/authoring-runtime/manifest.json",
 ];
+const RUNTIME_PACKAGE_REQUEST_SUPERSEDED = "Runtime package request was superseded.";
 
 export const AUTHORING_RUNTIME_WORKSPACE_ROOT = ".fairygui-runtime";
 export const AUTHORING_RUNTIME_WORKSPACE_MANIFEST_PATH = `${AUTHORING_RUNTIME_WORKSPACE_ROOT}/manifest.json`;
@@ -58,23 +73,43 @@ export const AUTHORING_RUNTIME_WORKSPACE_MANIFEST_PATH = `${AUTHORING_RUNTIME_WO
  */
 export class AuthoringRuntimePackageLoader {
     private staticManifestPromise: Promise<AuthoringRuntimePackageManifest> | null = null;
-    private workspaceManifestPromise: Promise<AuthoringRuntimePackageManifest | null> | null = null;
+    private workspaceManifestPromise: {
+        revision: string;
+        promise: Promise<AuthoringRuntimePackageManifest | null>;
+    } | null = null;
     private packageLoads = new Map<string, Promise<AuthoringRuntimePackageLoadResult>>();
     private leases = new Map<string, RuntimePackageLease>();
     private lifecycleRevision = 0;
+    private observedWorkspaceRevision: string | null = null;
+    private resolvedSourceRevision = "static";
 
-    constructor(private readonly projectStorage: BrowserProjectStorage | null = null) {}
+    constructor(private readonly resolveWorkspaceSource: AuthoringRuntimeWorkspaceSourceResolver = () => null) {}
+
+    getSourceRevision(): string {
+        const revision = this.resolveWorkspaceSource()?.revision ?? null;
+        return revision === this.observedWorkspaceRevision
+            ? this.resolvedSourceRevision
+            : revision === null
+                ? "static"
+                : `workspace:${revision}`;
+    }
 
     reset(): void {
         this.lifecycleRevision += 1;
         this.workspaceManifestPromise = null;
+        this.observedWorkspaceRevision = null;
+        this.resolvedSourceRevision = "static";
         this.packageLoads.clear();
         for (const [packageName, lease] of this.leases) {
             this.releaseLease(packageName, lease);
         }
     }
 
-    async ensureLoaded(projectId: string, packageName: string): Promise<AuthoringRuntimePackageLoadResult> {
+    async ensureLoaded(
+        projectId: string,
+        packageName: string,
+        retrySourceChange = true,
+    ): Promise<AuthoringRuntimePackageLoadResult> {
         const requestRevision = this.lifecycleRevision;
         this.releasePackagesForOtherProjects(projectId);
 
@@ -82,24 +117,36 @@ export class AuthoringRuntimePackageLoader {
         try {
             candidate = await this.resolveCandidate(projectId, packageName);
         } catch (error) {
-            return this.failed(packageName, this.formatError(error));
+            return this.failed(packageName, this.formatError(error), undefined, this.getSourceRevision());
         }
 
         if (!candidate) {
             return this.unavailable(
                 packageName,
                 "No prepared runtime package matches the current authoring project. Import a .fairygui-runtime bundle for this project.",
+                undefined,
+                this.getSourceRevision(),
             );
         }
 
         if (requestRevision !== this.lifecycleRevision) {
-            return this.unavailable(packageName, "Runtime package request was superseded.", candidate.source);
+            return this.unavailable(
+                packageName,
+                RUNTIME_PACKAGE_REQUEST_SUPERSEDED,
+                candidate.source,
+                candidate.sourceRevision,
+            );
         }
 
         const sourceKey = this.createSourceKey(projectId, candidate);
         const currentLease = this.leases.get(packageName);
         if (currentLease?.sourceKey === sourceKey) {
-            return this.loaded(packageName, "Matching runtime package is already available.", candidate.source);
+            return this.loaded(
+                packageName,
+                "Matching runtime package is already available.",
+                candidate.source,
+                candidate.sourceRevision,
+            );
         }
         if (currentLease) {
             this.releaseLease(packageName, currentLease);
@@ -111,6 +158,7 @@ export class AuthoringRuntimePackageLoader {
                 packageName,
                 `Runtime package name ${packageName} conflicts with a package outside the authoring preview lifecycle.`,
                 candidate.source,
+                candidate.sourceRevision,
             );
         }
 
@@ -125,29 +173,44 @@ export class AuthoringRuntimePackageLoader {
         const result = await task;
         if (!result.ok) {
             this.packageLoads.delete(sourceKey);
+            if (
+                retrySourceChange
+                && result.message === RUNTIME_PACKAGE_REQUEST_SUPERSEDED
+                && requestRevision === this.lifecycleRevision
+                && candidate.sourceRevision !== this.getSourceRevision()
+            ) {
+                return await this.ensureLoaded(projectId, packageName, false);
+            }
         }
         return result;
     }
 
     private async resolveCandidate(projectId: string, packageName: string): Promise<RuntimePackageCandidate | null> {
-        const workspaceManifest = await this.loadWorkspaceManifest();
+        const workspaceSource = this.resolveWorkspaceSource();
+        this.observedWorkspaceRevision = workspaceSource?.revision ?? null;
+        this.resolvedSourceRevision = workspaceSource
+            ? `workspace:${workspaceSource.revision}`
+            : "static";
+        const workspaceManifest = await this.loadWorkspaceManifest(workspaceSource);
         if (workspaceManifest) {
             if (workspaceManifest.manifest.source.projectId !== projectId) return null;
             const entry = workspaceManifest.manifest.packages.find((candidate) => candidate.packageName === packageName);
             if (!entry) return null;
             return {
                 source: "workspace",
+                sourceRevision: this.resolvedSourceRevision,
                 manifest: workspaceManifest.manifest,
                 entry,
                 workspace: workspaceManifest.workspace,
             };
         }
 
+        this.resolvedSourceRevision = "static";
         const manifest = await this.loadStaticManifest();
         if (manifest.source.projectId !== projectId) return null;
         const entry = manifest.packages.find((candidate) => candidate.packageName === packageName);
         if (!entry) return null;
-        return { source: "static", manifest, entry };
+        return { source: "static", sourceRevision: this.resolvedSourceRevision, manifest, entry };
     }
 
     private async loadWorkspacePackage(
@@ -166,12 +229,12 @@ export class AuthoringRuntimePackageLoader {
         let blobUrls: string[] = [];
         try {
             const descriptor = await workspace.adapter.readFileRaw(descriptorPath);
-            this.assertCurrentRequest(requestRevision);
+            this.assertCurrentRequest(requestRevision, candidate.sourceRevision);
 
             const resourceKey = `workspace-runtime/${projectId}/${candidate.entry.packageId}`;
             pkg = fgui.UIPackage.addPackage(resourceKey, copyArrayBuffer(descriptor));
             blobUrls = await this.attachWorkspaceAssets(pkg, candidate.entry, workspace, resourceKey);
-            this.assertCurrentRequest(requestRevision);
+            this.assertCurrentRequest(requestRevision, candidate.sourceRevision);
 
             const result = this.registerLease(projectId, candidate, sourceKey, pkg, blobUrls);
             pkg = null;
@@ -179,7 +242,12 @@ export class AuthoringRuntimePackageLoader {
             return result;
         } catch (error) {
             this.discardPackage(pkg, blobUrls);
-            return this.failed(candidate.entry.packageName, this.formatError(error), candidate.source);
+            return this.failed(
+                candidate.entry.packageName,
+                this.formatError(error),
+                candidate.source,
+                candidate.sourceRevision,
+            );
         }
     }
 
@@ -251,7 +319,7 @@ export class AuthoringRuntimePackageLoader {
         let pkg: fgui.UIPackage | null = null;
         try {
             const resourceKey = await this.resolveResourceKey(candidate.entry.resourceKey);
-            this.assertCurrentRequest(requestRevision);
+            this.assertCurrentRequest(requestRevision, candidate.sourceRevision);
             await new Promise<void>((resolve, reject) => {
                 try {
                     fgui.UIPackage.loadPackage(resourceKey, () => {
@@ -267,7 +335,7 @@ export class AuthoringRuntimePackageLoader {
                     reject(error);
                 }
             });
-            this.assertCurrentRequest(requestRevision);
+            this.assertCurrentRequest(requestRevision, candidate.sourceRevision);
             if (!pkg) throw new Error(`FairyGUI did not register package ${candidate.entry.packageName}.`);
 
             const result = this.registerLease(projectId, candidate, sourceKey, pkg, []);
@@ -275,7 +343,12 @@ export class AuthoringRuntimePackageLoader {
             return result;
         } catch (error) {
             this.discardPackage(pkg, []);
-            return this.failed(candidate.entry.packageName, this.formatError(error), candidate.source);
+            return this.failed(
+                candidate.entry.packageName,
+                this.formatError(error),
+                candidate.source,
+                candidate.sourceRevision,
+            );
         }
     }
 
@@ -300,6 +373,7 @@ export class AuthoringRuntimePackageLoader {
                 ? `Loaded imported ${candidate.entry.publishName}.fui and its runtime assets.`
                 : `Loaded ${candidate.entry.publishName}.fui and its runtime assets.`,
             candidate.source,
+            candidate.sourceRevision,
         );
     }
 
@@ -324,6 +398,7 @@ export class AuthoringRuntimePackageLoader {
         for (const blobUrl of lease.blobUrls) {
             URL.revokeObjectURL(blobUrl);
         }
+        this.packageLoads.delete(lease.sourceKey);
         this.leases.delete(packageName);
     }
 
@@ -341,23 +416,26 @@ export class AuthoringRuntimePackageLoader {
         }
     }
 
-    private async loadWorkspaceManifest(): Promise<{
+    private async loadWorkspaceManifest(source: AuthoringRuntimeWorkspaceSource | null): Promise<{
         manifest: AuthoringRuntimePackageManifest;
         workspace: NonNullable<RuntimePackageCandidate["workspace"]>;
     } | null> {
-        const adapter = this.projectStorage?.getAdapter();
-        if (!adapter) return null;
+        if (!source) return null;
+        const { adapter, revision } = source;
 
-        if (!this.workspaceManifestPromise) {
-            this.workspaceManifestPromise = (async () => {
-                if (!await adapter.exists(AUTHORING_RUNTIME_WORKSPACE_MANIFEST_PATH)) return null;
-                const manifest = JSON.parse(await adapter.readFile(AUTHORING_RUNTIME_WORKSPACE_MANIFEST_PATH)) as AuthoringRuntimePackageManifest;
-                this.assertManifest(manifest);
-                return manifest;
-            })();
+        if (this.workspaceManifestPromise?.revision !== revision) {
+            this.workspaceManifestPromise = {
+                revision,
+                promise: (async () => {
+                    if (!await adapter.exists(AUTHORING_RUNTIME_WORKSPACE_MANIFEST_PATH)) return null;
+                    const manifest = JSON.parse(await adapter.readFile(AUTHORING_RUNTIME_WORKSPACE_MANIFEST_PATH)) as AuthoringRuntimePackageManifest;
+                    this.assertManifest(manifest);
+                    return manifest;
+                })(),
+            };
         }
 
-        const manifest = await this.workspaceManifestPromise;
+        const manifest = await this.workspaceManifestPromise.promise;
         if (!manifest) return null;
         return {
             manifest,
@@ -416,12 +494,12 @@ export class AuthoringRuntimePackageLoader {
     }
 
     private createSourceKey(projectId: string, candidate: RuntimePackageCandidate): string {
-        return `${candidate.source}:${projectId}:${candidate.entry.packageId}`;
+        return `${candidate.source}:${candidate.sourceRevision}:${projectId}:${candidate.entry.packageId}`;
     }
 
-    private assertCurrentRequest(requestRevision: number): void {
-        if (requestRevision !== this.lifecycleRevision) {
-            throw new Error("Runtime package request was superseded.");
+    private assertCurrentRequest(requestRevision: number, sourceRevision: string): void {
+        if (requestRevision !== this.lifecycleRevision || sourceRevision !== this.getSourceRevision()) {
+            throw new Error(RUNTIME_PACKAGE_REQUEST_SUPERSEDED);
         }
     }
 
@@ -429,24 +507,27 @@ export class AuthoringRuntimePackageLoader {
         packageName: string,
         message: string,
         source: AuthoringRuntimePackageSource,
+        sourceRevision: string,
     ): AuthoringRuntimePackageLoadResult {
-        return { ok: true, packageName, status: "loaded", source, message };
+        return { ok: true, packageName, status: "loaded", source, sourceRevision, message };
     }
 
     private unavailable(
         packageName: string,
         message: string,
         source?: AuthoringRuntimePackageSource,
+        sourceRevision = this.getSourceRevision(),
     ): AuthoringRuntimePackageLoadResult {
-        return { ok: false, packageName, status: "unavailable", source, message };
+        return { ok: false, packageName, status: "unavailable", source, sourceRevision, message };
     }
 
     private failed(
         packageName: string,
         message: string,
         source?: AuthoringRuntimePackageSource,
+        sourceRevision = this.getSourceRevision(),
     ): AuthoringRuntimePackageLoadResult {
-        return { ok: false, packageName, status: "failed", source, message };
+        return { ok: false, packageName, status: "failed", source, sourceRevision, message };
     }
 
     private formatError(error: unknown): string {
