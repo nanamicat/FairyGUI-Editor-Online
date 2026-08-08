@@ -4,7 +4,7 @@ import { MemoryBrowserStorage } from "../browser-storage-fixture.mjs";
 import { importTypeScriptModule } from "../import-typescript-module.mjs";
 
 const encoder = new TextEncoder();
-const { BrowserProjectStorage } = await importTypeScriptModule(
+const { BrowserProjectStorage, BrowserWorkspaceRollbackError } = await importTypeScriptModule(
     "src/editor/services/BrowserProjectStorage.ts",
 );
 const { readZipProjectFiles } = await importTypeScriptModule(
@@ -19,6 +19,60 @@ const storage = new BrowserProjectStorage("zip-verification", "Project.fairy");
 storage.status = "ready";
 storage.kind = "indexeddb";
 storage.adapter = adapter;
+
+const rollbackAdapter = new MemoryBrowserStorage();
+await rollbackAdapter.writeFileRaw("Project.fairy", encoder.encode("<original />"));
+await rollbackAdapter.writeFileRaw("keep.bin", new Uint8Array([1, 2, 3]));
+const rollbackStorage = new BrowserProjectStorage("rollback-verification", "Project.fairy");
+rollbackStorage.status = "ready";
+rollbackStorage.kind = "indexeddb";
+rollbackStorage.adapter = rollbackAdapter;
+const rollbackBaseline = rollbackAdapter.snapshot();
+const writeFileRaw = rollbackAdapter.writeFileRaw.bind(rollbackAdapter);
+let failImportedWrite = true;
+rollbackAdapter.writeFileRaw = async (filePath, data) => {
+    if (failImportedWrite && filePath === "extra.bin") {
+        failImportedWrite = false;
+        throw new Error("injected import write failure");
+    }
+    await writeFileRaw(filePath, data);
+};
+await assert.rejects(() => rollbackStorage.replaceWorkspaceFiles([
+    { path: "Project.fairy", data: encoder.encode("<imported />") },
+    { path: "extra.bin", data: new Uint8Array([9]) },
+]), /injected import write failure/);
+assert.deepEqual(rollbackAdapter.snapshot(), rollbackBaseline, "A partial workspace import must restore every previous file.");
+await assert.rejects(() => rollbackStorage.replaceWorkspaceFiles([
+    { path: "wrong.fairy", data: encoder.encode("<wrong />") },
+]), /does not contain Project\.fairy/);
+assert.deepEqual(rollbackAdapter.snapshot(), rollbackBaseline, "An import without the selected project file must roll back.");
+
+const failedRollbackAdapter = new MemoryBrowserStorage();
+await failedRollbackAdapter.writeFileRaw("Project.fairy", encoder.encode("<original />"));
+await failedRollbackAdapter.writeFileRaw("keep.bin", new Uint8Array([1, 2, 3]));
+const failedRollbackStorage = new BrowserProjectStorage("failed-rollback-verification", "Project.fairy");
+failedRollbackStorage.status = "ready";
+failedRollbackStorage.kind = "indexeddb";
+failedRollbackStorage.adapter = failedRollbackAdapter;
+const failedRollbackWrite = failedRollbackAdapter.writeFileRaw.bind(failedRollbackAdapter);
+let rollbackStarted = false;
+failedRollbackAdapter.writeFileRaw = async (filePath, data) => {
+    if (filePath === "extra.bin") {
+        rollbackStarted = true;
+        throw new Error("injected import write failure");
+    }
+    if (rollbackStarted && filePath === "keep.bin") throw new Error("injected rollback write failure");
+    await failedRollbackWrite(filePath, data);
+};
+await assert.rejects(
+    () => failedRollbackStorage.replaceWorkspaceFiles([
+        { path: "Project.fairy", data: encoder.encode("<imported />") },
+        { path: "extra.bin", data: new Uint8Array([9]) },
+    ]),
+    (error) => error instanceof BrowserWorkspaceRollbackError
+        && error.code === "BROWSER_WORKSPACE_ROLLBACK_FAILED",
+    "A failed rollback must be distinguishable from a successfully restored import failure.",
+);
 
 const exported = await storage.exportWorkspaceZip();
 const exportedBytes = new Uint8Array(await exported.blob.arrayBuffer());

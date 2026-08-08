@@ -1,4 +1,3 @@
-import type { BrowserWorkspaceLifecycleResult } from "../model/BrowserWorkspace";
 import { prepareImportPackage } from "../commands/PackageComponentTransactions";
 import type { HighRiskTransactionPreparation } from "../commands/HighRiskAuthoringTransactions";
 import { ProjectImportDialog } from "../dialogs/ProjectImportDialog";
@@ -27,25 +26,11 @@ import { EditorShellChrome, SHELL_CHROME_SERVICE } from "./ShellChromeModule";
 import { DOCUMENT_AUTHORING_SERVICE, EditorDocumentAuthoring } from "./DocumentAuthoringModule";
 import { EditorProjectExplorer, PROJECT_EXPLORER_SERVICE } from "./ProjectExplorerModule";
 import { EditorResourceAuthoring, RESOURCE_AUTHORING_SERVICE } from "./ResourceAuthoringModule";
-
-export function recordWorkspaceLifecycleDebug(
-    chrome: EditorShellChrome,
-    result: BrowserWorkspaceLifecycleResult,
-): void {
-    const materialize = result.results.materialize;
-    const apply = result.results.apply;
-    chrome.setDebugAttribute("data-fairy-editor-workspace-action", result.mode);
-    chrome.setDebugAttribute("data-fairy-editor-workspace-ok", result.ok ? "true" : "false");
-    chrome.setDebugAttribute("data-fairy-editor-workspace-project-file", result.storage.projectFileExists ? "true" : "false");
-    chrome.setDebugAttribute("data-fairy-editor-workspace-files", String(result.storage.fileCount));
-    chrome.setDebugAttribute("data-fairy-editor-workspace-materialize-ok", materialize ? String(materialize.ok) : "");
-    chrome.setDebugAttribute("data-fairy-editor-workspace-materialize-revision", materialize?.revision === undefined ? "" : String(materialize.revision));
-    chrome.setDebugAttribute("data-fairy-editor-workspace-apply-ok", apply ? String(apply.ok) : "");
-    chrome.setDebugAttribute("data-fairy-editor-workspace-import-source", result.imported?.source || "");
-    chrome.setDebugAttribute("data-fairy-editor-workspace-import-fairy", result.imported?.fairyPath || "");
-    chrome.setDebugAttribute("data-fairy-editor-workspace-export-format", result.export?.format || "");
-    chrome.setDebugAttribute("data-fairy-editor-workspace-folder-binding", result.storage.directoryWriteback?.status || "");
-}
+import {
+    EditorWorkspaceLifecycle,
+    recordWorkspaceLifecycleDebug,
+    WORKSPACE_LIFECYCLE_SERVICE,
+} from "./WorkspaceLifecycleModule";
 
 class FairyPackageImport {
     private pending: Promise<void> = Promise.resolve();
@@ -502,49 +487,17 @@ export function createWorkspaceImportModule(): EditorModule<FairyGuiEditorWorkbe
     return {
         id: "fairygui.workspace-import",
         activate(context) {
-            const session = context.requireService<EditorProjectSession>(PROJECT_SESSION_SERVICE);
             const chrome = context.requireService<EditorShellChrome>(SHELL_CHROME_SERVICE);
-            const document = context.requireService<EditorDocumentAuthoring>(DOCUMENT_AUTHORING_SERVICE);
+            const workspace = context.requireService<EditorWorkspaceLifecycle>(WORKSPACE_LIFECYCLE_SERVICE);
             let inFlight: Promise<boolean> = Promise.resolve(false);
             const showWorkspace = (): void => {
                 chrome.mainView.getController("start").selectedIndex = 0;
                 chrome.startScene.visible = false;
                 chrome.requestLayout();
             };
-            const recordSessionState = (state: Awaited<ReturnType<EditorProjectSession["connectNow"]>>["state"]): void => {
-                chrome.setDebugAttribute("data-fairy-editor-session-status", state.status);
-                chrome.setDebugAttribute("data-fairy-editor-session-source", state.projectSource);
-                chrome.setDebugAttribute("data-fairy-editor-session-backend", state.backendPackageVersion || "");
-                chrome.setDebugAttribute("data-fairy-editor-session-model-fidelity", state.uamFidelity || "");
-                chrome.setDebugAttribute("data-fairy-editor-session-lock-held", String(state.lockHeld ?? false));
-                chrome.setDebugAttribute("data-fairy-editor-session-error", state.error || "");
-            };
             const dialog = new ProjectImportDialog(chrome.mainView, {
                 applyImport: (picked, label) => {
-                    inFlight = session.runExclusive(async () => {
-                        if (session.commandAdapter.getSessionState().dirty) {
-                            chrome.setDebugAttribute("data-fairy-editor-workspace-import", "blocked-dirty");
-                            chrome.setDebugAttribute("data-fairy-editor-workspace-transition", "import:blocked-dirty");
-                            chrome.setStatus("Workspace import blocked: Save or Undo the active workspace first.");
-                            return false;
-                        }
-                        chrome.setStatus(`Project ${label} import started.`);
-                        const result = await session.workspaceLifecycle.importWorkspace(picked);
-                        recordWorkspaceLifecycleDebug(chrome, result);
-                        if (!result.ok) {
-                            chrome.setStatus(`Project ${label} import failed: ${getWorkspaceLifecycleFailure(result)}.`);
-                            return false;
-                        }
-                        document.resetRuntimePackages();
-                        const connected = await session.connectNow();
-                        recordSessionState(connected.state);
-                        if (!connected.synchronized) {
-                            chrome.setStatus(`Project ${label} imported, but the browser live session did not reconnect.`, "error");
-                            return false;
-                        }
-                        chrome.setStatus(`Project ${label} imported: files ${result.storage.fileCount}.`);
-                        return true;
-                    });
+                    inFlight = workspace.importWorkspace(picked, label);
                     return inFlight;
                 },
                 onError: (label, error) => {
@@ -552,8 +505,8 @@ export function createWorkspaceImportModule(): EditorModule<FairyGuiEditorWorkbe
                     chrome.setStatus(`Project ${label} import failed: ${message}`, "error");
                     console.error(`[Workspace] project ${label} import failed`, error);
                 },
-                pickDirectory: () => session.workspaceLifecycle.pickDirectoryProject(),
-                pickZip: () => session.workspaceLifecycle.pickZipProject(),
+                pickDirectory: () => workspace.pickDirectoryProject(),
+                pickZip: () => workspace.pickZipProject(),
                 setDebugAttribute: (name, value) => chrome.setDebugAttribute(name, value),
                 setStatus: (message) => chrome.setStatus(message),
                 showWorkspace,
@@ -587,11 +540,28 @@ export function createRuntimePublishModule(): EditorModule<FairyGuiEditorWorkben
             const session = context.requireService<EditorProjectSession>(PROJECT_SESSION_SERVICE);
             const chrome = context.requireService<EditorShellChrome>(SHELL_CHROME_SERVICE);
             const document = context.requireService<EditorDocumentAuthoring>(DOCUMENT_AUTHORING_SERVICE);
+            const workspace = context.requireService<EditorWorkspaceLifecycle>(WORKSPACE_LIFECYCLE_SERVICE);
             let activeDialog: fgui.Window | null = null;
-            let inFlight: Promise<void> = Promise.resolve();
+            const inFlight = new Set<Promise<unknown>>();
+            let active = true;
+            const track = <T>(promise: Promise<T>): Promise<T> => {
+                inFlight.add(promise);
+                void promise.then(
+                    () => inFlight.delete(promise),
+                    () => inFlight.delete(promise),
+                );
+                return promise;
+            };
 
             const publish = (mode: "current" | "modified" | "all" = "modified"): Promise<void> => {
-                inFlight = session.runExclusive(async () => {
+                if (!active) return Promise.resolve();
+                const identity = session.liveSessionBridge.captureSessionIdentity();
+                const requestedPackageId = document.activeDocument.getPackage(session.snapshot)?.id || "";
+                return track(session.runExclusive(async () => {
+                    if (!identity || !session.liveSessionBridge.isSessionIdentityCurrent(identity)) {
+                        chrome.setStatus("Browser publish cancelled because the project changed while it was queued.", "warning");
+                        return;
+                    }
                     if (!session.commandAdapter.isLiveSessionAligned()) {
                         chrome.setStatus("Browser runtime publish blocked: reconnect the browser live session before publishing.", "error");
                         return;
@@ -616,7 +586,7 @@ export function createRuntimePublishModule(): EditorModule<FairyGuiEditorWorkben
                     const packageIds = mode === "all"
                         ? snapshot.packages.map((pkg) => pkg.id)
                         : mode === "current"
-                            ? [document.activeDocument.getPackage(snapshot)?.id || ""].filter(Boolean)
+                            ? [requestedPackageId].filter(Boolean)
                             : session.getModifiedPackageIds().length
                                 ? session.getModifiedPackageIds()
                                 : document.preview.requiresRuntimePublish()
@@ -648,9 +618,7 @@ export function createRuntimePublishModule(): EditorModule<FairyGuiEditorWorkben
                         }
                         if (!result.archive?.blob) throw new Error("Browser runtime ZIP export did not produce a download.");
                         downloadBrowserFile(result.archive.blob, result.archive.fileName);
-                        chrome.runAction("toolbar:stopTest");
-                        document.resetRuntimePackages();
-                        document.refreshPreview();
+                        workspace.invalidateRuntime(true);
                         session.markPackagesPublished(packageIds);
                         chrome.setDebugAttribute("data-fairy-editor-preview-projection", "refreshed");
                         chrome.setDebugAttribute("data-fairy-editor-preview-runtime-status", "current");
@@ -663,8 +631,7 @@ export function createRuntimePublishModule(): EditorModule<FairyGuiEditorWorkben
                     } finally {
                         waitingDialog.dispose();
                     }
-                });
-                return inFlight;
+                }));
             };
 
             const unregisterPublish = chrome.registerActions(["toolbar:publish", "menu:publish", "publish"], () => {
@@ -672,29 +639,37 @@ export function createRuntimePublishModule(): EditorModule<FairyGuiEditorWorkben
                 publish(preferences.publishAction);
             });
             const unregisterSettings = chrome.registerActions(["toolbar:publishSettings"], () => {
+                const identity = session.liveSessionBridge.captureSessionIdentity();
                 showPublishSettingsEditor({
                     getWorkingProject: () => session.liveSessionBridge.getWorkingProject(),
                     getActiveDialog: () => activeDialog,
                     setActiveDialog: (dialog) => { activeDialog = dialog; },
                     applyPreparation: (preparation) => {
-                        const identity = session.liveSessionBridge.captureSessionIdentity();
-                        return session.runExclusive(async () => {
-                            const outcome = await session.applyPreparationNow(preparation, identity);
-                            if (outcome.kind === "unavailable") {
-                                chrome.setStatus(`Operation unavailable: ${outcome.preparation.code}. ${outcome.preparation.message}`);
+                        if (!active) return Promise.resolve(false);
+                        return track(session.runExclusive(async () => {
+                            try {
+                                const outcome = await session.applyPreparationNow(preparation, identity);
+                                if (outcome.kind === "unavailable") {
+                                    chrome.setStatus(`Operation unavailable: ${outcome.preparation.code}. ${outcome.preparation.message}`);
+                                    return false;
+                                }
+                                if (outcome.kind === "stale") {
+                                    chrome.setStatus("Operation cancelled because the project changed while it was queued. Retry the action.", "warning");
+                                    return false;
+                                }
+                                if (!outcome.result.ok) {
+                                    chrome.setStatus(`Operation failed: ${outcome.result.error?.code || "unknown_error"}.`, "error");
+                                    return false;
+                                }
+                                chrome.setStatus(outcome.summary);
+                                return true;
+                            } catch (error) {
+                                const message = error instanceof Error ? error.message : String(error);
+                                chrome.setStatus(`Publish settings update failed: ${message}`, "error");
+                                console.error("[Publish] settings update failed", error);
                                 return false;
                             }
-                            if (outcome.kind === "stale") {
-                                chrome.setStatus("Operation cancelled because the project changed while it was queued. Retry the action.", "warning");
-                                return false;
-                            }
-                            if (!outcome.result.ok) {
-                                chrome.setStatus(`Operation failed: ${outcome.result.error?.code || "unknown_error"}.`, "error");
-                                return false;
-                            }
-                            chrome.setStatus(outcome.summary);
-                            return true;
-                        });
+                        }));
                     },
                     publish: (mode) => publish(mode),
                     setStatus: (message) => chrome.setStatus(message),
@@ -706,13 +681,14 @@ export function createRuntimePublishModule(): EditorModule<FairyGuiEditorWorkben
             publishButton.visible = true;
             settingsButton.visible = true;
             return async () => {
+                active = false;
                 unregisterPublish();
                 unregisterSettings();
                 publishButton.visible = false;
                 settingsButton.visible = false;
                 activeDialog?.dispose();
                 activeDialog = null;
-                await inFlight;
+                await Promise.allSettled([...inFlight]);
             };
         },
     };

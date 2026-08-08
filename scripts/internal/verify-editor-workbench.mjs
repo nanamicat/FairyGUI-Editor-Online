@@ -110,6 +110,7 @@ const shellChromeModuleSource = readFileSync("src/editor/modules/ShellChromeModu
 const projectSessionModuleSource = readFileSync("src/editor/modules/ProjectSessionModule.ts", "utf8");
 const authoringPreviewModuleSource = readFileSync("src/editor/modules/AuthoringPreviewModule.ts", "utf8");
 const documentAuthoringModuleSource = readFileSync("src/editor/modules/DocumentAuthoringModule.ts", "utf8");
+const workspaceLifecycleModuleSource = readFileSync("src/editor/modules/WorkspaceLifecycleModule.ts", "utf8");
 const inspectorModuleSource = readFileSync("src/editor/modules/InspectorModule.ts", "utf8");
 const projectExplorerModuleSource = readFileSync("src/editor/modules/ProjectExplorerModule.ts", "utf8");
 const authoringDialogsModuleSource = readFileSync("src/editor/modules/AuthoringDialogsModule.ts", "utf8");
@@ -145,6 +146,7 @@ assert(coreProductSource.includes([
     "        createProjectSessionModule(),",
     "        createAuthoringPreviewModule(),",
     "        createDocumentAuthoringModule(),",
+    "        createWorkspaceLifecycleModule(),",
     "        createProjectExplorerModule(),",
     "        createInspectorModule(),",
     "        createAuthoringDialogsModule(),",
@@ -199,6 +201,18 @@ assert(documentAuthoringModuleSource.includes("authoringPreview.bind({"));
 assert(documentAuthoringModuleSource.includes("AUTHORING_PREVIEW_SERVICE"));
 assert(documentAuthoringModuleSource.includes("const document = new EditorDocumentAuthoring("));
 assert(documentAuthoringModuleSource.includes("hotReloadable: false"));
+assert(workspaceLifecycleModuleSource.includes("context.provideService(WORKSPACE_LIFECYCLE_SERVICE, lifecycle)"));
+assert(workspaceLifecycleModuleSource.includes("hotReloadable: false"));
+assert(workspaceLifecycleModuleSource.includes('chrome.registerActions(["toolbar:save", "save"]'));
+assert(coreProductSource.includes("context.requireService<EditorWorkspaceLifecycle>(WORKSPACE_LIFECYCLE_SERVICE)"));
+assert(!shellSource.includes('register(["toolbar:save", "save"]'));
+for (const method of [
+    "initializeProjectSnapshotNow",
+    "saveBrowserWorkspace",
+    "switchBrowserWorkspace",
+    "closeBrowserWorkspace",
+    "applyProjectImportNow",
+]) assert(!shellSource.includes(method), `EditorShell still owns workspace lifecycle: ${method}`);
 assert(!shellSource.includes("new InspectorController("));
 assert(inspectorModuleSource.includes("new EditorInspector("));
 assert(inspectorModuleSource.includes("hotReloadable: false"));
@@ -260,6 +274,10 @@ assert(projectTransferModuleSource.includes('["resource:exportFairyPackageResour
 assert(projectTransferModuleSource.includes("context.onDeactivate(() => transfer.dispose())"));
 assert(projectTransferModuleSource.includes("publishRuntimeBundle(snapshot"));
 assert(projectTransferModuleSource.includes("new ProjectImportDialog("));
+assert(projectTransferModuleSource.includes("workspace.importWorkspace(picked, label)"));
+assert(projectTransferModuleSource.includes("pickDirectory: () => workspace.pickDirectoryProject()"));
+assert(projectTransferModuleSource.includes("pickZip: () => workspace.pickZipProject()"));
+assert(projectTransferModuleSource.includes("workspace.invalidateRuntime(true)"));
 assert(projectTransferModuleSource.includes('["toolbar:exportWorkspace"]'));
 assert(projectTransferModuleSource.includes("await inFlight"));
 assert(browserPluginsModuleSource.includes("new BrowserPluginHost()"));

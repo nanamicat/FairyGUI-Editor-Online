@@ -111,6 +111,8 @@ export class EditorProjectSession {
     clearSnapshot(): void {
         this.currentSnapshot = null;
         this.currentLastResult = null;
+        this.modifiedPackageIds.clear();
+        this.commandAdapter.clear();
     }
 
     updateLastResult(result: EditorCommandResult | null): void {
@@ -123,7 +125,11 @@ export class EditorProjectSession {
         const snapshot = this.liveSessionBridge.getProjectSnapshot();
         if (!snapshot) {
             await this.liveSessionBridge.reset();
-            return { state, snapshot: null, synchronized: false };
+            return {
+                state: this.liveSessionBridge.getState(),
+                snapshot: null,
+                synchronized: false,
+            };
         }
         this.resetSnapshot(snapshot, state.revision);
         return { state, snapshot, synchronized: true };

@@ -24,10 +24,6 @@ import {
 } from "./dialogs/ProjectSettingsEditor";
 import { showPackageGroupsEditor as openPackageGroupsEditor } from "./dialogs/PackageGroupsEditor";
 import type {
-    BrowserSaveResult,
-    BrowserSaveTarget,
-} from "./model/BrowserWorkspace";
-import type {
     ComponentCustomPropertyDefinition,
     EditorCommandOperation,
     EditorCommandResult,
@@ -81,12 +77,9 @@ import type {
     RuntimePreviewController,
     RuntimePreviewCanvasSettings,
 } from "./runtime/RuntimePreviewController";
-import type { WorkspaceLifecycleController } from "./runtime/WorkspaceLifecycleController";
 import {
     type BrowserLiveSessionIdentity,
 } from "./services/BrowserLiveSessionBridge";
-import { createDisplayNodeSaveTarget } from "./services/BrowserSaveTargetVerifier";
-import { loadProjectSnapshot } from "./services/ProjectSnapshotLoader";
 import type { ActiveDocumentSelection } from "./ui/ActiveDocumentController";
 import {
     DesktopLayoutController,
@@ -106,7 +99,6 @@ import {
 import type { InspectorPanelAction } from "./ui/InspectorController";
 import {
     describeAuthoringPreviewProjection,
-    getBrowserSaveFailure,
 } from "./ui/InspectorPresentation";
 import type { LibraryResourceFolderSelector } from "./ui/LibraryController";
 import {
@@ -122,6 +114,7 @@ import { EditorAuthoringDialogs } from "./modules/AuthoringDialogsModule";
 import { EditorTimeline } from "./modules/TimelineModule";
 import { EditorResourceAuthoring } from "./modules/ResourceAuthoringModule";
 import { EditorDisplayListAuthoring } from "./modules/DisplayListAuthoringModule";
+import { EditorWorkspaceLifecycle } from "./modules/WorkspaceLifecycleModule";
 import { downloadBrowserFile } from "./services/BrowserDownload";
 
 const EDITOR_REPOSITORY_URL = "https://github.com/OpenFairyGUI/FairyGUI-Editor-Online";
@@ -156,6 +149,8 @@ export class EditorShell {
     private readonly unbindLiveProjectSnapshot: () => void;
     private readonly documentAuthoring: EditorDocumentAuthoring;
     private readonly unbindDocumentAuthoring: () => void;
+    private readonly workspaceLifecycle: EditorWorkspaceLifecycle;
+    private readonly unbindWorkspaceLifecycle: () => void;
     private actionMenu: fgui.PopupMenu | null = null;
     private readonly actionUnbinders: Array<() => void> = [];
     private editorPreferences: EditorPreferences = createDefaultEditorPreferences();
@@ -192,9 +187,7 @@ export class EditorShell {
     private get commandAdapter() { return this.projectSession.commandAdapter; }
     private get projectStorage() { return this.projectSession.projectStorage; }
     private get liveSessionBridge() { return this.projectSession.liveSessionBridge; }
-    private get workspaceLifecycle(): WorkspaceLifecycleController { return this.projectSession.workspaceLifecycle; }
     private get projectSnapshot(): EditorProjectSnapshot | null { return this.projectSession.snapshot; }
-    private get commandLastResult(): EditorCommandResult | null { return this.projectSession.lastResult; }
     private get runtimePreview(): RuntimePreviewController { return this.documentAuthoring.preview; }
     private get authoringJsonDialog(): fgui.Window | null { return this.authoringDialogs.getActiveDialog(); }
     private set authoringJsonDialog(dialog: fgui.Window | null) { this.authoringDialogs.setActiveDialog(dialog); }
@@ -228,6 +221,7 @@ export class EditorShell {
         chrome: EditorShellChrome,
         projectSession: EditorProjectSession,
         documentAuthoring: EditorDocumentAuthoring,
+        workspaceLifecycle: EditorWorkspaceLifecycle,
         inspector: EditorInspector,
         projectExplorer: EditorProjectExplorer,
         authoringDialogs: EditorAuthoringDialogs,
@@ -247,6 +241,7 @@ export class EditorShell {
             this.renderLiveProjectSnapshot(snapshot, operations);
         });
         this.documentAuthoring = documentAuthoring;
+        this.workspaceLifecycle = workspaceLifecycle;
         this.unbindDocumentAuthoring = documentAuthoring.bind({
             activateDocument: (tab) => this.onDocumentActivated(tab),
             closeDocument: (tab) => this.onDocumentClosed(tab),
@@ -443,6 +438,19 @@ export class EditorShell {
             setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
             setStatus: (message) => this.setStatus(message),
         });
+        this.unbindWorkspaceLifecycle = workspaceLifecycle.bind({
+            persistWorkspaceViewState: () => this.saveDesktopLayoutState(),
+            resetAndRestoreWorkspaceViewState: () => {
+                this.libraryPackageId = "";
+                this.clearResourceSelection();
+                this.selectedLibraryResourceSelectors = [];
+                this.applyDefaultDesktopLayoutState();
+                this.restoreDesktopLayoutState();
+                this.restoreResourceViewState();
+            },
+            showStartScene: () => this.showStartScene(),
+            stopPublishedTestQuietly: () => this.publishedTest.stop(false),
+        });
         this.restoreEditorPreferences();
         this.restoreDesktopLayoutState();
         this.restoreResourceViewState();
@@ -452,9 +460,7 @@ export class EditorShell {
         this.bindActions();
         this.configureToolbarCapabilities();
         this.layout();
-        void this.enqueueAuthoringOperation(async () => {
-            return this.disposed ? false : this.initializeProjectSnapshotNow();
-        });
+        void this.workspaceLifecycle.initialize();
 
         Laya.stage.on(Laya.Event.RESIZE, this, this.onStageResize);
         Laya.stage.on(Laya.Event.MOUSE_DOWN, this, this.onStageMouseDown);
@@ -478,6 +484,7 @@ export class EditorShell {
         this.unbindProjectExplorer();
         this.unbindResourceAuthoring();
         this.unbindDisplayListAuthoring();
+        this.unbindWorkspaceLifecycle();
         this.unbindTimeline();
         this.unbindAuthoringDialogs();
         this.unbindActions();
@@ -1379,7 +1386,6 @@ export class EditorShell {
         register(["toolbar:test"], () => this.publishedTest.start());
         register(["toolbar:stopTest"], () => this.publishedTest.stop());
         register(["toolbar:reloadTest"], () => this.publishedTest.reload());
-        register(["toolbar:save", "save"], () => { void this.saveBrowserWorkspace(); });
         register(["preview:play"], () => {
             if (!this.resourcePreview.play()) this.controllerTimeline.playRuntimePreviewTransition();
         });
@@ -1768,7 +1774,7 @@ export class EditorShell {
         const entry = itemObject.data as BrowserWorkspaceRegistryEntry | null;
         if (!entry) return;
         this.showEditorWorkspace();
-        void this.switchBrowserWorkspace(entry);
+        void this.workspaceLifecycle.switch(entry);
     }
 
     private showFileMenu(anchor: fgui.GObject): void {
@@ -1793,13 +1799,15 @@ export class EditorShell {
             this.showBrowserWorkspaceSelector();
         });
         this.addMenuItem(menu, "browserWorkspaceReauthorizeFolderMenu", "重新授权绑定文件夹...", () => {
-            void this.reauthorizeBrowserWorkspaceFolder();
+            void this.workspaceLifecycle.reauthorizeFolder();
         });
         this.addMenuItem(menu, "browserWorkspaceCheckExternalMenu", "检查文件夹外部变化", () => {
-            void this.checkBrowserWorkspaceExternalChanges();
+            void this.workspaceLifecycle.checkExternalChanges();
         });
         this.addMenuItem(menu, "browserWorkspaceCloseMenu", "关闭当前工作区", () => {
-            void this.closeBrowserWorkspace();
+            void this.workspaceLifecycle.close().then((closed) => {
+                if (closed && !this.disposed) this.showStartScene();
+            });
         });
         this.addMenuItem(menu, "workspaceMenuStartScene", "开始页...", () => {
             this.showStartScene();
@@ -2504,26 +2512,6 @@ export class EditorShell {
         this.setStatus(`Shown in Library: ${getProjectResourceUrl(selector)}.`);
     }
 
-    private async initializeProjectSnapshotNow(): Promise<boolean> {
-        try {
-            const snapshot = await loadProjectSnapshot();
-            if (this.disposed) return false;
-            this.projectSession.resetSnapshot(snapshot);
-            await this.workspaceLifecycle.restoreWorkspaceBinding();
-            if (this.disposed) return false;
-            if (!await this.connectBrowserLiveSession() || this.disposed) return false;
-            this.setStatus("Project loaded.");
-            return true;
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            this.renderInspectorLines(["无法打开项目"]);
-            this.layoutInspectorLines();
-            this.setStatus(`Snapshot load failed: ${message}`, "error");
-            console.error("[Editor Project] snapshot load failed", error);
-            return false;
-        }
-    }
-
     private async refreshProjectSnapshot(): Promise<void> {
         await this.enqueueAuthoringOperation(async () => {
             const state = this.liveSessionBridge.getState();
@@ -2546,70 +2534,11 @@ export class EditorShell {
         });
     }
 
-    private async saveBrowserWorkspace(): Promise<void> {
-        await this.enqueueAuthoringOperation(() => this.saveBrowserWorkspaceNow());
-    }
-
-    private async saveBrowserWorkspaceNow(): Promise<void> {
-        const target = this.createBrowserSaveTargetForSelection();
-        this.setStatus("Browser workspace save started.");
-
-        try {
-            const outcome = await this.projectSession.saveWorkspaceNow(target, false);
-            if (this.disposed) return;
-            if (outcome.kind === "unaligned") {
-                this.setStatus(
-                    "Browser workspace save blocked: reconnect the browser live session before saving.",
-                    "error",
-                );
-                return;
-            }
-            const { result } = outcome;
-            this.recordBrowserSaveResult(result);
-            if (outcome.checkpointSaved) {
-                if (outcome.snapshot) {
-                    this.renderLiveProjectSnapshot(outcome.snapshot, outcome.operations);
-                } else {
-                    this.populateInspectorFromSnapshot();
-                }
-            } else if (outcome.newerEdits) {
-                this.setStatus(
-                    "Save completed, but newer edits were detected. Save again.",
-                    "error",
-                );
-                return;
-            }
-            if (result.ok) {
-                this.setStatus(
-                    result.writeback?.status === "saved"
-                        ? `Browser workspace saved and wrote ${result.writeback.directoryName}.`
-                        : "Browser workspace saved.",
-                );
-                return;
-            }
-
-            if (
-                result.results.save.ok
-                && result.results.reload.ok
-                && result.writeback?.status === "conflict"
-            ) {
-                this.setStatus("Browser workspace saved; Folder write-back was blocked by external changes. Re-import Folder or Export ZIP.");
-                return;
-            }
-
-            this.setStatus(`Browser workspace save failed: ${getBrowserSaveFailure(result)}.`);
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            this.setStatus(`Browser workspace save failed: ${message}`, "error");
-            console.error("[Workspace] save failed", error);
-        }
-    }
-
     private showBrowserWorkspaceSelector(): void {
         openBrowserWorkspaceDialog({
             entries: this.workspaceLifecycle.registry.entries,
             activeId: this.workspaceLifecycle.registry.activeId,
-            select: (entry) => void this.switchBrowserWorkspace(entry),
+            select: (entry) => void this.workspaceLifecycle.switch(entry),
             create: () => void this.createBrowserWorkspace(),
             getActiveDialog: () => this.authoringJsonDialog,
             setActiveDialog: (dialog) => { this.authoringJsonDialog = dialog; },
@@ -2633,178 +2562,11 @@ export class EditorShell {
         );
         if (name === null) return;
         this.showEditorWorkspace();
-        await this.enqueueAuthoringOperation(async () => {
-            if (!this.guardWorkspaceTransition("switch", "data-fairy-editor-workspace-switch")) return;
-            await this.switchBrowserWorkspaceNow(this.workspaceLifecycle.addWorkspace(name));
-        });
-    }
-
-    private async switchBrowserWorkspace(entry: BrowserWorkspaceRegistryEntry): Promise<void> {
-        await this.enqueueAuthoringOperation(() => this.switchBrowserWorkspaceNow(entry));
-    }
-
-    private async switchBrowserWorkspaceNow(entry: BrowserWorkspaceRegistryEntry): Promise<void> {
-        if (!this.guardWorkspaceTransition("switch", "data-fairy-editor-workspace-switch")) return;
-        this.documentAuthoring.persist();
-        this.saveDesktopLayoutState();
-        this.setStatus(`正在切换到浏览器工作区 ${entry.name}…`);
-        try {
-            await this.workspaceLifecycle.switchWorkspace(entry);
-            if (this.disposed) return;
-            this.resetPublishedRuntimePackages();
-            this.projectSession.clearSnapshot();
-            this.documentAuthoring.reset();
-            this.libraryPackageId = "";
-            this.clearResourceSelection();
-            this.selectedLibraryResourceSelectors = [];
-            this.applyDefaultDesktopLayoutState();
-            this.restoreDesktopLayoutState();
-            this.restoreResourceViewState();
-            if (!await this.initializeProjectSnapshotNow()) {
-                this.setDebugAttribute("data-fairy-editor-workspace-switch", "failed");
-                return;
-            }
-            this.setDebugAttribute("data-fairy-editor-workspace-switch", entry.id);
-            this.setStatus(`已打开浏览器工作区：${entry.name}。`);
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            this.setDebugAttribute("data-fairy-editor-workspace-switch", "failed");
-            this.setStatus(`浏览器工作区切换失败：${message}`, "error");
-            console.error("[Workspace] switch failed", error);
-        }
-    }
-
-    private async closeBrowserWorkspace(): Promise<void> {
-        await this.enqueueAuthoringOperation(() => this.closeBrowserWorkspaceNow());
-    }
-
-    private async closeBrowserWorkspaceNow(): Promise<void> {
-        if (!this.guardWorkspaceTransition("close", "data-fairy-editor-workspace-close")) return;
-        this.documentAuthoring.persist();
-        this.saveDesktopLayoutState();
-        const reset = await this.workspaceLifecycle.closeWorkspace();
-        if (this.disposed) return;
-        if (!reset.ok) {
-            this.setStatus(`工作区关闭失败：${reset.message || "会话重置失败"}。`, "error");
-            return;
-        }
-        this.resetPublishedRuntimePackages();
-        this.showStartScene();
-        this.setDebugAttribute("data-fairy-editor-workspace-close", this.workspaceLifecycle.registry.activeId);
-        this.setStatus("浏览器工作区已关闭；其中的文件和最近记录均已保留。");
-    }
-
-    private async reauthorizeBrowserWorkspaceFolder(): Promise<void> {
-        await this.enqueueAuthoringOperation(() => this.reauthorizeBrowserWorkspaceFolderNow());
-    }
-
-    private async reauthorizeBrowserWorkspaceFolderNow(): Promise<void> {
-        const state = await this.workspaceLifecycle.reauthorizeDirectoryBinding();
-        if (this.disposed) return;
-        this.setDebugAttribute(
-            "data-fairy-editor-workspace-reauthorize",
-            state.directoryWriteback?.status || "none",
-        );
-        this.setStatus(state.directoryWriteback?.message || "No Folder binding is attached.");
-    }
-
-    private async checkBrowserWorkspaceExternalChanges(): Promise<void> {
-        await this.enqueueAuthoringOperation(() => this.checkBrowserWorkspaceExternalChangesNow());
-    }
-
-    private async checkBrowserWorkspaceExternalChangesNow(): Promise<void> {
-        const { result } = await this.workspaceLifecycle.checkExternalChanges();
-        if (this.disposed) return;
-        this.setDebugAttribute("data-fairy-editor-workspace-external", result.status);
-        this.setDebugAttribute(
-            "data-fairy-editor-workspace-external-conflicts",
-            String(result.conflictCount || 0),
-        );
-        this.setStatus(result.message || (result.ok ? "No external changes detected." : "External changes detected."));
-    }
-
-    private createBrowserSaveTargetForSelection(): BrowserSaveTarget | undefined {
-        const lastOperation = this.commandLastResult?.operation;
-        if (lastOperation && lastOperation.kind !== "setDisplayNodeProps") {
-            return this.liveSessionBridge.getLastSaveTarget() || undefined;
-        }
-        const selector = this.getSelectedDisplayNodeSelector();
-        if (!selector) return undefined;
-        return createDisplayNodeSaveTarget(
-            this.liveSessionBridge.getWorkingProject(),
-            selector,
-        ) || undefined;
-    }
-
-    private guardWorkspaceTransition(action: string, debugAttribute: string): boolean {
-        if (!this.commandAdapter.getSessionState().dirty) return true;
-        this.setDebugAttribute(debugAttribute, "blocked-dirty");
-        this.setDebugAttribute("data-fairy-editor-workspace-transition", `${action}:blocked-dirty`);
-        this.setStatus(`Workspace ${action} blocked: Save or Undo the active workspace first.`);
-        return false;
-    }
-
-    private resetPublishedRuntimePackages(): void {
-        this.publishedTest.stop(false);
-        this.resetRuntimePreviewPackages();
+        await this.workspaceLifecycle.create(name);
     }
 
     private resetRuntimePreviewPackages(): void {
         this.documentAuthoring.resetRuntimePackages();
-    }
-
-    private async connectBrowserLiveSession(): Promise<boolean> {
-        this.commandAdapter.setLiveSessionRuntime(this.liveSessionBridge);
-        this.populateInspectorFromSnapshot();
-        this.layoutInspectorLines();
-
-        const { state, synchronized } = await this.projectSession.connectNow();
-        if (this.disposed) return false;
-        this.setDebugAttribute("data-fairy-editor-session-status", state.status);
-        this.setDebugAttribute("data-fairy-editor-session-source", state.projectSource);
-        this.setDebugAttribute("data-fairy-editor-session-backend", state.backendPackageVersion || "");
-        this.setDebugAttribute("data-fairy-editor-session-model-fidelity", state.uamFidelity || "");
-        this.setDebugAttribute("data-fairy-editor-session-lock-held", String(state.lockHeld ?? false));
-        this.setDebugAttribute("data-fairy-editor-session-error", state.error || "");
-
-        this.populateInspectorFromSnapshot();
-        this.layoutInspectorLines();
-
-        if (state.status === "connected") {
-            if (!synchronized) {
-                const message = "Browser live session connected without a synchronized project snapshot.";
-                this.setDebugAttribute("data-fairy-editor-session-error", "snapshot_sync_missing");
-                this.setStatus(message, "error");
-                console.warn(`[Editor Session] ${message}`);
-                return false;
-            }
-            if (state.projectSource === "browser_workspace") {
-                // Storage is initialized only after the first static preview request; retry now so a saved workspace bundle wins.
-                this.resetPublishedRuntimePackages();
-            }
-            this.setStatus(
-                "Editor session connected.",
-            );
-            return true;
-        }
-
-        this.setStatus(
-            `Editor session ${state.status}: ${state.error || "unavailable"}`,
-            state.status === "failed" ? "error" : "warning",
-        );
-        if (state.status === "failed") {
-            console.warn("[Editor Session] browser live session bridge failed", state);
-        }
-        return false;
-    }
-
-    private recordBrowserSaveResult(result: BrowserSaveResult): void {
-        this.setDebugAttribute("data-fairy-editor-workspace-save-ok", result.ok ? "true" : "false");
-        this.setDebugAttribute("data-fairy-editor-workspace-writeback", result.writeback?.status || "");
-        this.setDebugAttribute(
-            "data-fairy-editor-workspace-writeback-conflicts",
-            result.writeback?.conflictCount === undefined ? "" : String(result.writeback.conflictCount),
-        );
     }
 
     private renderProjectSnapshot(

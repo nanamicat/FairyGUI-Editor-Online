@@ -33,6 +33,11 @@ import {
 } from "../modules/ResourceAuthoringModule";
 import { createShellChromeModule, EditorShellChrome, SHELL_CHROME_SERVICE } from "../modules/ShellChromeModule";
 import { createTimelineModule, EditorTimeline, TIMELINE_SERVICE } from "../modules/TimelineModule";
+import {
+    createWorkspaceLifecycleModule,
+    EditorWorkspaceLifecycle,
+    WORKSPACE_LIFECYCLE_SERVICE,
+} from "../modules/WorkspaceLifecycleModule";
 import type { EditorModule } from "../workbench/EditorWorkbench";
 import type { FairyGuiEditorWorkbenchHost } from "../workbench/EditorShellModuleHost";
 
@@ -47,6 +52,7 @@ export function createEditorShellModule(): EditorModule<FairyGuiEditorWorkbenchH
                 context.requireService<EditorShellChrome>(SHELL_CHROME_SERVICE),
                 context.requireService<EditorProjectSession>(PROJECT_SESSION_SERVICE),
                 context.requireService<EditorDocumentAuthoring>(DOCUMENT_AUTHORING_SERVICE),
+                context.requireService<EditorWorkspaceLifecycle>(WORKSPACE_LIFECYCLE_SERVICE),
                 context.requireService<EditorInspector>(INSPECTOR_SERVICE),
                 context.requireService<EditorProjectExplorer>(PROJECT_EXPLORER_SERVICE),
                 context.requireService<EditorAuthoringDialogs>(AUTHORING_DIALOGS_SERVICE),
@@ -65,6 +71,7 @@ export function createFairyGuiEditorCoreModules(): EditorModule<FairyGuiEditorWo
         createProjectSessionModule(),
         createAuthoringPreviewModule(),
         createDocumentAuthoringModule(),
+        createWorkspaceLifecycleModule(),
         createProjectExplorerModule(),
         createInspectorModule(),
         createAuthoringDialogsModule(),
