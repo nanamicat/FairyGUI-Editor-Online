@@ -1,4 +1,4 @@
-import { AuthoringRuntimePackageLoader, type AuthoringRuntimePackageLoadResult } from "../runtime/AuthoringRuntimePackageLoader";
+import type { AuthoringRuntimePackageLoadResult } from "../runtime/AuthoringRuntimePackageLoader";
 import { PROJECT_SELECTION_STORAGE_KEY } from "../EditorShellConfig";
 import { DEFAULT_BROWSER_WORKSPACE_ID } from "../runtime/BrowserWorkspaceRegistry";
 import type {
@@ -35,8 +35,8 @@ import {
 import type { EditorModule } from "../workbench/EditorWorkbench";
 import type { FairyGuiEditorWorkbenchHost } from "../workbench/EditorShellModuleHost";
 import {
-    AUTHORING_PREVIEW_FACTORY_SERVICE,
-    type AuthoringPreviewControllerFactory,
+    AUTHORING_PREVIEW_SERVICE,
+    EditorAuthoringPreview,
 } from "./AuthoringPreviewModule";
 import { EditorProjectSession, PROJECT_SESSION_SERVICE } from "./ProjectSessionModule";
 import { EditorShellChrome, SHELL_CHROME_SERVICE } from "./ShellChromeModule";
@@ -62,7 +62,8 @@ export class EditorDocumentAuthoring {
     readonly preview: RuntimePreviewController;
 
     private events: DocumentAuthoringEvents | null = null;
-    private runtimeBundleRevision = 0;
+    private readonly authoringPreview: EditorAuthoringPreview;
+    private readonly unbindPreview: () => void;
     private readonly session: EditorProjectSession;
     private readonly chrome: EditorShellChrome;
     private perDocumentViewEnabled = false;
@@ -71,10 +72,11 @@ export class EditorDocumentAuthoring {
     constructor(
         chrome: EditorShellChrome,
         session: EditorProjectSession,
-        createPreview: AuthoringPreviewControllerFactory,
+        authoringPreview: EditorAuthoringPreview,
     ) {
         this.chrome = chrome;
         this.session = session;
+        this.authoringPreview = authoringPreview;
         this.workspace = new DocumentWorkspaceController(chrome.panels.document, {
             activateDocument: (tab) => {
                 if (this.activate(tab)) this.events?.activateDocument(tab);
@@ -94,39 +96,25 @@ export class EditorDocumentAuthoring {
             (name, value) => chrome.setDebugAttribute(name, value),
         );
 
-        const loader = new AuthoringRuntimePackageLoader(() => {
-            const adapter = session.projectStorage.getAdapter();
-            return adapter
-                ? {
-                    adapter,
-                    revision: `${session.projectStorage.getWorkspaceName()}:${this.runtimeBundleRevision}`,
-                }
-                : null;
-        });
-        const container = chrome.panels.document.getChild("docContainer")?.asCom;
-        if (!container) throw new Error("Builder/DocumentView is missing docContainer.");
-        this.preview = createPreview(
-            container,
-            container,
-            (nodeIds, primaryNodeId) => this.events?.selectPreviewNodes(nodeIds, primaryNodeId),
-            null,
-            (result) => this.events?.runtimePackageLoaded(result),
-            loader,
-            (positions) => this.commitPositions(positions),
-            (transforms) => this.commitTransforms(transforms),
-            (rotations) => this.commitRotations(rotations),
-            (pivot) => this.commitPivot(pivot),
-            (points) => this.commitGraphPoints(points),
-            (zoom, panX, panY) => {
+        this.preview = authoringPreview.controller;
+        this.unbindPreview = authoringPreview.bind({
+            selectNodes: (nodeIds, primaryNodeId) => this.events?.selectPreviewNodes(nodeIds, primaryNodeId),
+            runtimePackageLoaded: (result) => this.events?.runtimePackageLoaded(result),
+            commitPositions: (positions) => this.commitPositions(positions),
+            commitTransforms: (transforms) => this.commitTransforms(transforms),
+            commitRotations: (rotations) => this.commitRotations(rotations),
+            commitPivot: (pivot) => this.commitPivot(pivot),
+            commitGraphPoints: (points) => this.commitGraphPoints(points),
+            viewChanged: (zoom, panX, panY) => {
                 chrome.setDebugAttribute("data-fairy-editor-canvas-zoom", zoom.toFixed(2));
                 chrome.setDebugAttribute("data-fairy-editor-canvas-pan", `${panX},${panY}`);
                 this.rememberView(zoom, panX, panY);
                 this.events?.previewViewChanged(zoom, panX, panY);
             },
-            (point) => this.events?.createNode(point) ?? Promise.resolve(false),
-            (nodeId) => this.events?.openNode(nodeId),
-            () => this.events?.showCanvasContextMenu(),
-        );
+            createNode: (point) => this.events?.createNode(point) ?? Promise.resolve(false),
+            openNode: (nodeId) => this.events?.openNode(nodeId),
+            showContextMenu: () => this.events?.showCanvasContextMenu(),
+        });
     }
 
     bind(events: DocumentAuthoringEvents): () => void {
@@ -656,8 +644,7 @@ export class EditorDocumentAuthoring {
     }
 
     resetRuntimePackages(): void {
-        this.runtimeBundleRevision += 1;
-        this.preview.resetRuntimePackages();
+        this.authoringPreview.resetRuntimePackages();
     }
 
     refreshPreview(): void {
@@ -666,8 +653,8 @@ export class EditorDocumentAuthoring {
 
     dispose(): void {
         this.events = null;
+        this.unbindPreview();
         this.workspace.dispose();
-        this.preview.dispose();
     }
 }
 
@@ -678,10 +665,10 @@ export function createDocumentAuthoringModule(): EditorModule<FairyGuiEditorWork
         activate(context) {
             const chrome = context.requireService<EditorShellChrome>(SHELL_CHROME_SERVICE);
             const session = context.requireService<EditorProjectSession>(PROJECT_SESSION_SERVICE);
-            const createPreview = context.requireService<AuthoringPreviewControllerFactory>(
-                AUTHORING_PREVIEW_FACTORY_SERVICE,
+            const preview = context.requireService<EditorAuthoringPreview>(
+                AUTHORING_PREVIEW_SERVICE,
             );
-            const document = new EditorDocumentAuthoring(chrome, session, createPreview);
+            const document = new EditorDocumentAuthoring(chrome, session, preview);
             context.provideService(DOCUMENT_AUTHORING_SERVICE, document);
             return () => document.dispose();
         },

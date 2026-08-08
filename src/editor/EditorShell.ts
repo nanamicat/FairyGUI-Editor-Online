@@ -373,10 +373,6 @@ export class EditorShell {
         });
         this.authoringDialogs = authoringDialogs.controller;
         this.unbindAuthoringDialogs = authoringDialogs.bind({
-            getSelectedPackage: () => this.getLibraryActionPackage(),
-            getSelectedComponent: () => this.getLibraryActionComponent(),
-            getSelectedResource: () => this.getSelectedResource(),
-            getSelectedComponentSelector: () => this.getLibraryActionComponentSelector(),
             getSelectedControllerName: () => this.controllerTimeline.selectedControllerName,
             setSelectedControllerName: (name) => { this.controllerTimeline.selectedControllerName = name; },
             getSelectedTransitionName: () => this.controllerTimeline.selectedTransitionName,
@@ -394,11 +390,6 @@ export class EditorShell {
         });
         this.resourceAuthoring = resourceAuthoring.controller;
         this.unbindResourceAuthoring = resourceAuthoring.bind({
-            getSelectedPackage: () => this.getLibraryActionPackage(),
-            getSelectedComponent: () => this.getLibraryActionComponent(),
-            getSelectedResource: () => this.getSelectedResource(),
-            getSelectedResourceFolder: () => this.getSelectedResourceFolder(),
-            getSelectedComponentSelector: () => this.getLibraryActionComponentSelector(),
             getSelectedLibraryResourceSelectors: () => this.libraryController.getSelectedResourceSelectors(this.leftTopPanelMode),
             applyPreparation: (preparation, identity) => this.applyAuthoringPreparation(preparation, identity),
             applyLibrarySelection: (data, preserve) => this.applyLibrarySelection(data, preserve),
@@ -407,9 +398,7 @@ export class EditorShell {
             addMenuItem: (menu, name, title, handler) => this.addMenuItem(menu, name, title, handler),
             showActionMenu: (menu, anchor, source, status) => this.showActionMenu(menu, anchor, source, status),
             showSelectedResourceInspector: () => this.showSelectedResourceInspector(),
-            showProjectReferences: () => this.projectExplorer.showProjectReferencesForCurrentSelection(),
             removeSelectedComponent: () => this.requestAuthoringRemoveComponent(),
-            runEditorAction: (action) => this.runEditorAction(action),
         });
         this.editorMenus = new EditorMenuController({
             getState: () => ({
@@ -1537,15 +1526,6 @@ export class EditorShell {
         register(["preview:play"], () => {
             if (!this.resourcePreview.play()) this.controllerTimeline.playRuntimePreviewTransition();
         });
-        register(["toolbar:createPackage"], () => { void this.resourceAuthoring.applyAuthoringAddPackage(); });
-        register(["toolbar:createComponent"], () => { void this.resourceAuthoring.applyAuthoringAddComponent(); });
-        register(["toolbar:createButton"], () => this.authoringDialogs.showComponentTemplate("button"));
-        register(["toolbar:createLabel"], () => this.authoringDialogs.showComponentTemplate("label"));
-        register(["toolbar:createComboBox"], () => this.authoringDialogs.showComponentTemplate("comboBox"));
-        register(["toolbar:createProgressBar"], () => this.authoringDialogs.showComponentTemplate("progressBar"));
-        register(["toolbar:createSlider"], () => this.authoringDialogs.showComponentTemplate("slider"));
-        register(["toolbar:createBitmapFont"], () => this.resourceAuthoring.showCreateBitmapFontDialog());
-        register(["toolbar:createMovieClip"], () => this.resourceAuthoring.showCreateMovieClipDialog());
         register(["projectSearch"], () => this.projectExplorer.showProjectSearch());
         register(["undo"], () => { if (this.commandAdapter.canUndo()) void this.undoCommand(); });
         register(["redo"], () => { if (this.commandAdapter.canRedo()) void this.redoCommand(); });
@@ -2095,6 +2075,12 @@ export class EditorShell {
         });
         this.addMenuItem(menu, "workspaceMenuWorkspace", "浏览器工作区...", () => {
             this.showBrowserWorkspaceSelector();
+        });
+        this.addMenuItem(menu, "browserWorkspaceReauthorizeFolderMenu", "重新授权绑定文件夹...", () => {
+            void this.reauthorizeBrowserWorkspaceFolder();
+        });
+        this.addMenuItem(menu, "browserWorkspaceCheckExternalMenu", "检查文件夹外部变化", () => {
+            void this.checkBrowserWorkspaceExternalChanges();
         });
         this.addMenuItem(menu, "browserWorkspaceCloseMenu", "关闭当前工作区", () => {
             void this.closeBrowserWorkspace();
@@ -3222,7 +3208,6 @@ export class EditorShell {
                 } else {
                     this.populateInspectorFromSnapshot();
                 }
-                this.recordBrowserSaveResult(result);
             } else if (outcome.newerEdits) {
                 this.setStatus(
                     "Save completed, but newer edits were detected. Save again.",

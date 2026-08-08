@@ -2,31 +2,21 @@ import type { HighRiskTransactionPreparation } from "../commands/HighRiskAuthori
 import type { ExportedControllerDefinition } from "../dialogs/ComponentInstancePropertyEditors";
 import type {
     ComponentCustomPropertyDefinition,
-    EditorComponentSelector,
-    EditorDisplayNodeSelector,
     SetDisplayNodePropsCommand,
 } from "../model/EditorCommand";
-import type {
-    ProjectSnapshotComponent,
-    ProjectSnapshotPackage,
-    ProjectSnapshotResource,
-} from "../model/ProjectSnapshot";
 import type { BrowserLiveSessionIdentity } from "../services/BrowserLiveSessionBridge";
 import { downloadBrowserFile } from "../services/BrowserDownload";
 import { AuthoringDialogController } from "../ui/AuthoringDialogController";
 import type { EditorModule } from "../workbench/EditorWorkbench";
 import type { FairyGuiEditorWorkbenchHost } from "../workbench/EditorShellModuleHost";
 import { DOCUMENT_AUTHORING_SERVICE, EditorDocumentAuthoring } from "./DocumentAuthoringModule";
+import { EditorProjectExplorer, PROJECT_EXPLORER_SERVICE } from "./ProjectExplorerModule";
 import { EditorProjectSession, PROJECT_SESSION_SERVICE } from "./ProjectSessionModule";
 import { EditorShellChrome, SHELL_CHROME_SERVICE } from "./ShellChromeModule";
 
 export const AUTHORING_DIALOGS_SERVICE = "fairygui.authoring-dialogs";
 
 export type AuthoringDialogsEvents = {
-    getSelectedPackage(): ProjectSnapshotPackage | null;
-    getSelectedComponent(): ProjectSnapshotComponent | null;
-    getSelectedResource(): ProjectSnapshotResource | null;
-    getSelectedComponentSelector(): EditorComponentSelector | null;
     getSelectedControllerName(): string;
     setSelectedControllerName(name: string): void;
     getSelectedTransitionName(): string;
@@ -49,28 +39,23 @@ export class EditorAuthoringDialogs {
 
     constructor(
         chrome: EditorShellChrome,
-        session: EditorProjectSession,
-        document: EditorDocumentAuthoring,
+        private readonly session: EditorProjectSession,
+        private readonly document: EditorDocumentAuthoring,
+        private readonly explorer: EditorProjectExplorer,
     ) {
         this.controller = new AuthoringDialogController({
             eventOwner: this,
             getWorkingProject: () => session.liveSessionBridge.getWorkingProject(),
             getProjectSnapshot: () => session.snapshot,
-            getSelectedPackage: () => this.events?.getSelectedPackage() || null,
-            getSelectedComponent: () => this.events?.getSelectedComponent() || null,
-            getSelectedResource: () => this.events?.getSelectedResource() || null,
+            getSelectedPackage: () => this.getLibraryActionSelection().pkg,
+            getSelectedComponent: () => this.getLibraryActionSelection().component,
+            getSelectedResource: () => this.getLibraryActionSelection().resource,
             getSelectedDisplayNode: () => document.getSelectedNode(),
-            getSelectedDisplayNodeSelector: (): EditorDisplayNodeSelector | null => {
-                const tab = document.getActiveTab();
-                return tab && document.primaryNodeId
-                    ? {
-                        packageId: tab.packageId,
-                        componentResourceId: tab.componentId,
-                        displayNodeId: document.primaryNodeId,
-                    }
-                    : null;
+            getSelectedDisplayNodeSelector: () => document.getSelectedNodeSelector(),
+            getSelectedComponentSelector: () => {
+                const { pkg, component } = this.getLibraryActionSelection();
+                return pkg && component ? { packageId: pkg.id, componentResourceId: component.id } : null;
             },
-            getSelectedComponentSelector: () => this.events?.getSelectedComponentSelector() || null,
             getSelectedControllerName: () => this.events?.getSelectedControllerName() || "",
             setSelectedControllerName: (name) => this.events?.setSelectedControllerName(name),
             getSelectedTransitionName: () => this.events?.getSelectedTransitionName() || "",
@@ -104,6 +89,22 @@ export class EditorAuthoringDialogs {
         });
     }
 
+    private getLibraryActionSelection() {
+        const selection = this.explorer.library.getInspectorSelection();
+        const pkg = selection
+            ? this.session.snapshot?.packages.find((pkg) => pkg.id === selection.packageId) || null
+            : this.document.getSelectedPackage();
+        const resource = selection?.kind === "resource"
+            ? this.explorer.findResource(selection.packageId, selection.resourceId)
+            : null;
+        const component = selection?.kind === "resource"
+            ? resource?.type === "Component"
+                ? pkg?.components.find((component) => component.id === resource.id) || null
+                : null
+            : this.document.getSelectedComponent();
+        return { pkg, component, resource };
+    }
+
     bind(events: AuthoringDialogsEvents): () => void {
         if (this.events) throw new Error("Authoring dialog events are already bound.");
         this.events = events;
@@ -123,12 +124,19 @@ export function createAuthoringDialogsModule(): EditorModule<FairyGuiEditorWorkb
         id: "fairygui.authoring-dialogs",
         hotReloadable: false,
         activate(context) {
+            const chrome = context.requireService<EditorShellChrome>(SHELL_CHROME_SERVICE);
             const dialogs = new EditorAuthoringDialogs(
-                context.requireService<EditorShellChrome>(SHELL_CHROME_SERVICE),
+                chrome,
                 context.requireService<EditorProjectSession>(PROJECT_SESSION_SERVICE),
                 context.requireService<EditorDocumentAuthoring>(DOCUMENT_AUTHORING_SERVICE),
+                context.requireService<EditorProjectExplorer>(PROJECT_EXPLORER_SERVICE),
             );
             context.provideService(AUTHORING_DIALOGS_SERVICE, dialogs);
+            context.onDeactivate(chrome.registerActions(["toolbar:createButton"], () => dialogs.controller.showComponentTemplate("button")));
+            context.onDeactivate(chrome.registerActions(["toolbar:createLabel"], () => dialogs.controller.showComponentTemplate("label")));
+            context.onDeactivate(chrome.registerActions(["toolbar:createComboBox"], () => dialogs.controller.showComponentTemplate("comboBox")));
+            context.onDeactivate(chrome.registerActions(["toolbar:createProgressBar"], () => dialogs.controller.showComponentTemplate("progressBar")));
+            context.onDeactivate(chrome.registerActions(["toolbar:createSlider"], () => dialogs.controller.showComponentTemplate("slider")));
             return () => dialogs.dispose();
         },
     };

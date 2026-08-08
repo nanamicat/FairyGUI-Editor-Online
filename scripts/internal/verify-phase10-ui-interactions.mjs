@@ -21,6 +21,7 @@ const resourceHealthDialogSource = readSource("src/editor/dialogs/ResourceHealth
 const resourceHealthModuleSource = readSource("src/editor/modules/ResourceHealthModule.ts");
 const projectSessionModuleSource = readSource("src/editor/modules/ProjectSessionModule.ts");
 const shellChromeModuleSource = readSource("src/editor/modules/ShellChromeModule.ts");
+const authoringPreviewModuleSource = readSource("src/editor/modules/AuthoringPreviewModule.ts");
 const documentAuthoringModuleSource = readSource("src/editor/modules/DocumentAuthoringModule.ts");
 const inspectorModuleSource = readSource("src/editor/modules/InspectorModule.ts");
 const projectExplorerModuleSource = readSource("src/editor/modules/ProjectExplorerModule.ts");
@@ -63,6 +64,7 @@ const editorShell = [
     resourceHealthModuleSource,
     projectSessionModuleSource,
     shellChromeModuleSource,
+    authoringPreviewModuleSource,
     documentAuthoringModuleSource,
     inspectorModuleSource,
     projectExplorerModuleSource,
@@ -609,11 +611,11 @@ const shellChecks = [
     "async applyAuthoringAddPackage(): Promise<void>",
     "async applyAuthoringAddComponent(): Promise<void>",
     "private createComponentTemplateEditorContext(): ComponentTemplateEditorContext",
-    'register(["toolbar:createComboBox"]',
+    'chrome.registerActions(["toolbar:createComboBox"]',
     'comboBox: showComboBoxTemplateEditor',
-    'register(["toolbar:createProgressBar"]',
+    'chrome.registerActions(["toolbar:createProgressBar"]',
     'progressBar: showProgressBarTemplateEditor',
-    'register(["toolbar:createSlider"]',
+    'chrome.registerActions(["toolbar:createSlider"]',
     'slider: showSliderTemplateEditor',
     '"desktopMenuCreateScrollBar"',
     '"desktopMenuCreateWindowFrame"',
@@ -916,6 +918,40 @@ const shellChecks = [
 for (const snippet of shellChecks) {
     assert(editorShell.includes(snippet), `Missing UI interaction wiring: ${snippet}`);
 }
+for (const snippet of [
+    'browserWorkspaceReauthorizeFolderMenu',
+    'void this.reauthorizeBrowserWorkspaceFolder();',
+    'browserWorkspaceCheckExternalMenu',
+    'void this.checkBrowserWorkspaceExternalChanges();',
+]) {
+    assert(editorShellSource.includes(snippet), `Missing reachable workspace lifecycle action: ${snippet}`);
+}
+assert.equal(
+    editorShellSource.match(/this\.recordBrowserSaveResult\(result\);/g)?.length,
+    1,
+    "Workspace save should record its result once.",
+);
+for (const [source, action] of [
+    [authoringDialogsModuleSource, "toolbar:createButton"],
+    [resourceAuthoringModuleSource, "toolbar:createPackage"],
+]) {
+    assert(source.includes(`chrome.registerActions(["${action}"]`), `${action} must be owned by its feature module.`);
+    assert(!editorShellSource.includes(`register(["${action}"]`), `${action} must not remain owned by EditorShell.`);
+}
+assert(
+    !authoringDialogsModuleSource.slice(
+        authoringDialogsModuleSource.indexOf("export type AuthoringDialogsEvents"),
+        authoringDialogsModuleSource.indexOf("export class EditorAuthoringDialogs"),
+    ).includes("getSelectedPackage()"),
+    "Authoring dialogs must read document selection from concrete services instead of proxying through EditorShell.",
+);
+assert(
+    !resourceAuthoringModuleSource.slice(
+        resourceAuthoringModuleSource.indexOf("export type ResourceAuthoringEvents"),
+        resourceAuthoringModuleSource.indexOf("export class EditorResourceAuthoring"),
+    ).includes("getSelectedPackage()"),
+    "Resource authoring must read selection from concrete services instead of proxying through EditorShell.",
+);
 for (const snippet of [
     "populateHierarchy(): void",
     "refreshProjectSearch(): void",
@@ -1288,7 +1324,7 @@ for (const snippet of [
     assert(phase7Bridge.includes(snippet), `Missing browser runtime publish wiring: ${snippet}`);
 }
 assert(editorShell.includes("Browser publish blocked: save changes first."), "Dirty browser publish must require a saved checkpoint.");
-assert(documentAuthoringModuleSource.includes("this.preview.resetRuntimePackages()"), "Successful browser publish must unload stale runtime packages.");
+assert(authoringPreviewModuleSource.includes("this.controller.resetRuntimePackages()"), "Successful browser publish must unload stale runtime packages.");
 
 for (const snippet of [
     "export async function pickBrowserFile(",

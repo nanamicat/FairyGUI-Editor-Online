@@ -55,9 +55,9 @@ export function createEditorShellModule(): EditorModule<FairyGuiEditorWorkbenchH
 
 export function createFairyGuiEditorCoreModules(): EditorModule<FairyGuiEditorWorkbenchHost>[] {
     return [
-        createAuthoringPreviewModule(),
         createShellChromeModule(),
         createProjectSessionModule(),
+        createAuthoringPreviewModule(),
         createDocumentAuthoringModule(),
         createProjectExplorerModule(),
         createInspectorModule(),

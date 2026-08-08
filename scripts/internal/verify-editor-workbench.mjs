@@ -108,6 +108,7 @@ const shellSource = readFileSync("src/editor/EditorShell.ts", "utf8");
 const shellModuleHostSource = readFileSync("src/editor/workbench/EditorShellModuleHost.ts", "utf8");
 const shellChromeModuleSource = readFileSync("src/editor/modules/ShellChromeModule.ts", "utf8");
 const projectSessionModuleSource = readFileSync("src/editor/modules/ProjectSessionModule.ts", "utf8");
+const authoringPreviewModuleSource = readFileSync("src/editor/modules/AuthoringPreviewModule.ts", "utf8");
 const documentAuthoringModuleSource = readFileSync("src/editor/modules/DocumentAuthoringModule.ts", "utf8");
 const inspectorModuleSource = readFileSync("src/editor/modules/InspectorModule.ts", "utf8");
 const projectExplorerModuleSource = readFileSync("src/editor/modules/ProjectExplorerModule.ts", "utf8");
@@ -139,9 +140,9 @@ assert(productSource.includes("createBrowserPluginsModule()"));
 assert(productSource.includes("createResourceHealthModule()"));
 assert(coreProductSource.includes([
     "return [",
-    "        createAuthoringPreviewModule(),",
     "        createShellChromeModule(),",
     "        createProjectSessionModule(),",
+    "        createAuthoringPreviewModule(),",
     "        createDocumentAuthoringModule(),",
     "        createProjectExplorerModule(),",
     "        createInspectorModule(),",
@@ -178,11 +179,22 @@ assert(shellChromeModuleSource.includes("new EditorShellChrome(context.host.main
 assert(projectSessionModuleSource.includes("new EditorProjectSession()"));
 assert(projectSessionModuleSource.includes("runExclusive<T>"));
 assert(projectSessionModuleSource.includes("hotReloadable: false"));
+assert(authoringPreviewModuleSource.includes("new AuthoringRuntimePackageLoader("));
+assert(authoringPreviewModuleSource.includes("new RuntimePreviewController("));
+assert(authoringPreviewModuleSource.includes("runtimeBundleRevision"));
+assert(authoringPreviewModuleSource.includes("context.provideService(AUTHORING_PREVIEW_SERVICE, preview)"));
+assert(authoringPreviewModuleSource.includes("return () => preview.dispose()"));
+assert(authoringPreviewModuleSource.includes("hotReloadable: false"));
 assert(!shellSource.includes("new DocumentWorkspaceController("));
 assert(!shellSource.includes("new ActiveDocumentController("));
 assert(!shellSource.includes("createAuthoringPreview("));
+assert(!documentAuthoringModuleSource.includes("new AuthoringRuntimePackageLoader("));
+assert(!documentAuthoringModuleSource.includes("new RuntimePreviewController("));
+assert(!documentAuthoringModuleSource.includes("this.preview.dispose()"));
 assert(documentAuthoringModuleSource.includes("new DocumentWorkspaceController("));
 assert(documentAuthoringModuleSource.includes("new ActiveDocumentController("));
+assert(documentAuthoringModuleSource.includes("authoringPreview.bind({"));
+assert(documentAuthoringModuleSource.includes("AUTHORING_PREVIEW_SERVICE"));
 assert(documentAuthoringModuleSource.includes("const document = new EditorDocumentAuthoring("));
 assert(documentAuthoringModuleSource.includes("hotReloadable: false"));
 assert(!shellSource.includes("new InspectorController("));
