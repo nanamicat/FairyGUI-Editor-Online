@@ -1,7 +1,5 @@
-import { findComponent,findDisplayNode,findResource } from "./commands/AuthoringTransactionSupport";
+import { findComponent, findDisplayNode, findResource } from "./commands/AuthoringTransactionSupport";
 import {
-    ALIGN_TOOLBAR_ACTIONS,
-    CUSTOM_ARRANGE_ACTIONS,
     MENU_ITEMS,
     OBJECT_TOOLBAR_ACTIONS,
     TOOLBAR_ACTIONS,
@@ -11,25 +9,12 @@ import {
     type ShellEventTarget,
 } from "./EditorShellConfig";
 import {
-    createDisplayNodeClipboard,
     getProjectResourceUrl,
-    prepareAddPrimitiveDisplayNode,
-    prepareAdjustDisplayNodeDepth,
-    prepareDetachDisplayNodes,
-    prepareGroupDisplayNodes,
-    prepareMoveDisplayNode,
-    preparePasteDisplayNodes,
-    preparePlaceResourceDisplayNode,
     prepareRemoveComponent,
-    prepareRenameDisplayNode,
-    prepareReplaceDisplayNodes,
-    prepareUngroupDisplayNodes,
     readComponentProperties,
-    type DisplayNodeClipboard,
     type HighRiskTransactionPreparation,
     type PrimitiveDisplayNodeKind
 } from "./commands/HighRiskAuthoringTransactions";
-import { requestEditorTextInput } from "./dialogs/EditorDialogs";
 import { showBrowserWorkspaceDialog as openBrowserWorkspaceDialog } from "./dialogs/BrowserWorkspaceDialog";
 import type { ExportedControllerDefinition } from "./dialogs/ComponentInstancePropertyEditors";
 import { showPreferencesDialog as openPreferencesDialog } from "./dialogs/PreferencesDialog";
@@ -38,7 +23,6 @@ import {
     showStringsFunctionDialog as openStringsFunctionDialog,
 } from "./dialogs/ProjectSettingsEditor";
 import { showPackageGroupsEditor as openPackageGroupsEditor } from "./dialogs/PackageGroupsEditor";
-import { showReplaceObjectDialog as openReplaceObjectDialog } from "./dialogs/ReplaceObjectDialog";
 import type {
     BrowserSaveResult,
     BrowserSaveTarget,
@@ -72,12 +56,6 @@ import {
 } from "./runtime/BrowserWorkspaceRegistry";
 import {
     getDesktopCanvasNudge,
-    inferDesktopCanvasColumnCount,
-    inferDesktopCanvasSpacing,
-    resolveDesktopCanvasAlignment,
-    resolveDesktopCanvasCustomArrange,
-    type DesktopCanvasAlignmentMode,
-    type DesktopCanvasCustomArrangeMode,
 } from "./runtime/DesktopCanvasInteraction";
 import {
     appendDesktopConsoleEntry,
@@ -120,7 +98,6 @@ import {
 } from "./ui/EditorFormControls";
 import {
     EditorConsoleItem,
-    EditorCustomArrangePanel,
 } from "./ui/EditorUiExtensions";
 import {
     EditorMenuController,
@@ -133,10 +110,7 @@ import {
 } from "./ui/InspectorPresentation";
 import type { LibraryResourceFolderSelector } from "./ui/LibraryController";
 import {
-    type HierarchyDragState,
-    type HierarchyDropTarget,
     type HierarchyItemData,
-    type LibraryDragState,
     type LibraryItemData,
 } from "./ui/ProjectTreeInteractionController";
 import { EditorShellChrome } from "./modules/ShellChromeModule";
@@ -147,6 +121,7 @@ import { EditorProjectExplorer } from "./modules/ProjectExplorerModule";
 import { EditorAuthoringDialogs } from "./modules/AuthoringDialogsModule";
 import { EditorTimeline } from "./modules/TimelineModule";
 import { EditorResourceAuthoring } from "./modules/ResourceAuthoringModule";
+import { EditorDisplayListAuthoring } from "./modules/DisplayListAuthoringModule";
 import { downloadBrowserFile } from "./services/BrowserDownload";
 
 const EDITOR_REPOSITORY_URL = "https://github.com/OpenFairyGUI/FairyGUI-Editor-Online";
@@ -192,6 +167,8 @@ export class EditorShell {
     private readonly unbindAuthoringDialogs: () => void;
     private readonly resourceAuthoring: EditorResourceAuthoring["controller"];
     private readonly unbindResourceAuthoring: () => void;
+    private readonly displayListAuthoring: EditorDisplayListAuthoring;
+    private readonly unbindDisplayListAuthoring: () => void;
     private readonly editorMenus: EditorMenuController;
     private hierarchyKeyboardActive = false;
     private readonly treeInteraction: EditorProjectExplorer["treeInteraction"];
@@ -209,10 +186,7 @@ export class EditorShell {
     private desktopObjectTool: PrimitiveDisplayNodeKind | null = null;
     private activeBranch = "";
     private activeLanguagePath = "";
-    private displayNodeClipboard: DisplayNodeClipboard | null = null;
     private consoleEntries: DesktopConsoleEntry[] = [];
-    private customArrangePanel: EditorCustomArrangePanel | null = null;
-    private customArrangeSelectionIds: string[] = [];
     private disposed = false;
 
     private get commandAdapter() { return this.projectSession.commandAdapter; }
@@ -257,6 +231,7 @@ export class EditorShell {
         inspector: EditorInspector,
         projectExplorer: EditorProjectExplorer,
         authoringDialogs: EditorAuthoringDialogs,
+        displayListAuthoring: EditorDisplayListAuthoring,
         timeline: EditorTimeline,
         resourceAuthoring: EditorResourceAuthoring,
     ) {
@@ -308,9 +283,6 @@ export class EditorShell {
             showLibraryContextMenu: (cell, data) => this.showLibraryContextMenu(cell, data),
             showHierarchyContextMenu: (cell, data) => this.showHierarchyContextMenu(cell, data),
             openLibraryItem: (data) => this.openLibraryItem(data),
-            toggleHierarchyNodeLock: (data) => this.toggleHierarchyNodeLock(data),
-            applyLibraryDrop: (state, point) => this.applyLibraryDrop(state, point),
-            applyHierarchyDrop: (state, target) => this.applyHierarchyDrop(state, target),
             getComponentPreviewEnabled: () => this.editorPreferences.componentPreviewEnabled,
             setComponentPreviewEnabled: (enabled) => this.updateEditorPreferences({
                 ...this.editorPreferences,
@@ -388,6 +360,11 @@ export class EditorShell {
             createActionMenu: () => this.createActionMenu(),
             addMenuItem: (menu, name, title, handler) => this.addMenuItem(menu, name, title, handler),
         });
+        this.displayListAuthoring = displayListAuthoring;
+        this.unbindDisplayListAuthoring = displayListAuthoring.bind({
+            refreshSelectionViews: () => this.syncDisplayNodeSelectionViews(),
+            refreshProjectViews: () => this.refreshProjectViews(),
+        });
         this.resourceAuthoring = resourceAuthoring.controller;
         this.unbindResourceAuthoring = resourceAuthoring.bind({
             getSelectedLibraryResourceSelectors: () => this.libraryController.getSelectedResourceSelectors(this.leftTopPanelMode),
@@ -406,7 +383,7 @@ export class EditorShell {
                 canRedo: this.commandAdapter.canRedo(),
                 shortcuts: this.editorPreferences.shortcuts,
                 selectedNodeCount: this.selectedDisplayNodeIds.length,
-                canPaste: Boolean(this.displayNodeClipboard && this.getSelectedComponent()),
+                canPaste: this.displayListAuthoring.canPaste,
                 hasSelectedComponent: Boolean(this.getSelectedComponent()),
                 selectedNodeIsGroup: this.getSelectedDisplayNode()?.type === "GGroup",
                 groupDepth: this.getActiveGroupPath().length,
@@ -500,13 +477,12 @@ export class EditorShell {
         this.unbindInspectorActions();
         this.unbindProjectExplorer();
         this.unbindResourceAuthoring();
+        this.unbindDisplayListAuthoring();
         this.unbindTimeline();
         this.unbindAuthoringDialogs();
         this.unbindActions();
         this.actionMenu?.dispose();
         this.actionMenu = null;
-        this.customArrangePanel?.dispose();
-        this.customArrangePanel = null;
         this.publishedTest.dispose();
         this.desktopLayout.dispose();
     }
@@ -1030,7 +1006,7 @@ export class EditorShell {
 
     private onInspectorPanelAction(action: InspectorPanelAction): void {
         switch (action) {
-            case "command:sourceSize": void this.applySelectedNodeSourceSize(); return;
+            case "command:sourceSize": void this.displayListAuthoring.applySelectedNodeSourceSize(); return;
             case "properties:common": this.authoringDialogs.showCommonDisplayProperties(); return;
             case "properties:image": this.authoringDialogs.showImageProperties(); return;
             case "properties:movieClip": this.authoringDialogs.showMovieClipProperties(); return;
@@ -1291,115 +1267,6 @@ export class EditorShell {
         ));
     }
 
-    private onAlignToolbarAction(mode: DesktopCanvasAlignmentMode): void {
-        const selectedIds = this.selectedDisplayNodeIds.slice();
-        const minimum = mode === "distributeX" || mode === "distributeY" ? 3 : 2;
-        if (selectedIds.length < minimum) {
-            this.setStatus(`Canvas ${mode} requires at least ${minimum} selected nodes.`);
-            return;
-        }
-        void this.enqueueAuthoringOperation(async () => {
-            if (!this.sameDisplayNodeSelection(selectedIds, this.selectedDisplayNodeIds)) return false;
-            const selectedNodes = this.getSelectedDisplayNodes();
-            if (selectedNodes.length !== selectedIds.length) return false;
-            const transforms = resolveDesktopCanvasAlignment(
-                selectedNodes.map((node) => ({
-                    id: node.id,
-                    x: node.x,
-                    y: node.y,
-                    width: node.width,
-                    height: node.height,
-                })),
-                mode,
-                this.selectedDisplayNodeId,
-            ).map((node) => ({ ...node, nodeId: node.id }));
-            const applied = await this.documentAuthoring.applyTransforms(transforms, `align ${mode}`);
-            if (applied) {
-                this.setDebugAttribute(
-                    "data-fairy-editor-canvas-align",
-                    `${mode}:${transforms.map((node) => (
-                        `${node.nodeId}@${node.x},${node.y}/${node.width}x${node.height}`
-                    )).join("|")}`,
-                );
-            }
-            return applied;
-        });
-    }
-
-    private showCustomArrangePanel(
-        mode: DesktopCanvasCustomArrangeMode,
-        anchor: fgui.GObject,
-    ): void {
-        const selectedNodes = this.getSelectedDisplayNodes();
-        if (selectedNodes.length < 2) {
-            this.setStatus(`Canvas ${mode} arrange requires at least 2 selected nodes.`);
-            return;
-        }
-        const items = selectedNodes.map((node) => ({
-            id: node.id,
-            x: node.x,
-            y: node.y,
-            width: node.width,
-            height: node.height,
-        }));
-        if (!this.customArrangePanel) {
-            this.customArrangePanel = fgui.UIPackage.createObject(
-                "Builder",
-                "CustomArrangePanel",
-            ) as EditorCustomArrangePanel;
-            this.customArrangePanel.name = "desktopCustomArrangePanel";
-            this.customArrangePanel.okButton.onClick(this, this.applyCustomArrange);
-        }
-        const panel = this.customArrangePanel;
-        panel.setOptions(mode, {
-            lineSpacing: inferDesktopCanvasSpacing(items, "y"),
-            columnSpacing: inferDesktopCanvasSpacing(items, "x"),
-            columnCount: inferDesktopCanvasColumnCount(items),
-        });
-        this.customArrangeSelectionIds = selectedNodes.map((node) => node.id);
-        fgui.GRoot.inst.showPopup(panel, anchor);
-        this.setDebugAttribute("data-fairy-editor-canvas-arrange-panel", mode);
-        this.setTransientStatus(`Canvas ${mode} arrange options opened.`);
-    }
-
-    private applyCustomArrange(): void {
-        const panel = this.customArrangePanel;
-        if (!panel) return;
-        const mode = panel.mode;
-        const options = panel.readOptions();
-        if (!options) {
-            this.setStatus("Canvas arrange requires integer spacing and a positive column count.");
-            return;
-        }
-        const selectedIds = this.customArrangeSelectionIds.slice();
-        fgui.GRoot.inst.hidePopup(panel);
-        void this.enqueueAuthoringOperation(async () => {
-            if (!this.sameDisplayNodeSelection(selectedIds, this.selectedDisplayNodeIds)) return false;
-            const selectedNodes = this.getSelectedDisplayNodes();
-            if (selectedNodes.length !== selectedIds.length) return false;
-            const transforms = resolveDesktopCanvasCustomArrange(
-                selectedNodes.map((node) => ({
-                    id: node.id,
-                    x: node.x,
-                    y: node.y,
-                    width: node.width,
-                    height: node.height,
-                })),
-                mode,
-                options,
-            ).map((node) => ({ ...node, nodeId: node.id }));
-            const applied = await this.documentAuthoring.applyTransforms(transforms, `arrange ${mode}`);
-            if (applied) {
-                this.setDebugAttribute(
-                    "data-fairy-editor-canvas-arrange",
-                    `${mode}:${options.columnCount},${options.columnSpacing},${options.lineSpacing}:`
-                    + transforms.map((node) => `${node.nodeId}@${node.x},${node.y}`).join("|"),
-                );
-            }
-            return applied;
-        });
-    }
-
     private sameDisplayNodeSelection(left: string[], right: string[]): boolean {
         return left.length === right.length
             && left.every((nodeId) => right.indexOf(nodeId) >= 0);
@@ -1491,16 +1358,6 @@ export class EditorShell {
             : [];
     }
 
-    private getSelectedDisplayNodes(): ProjectSnapshotDisplayNode[] {
-        const component = this.getSelectedComponent();
-        if (!component) return [];
-        const nodesById = new Map(component.children.map((node) => [node.id, node]));
-        return this.selectedDisplayNodeIds.flatMap((nodeId) => {
-            const node = nodesById.get(nodeId);
-            return node ? [node] : [];
-        });
-    }
-
     private getSelectedComponentSelector(): { packageId: string; componentResourceId: string } | null {
         const selectedPackage = this.getSelectedPackage();
         const selectedComponent = this.getSelectedComponent();
@@ -1539,24 +1396,15 @@ export class EditorShell {
             this.publishedTest.isActive() ? this.publishedTest.reload() : this.publishedTest.start();
         });
         register(["preferences"], () => this.showPreferencesDialog());
-        register(["cut"], () => this.cutSelectedDisplayNodes());
-        register(["copy"], () => this.copySelectedDisplayNodes());
-        register(["paste"], () => { void this.pasteDisplayNodes(); });
         register(["duplicate"], () => {
             if (!this.controllerTimeline.isTimelineFocused() && this.selectedDisplayNodeIds.length > 0) {
-                void this.duplicateSelectedDisplayNodes();
+                void this.displayListAuthoring.duplicateSelectedDisplayNodes();
             }
         });
         register(["delete"], () => {
             if (this.controllerTimeline.isTimelineFocused()) void this.controllerTimeline.removeSelectedTimelineItem();
-            else if (this.selectedDisplayNodeIds.length > 0) void this.deleteSelectedDisplayNodes();
+            else if (this.selectedDisplayNodeIds.length > 0) void this.displayListAuthoring.deleteSelectedDisplayNodes();
         });
-        register(["selectAll"], () => { if (this.runtimePreview.hasCanvasFocus()) this.selectAllDisplayNodes(); });
-        register(["selectNone"], () => { if (this.runtimePreview.hasCanvasFocus()) this.selectNoDisplayNodes(); });
-        register(["group"], () => { if (this.runtimePreview.hasCanvasFocus()) void this.groupSelectedDisplayNodes(); });
-        register(["ungroup"], () => { if (this.runtimePreview.hasCanvasFocus()) void this.ungroupSelectedDisplayNodes(); });
-        register(["moveForward"], () => { if (this.runtimePreview.hasCanvasFocus()) void this.adjustSelectedDisplayNodeDepth("forward"); });
-        register(["moveBackward"], () => { if (this.runtimePreview.hasCanvasFocus()) void this.adjustSelectedDisplayNodeDepth("backward"); });
         register(["openReferenced"], () => {
             if (this.controllerTimeline.isTimelineFocused()) this.controllerTimeline.showSelectedTimelineItemEditor();
             else this.openSelectedGroup() || this.openReferencedComponent();
@@ -1584,24 +1432,12 @@ export class EditorShell {
         this.listenClick(this.consoleView.getChild("btnClear"), this.clearDesktopConsole);
         this.listenClick(this.consoleView.getChild("btnCopy"), this.copyDesktopConsole);
         this.listenClick(this.panels.library.getChild("btnRefresh"), this.onAction, ["library:refresh"]);
-        this.listenClick(this.panels.hierarchy.getChild("lock"), this.toggleAllHierarchyLocks);
-        this.listenClick(this.panels.hierarchy.getChild("rename"), this.showHierarchyRenameDialog);
         this.listenClick(this.panels.preview.getChild("play"), this.onAction, ["preview:play"]);
         this.listenClick(this.panels.document.getChild("hand"), this.setDesktopPanTool, [true]);
         this.listenClick(this.panels.document.getChild("arrow"), this.setDesktopPanTool, [false]);
         const objectToolbar = this.panels.document.getChild("objToolbar").asCom;
         for (const action of OBJECT_TOOLBAR_ACTIONS) {
             this.listenClick(objectToolbar.getChild(action.childName), this.setDesktopObjectTool, [action.kind]);
-        }
-        this.listenClick(objectToolbar.getChild("group"), this.groupSelectedDisplayNodes);
-        this.listenClick(objectToolbar.getChild("ungroup"), this.ungroupSelectedDisplayNodes);
-        const alignToolbar = this.panels.document.getChild("alignToolbar").asCom;
-        for (const action of ALIGN_TOOLBAR_ACTIONS) {
-            this.listenClick(alignToolbar.getChild(action.childName), this.onAlignToolbarAction, [action.mode]);
-        }
-        for (const action of CUSTOM_ARRANGE_ACTIONS) {
-            const button = alignToolbar.getChild(action.childName);
-            this.listenClick(button, this.showCustomArrangePanel, [action.mode, button]);
         }
         this.listenEvent(this.panels.library.getChild("listView"), Laya.Event.RIGHT_MOUSE_DOWN, this.onLibraryBackgroundRightClick);
         this.listenEvent(this.panels.library.getChild("treeView"), Laya.Event.RIGHT_MOUSE_DOWN, this.onLibraryBackgroundRightClick);
@@ -1689,7 +1525,7 @@ export class EditorShell {
         if (!this.hierarchyKeyboardActive || event.ctrlKey || event.metaKey || event.altKey) return false;
         if (event.key === "F2") {
             event.preventDefault();
-            this.showHierarchyRenameDialog();
+            this.displayListAuthoring.showHierarchyRenameDialog();
             return true;
         }
         if (event.key === "Escape" && this.projectExplorer.hierarchyQuery) {
@@ -1815,134 +1651,14 @@ export class EditorShell {
         if (kind) this.setStatus(`Canvas ${kind} tool active; click inside the component.`);
     }
 
-    private selectAllDisplayNodes(): void {
-        const component = this.getSelectedComponent();
-        if (!component) return;
-        const nodeIds = this.getScopedDisplayNodeIds(component);
-        this.setDisplayNodeSelection(nodeIds, nodeIds[nodeIds.length - 1] || "");
-        this.syncDisplayNodeSelectionViews();
-        this.setDebugAttribute("data-fairy-editor-document-selection", `all:${nodeIds.length}`);
-        this.setStatus(`Selected all ${nodeIds.length} display nodes.`);
-    }
-
-    private selectNoDisplayNodes(): void {
-        this.clearDisplayNodeSelection();
-        this.syncDisplayNodeSelectionViews();
-        this.setDebugAttribute("data-fairy-editor-document-selection", "none");
-        this.setStatus("Display-node selection cleared.");
-    }
-
-    private async adjustSelectedDisplayNodeDepth(
-        direction: "forward" | "backward" | "top" | "bottom",
-    ): Promise<void> {
-        const selector = this.getSelectedComponentSelector();
-        const selectedIds = this.selectedDisplayNodeIds.slice();
-        if (!selector || selectedIds.length === 0) return;
-        const preparation = prepareAdjustDisplayNodeDepth(
-            this.liveSessionBridge.getWorkingProject(),
-            selectedIds.map((displayNodeId) => ({ ...selector, displayNodeId })),
-            direction,
-        );
-        if (!await this.applyAuthoringPreparation(preparation)) return;
-
-        this.setDisplayNodeSelection(selectedIds, this.selectedDisplayNodeId);
-        this.refreshProjectViews();
-        this.setDebugAttribute("data-fairy-editor-document-depth", `${direction}:${selectedIds.join(",")}`);
-        this.setStatus(
-            `Moved ${selectedIds.length} display node${selectedIds.length === 1 ? "" : "s"} ${direction}; `
-            + "Publish to update the runtime preview.",
-        );
-    }
-
-    private async groupSelectedDisplayNodes(): Promise<void> {
-        const selector = this.getSelectedComponentSelector();
-        const selectedIds = this.selectedDisplayNodeIds.slice();
-        if (!selector) return;
-        const preparation = prepareGroupDisplayNodes(
-            this.liveSessionBridge.getWorkingProject(),
-            selectedIds.map((displayNodeId) => ({ ...selector, displayNodeId })),
-        );
-        if (!preparation.ok) {
-            await this.applyAuthoringPreparation(preparation);
-            this.setDebugAttribute("data-fairy-editor-object-group", `rejected:${preparation.code}`);
-            return;
-        }
-        const attach = (preparation.transaction.operations || [preparation.transaction.operation])
-            .find((operation) => operation.kind === "attachDisplayNode");
-        const groupId = String((attach?.node as { id?: unknown } | undefined)?.id || "");
-        if (!await this.applyAuthoringPreparation(preparation)) return;
-
-        this.setDisplayNodeSelection(groupId ? [groupId] : [], groupId);
-        this.syncDisplayNodeSelectionViews();
-        this.setDebugAttribute("data-fairy-editor-object-group", `grouped:${groupId}:${selectedIds.length}`);
-        this.setStatus(
-            `Grouped ${selectedIds.length} display nodes as ${groupId}; `
-            + "Publish to update the runtime preview.",
-        );
-    }
-
-    private async ungroupSelectedDisplayNodes(): Promise<void> {
-        const selector = this.getSelectedComponentSelector();
-        if (!selector) return;
-        const preparation = prepareUngroupDisplayNodes(
-            this.liveSessionBridge.getWorkingProject(),
-            this.selectedDisplayNodeIds.map((displayNodeId) => ({ ...selector, displayNodeId })),
-        );
-        if (!preparation.ok) {
-            await this.applyAuthoringPreparation(preparation);
-            this.setDebugAttribute("data-fairy-editor-object-group", `rejected:${preparation.code}`);
-            return;
-        }
-        const memberIds = (preparation.transaction.operations || [preparation.transaction.operation])
-            .flatMap((operation) => (
-                operation.kind === "setDisplayNodeProps" && operation.props.group !== undefined
-                    ? [operation.selector.displayNodeId]
-                    : []
-            ));
-        if (!await this.applyAuthoringPreparation(preparation)) return;
-
-        const primaryId = memberIds[memberIds.length - 1] || "";
-        this.setDisplayNodeSelection(memberIds, primaryId);
-        this.syncDisplayNodeSelectionViews();
-        this.setDebugAttribute("data-fairy-editor-object-group", `ungrouped:${memberIds.join(",") || "empty"}`);
-        this.setStatus(
-            "Ungrouped selection. Publish to update the runtime preview.",
-        );
-    }
-
     private async placeDesktopPrimitive(point: { x: number; y: number }): Promise<boolean> {
         const kind = this.desktopObjectTool;
-        const selector = this.getSelectedComponentSelector();
-        if (!kind || !selector) return false;
+        if (!kind) return false;
         this.desktopObjectTool = null;
         this.runtimePreview.setCreationMode(false);
-        const preparation = prepareAddPrimitiveDisplayNode(
-            this.liveSessionBridge.getWorkingProject(),
-            selector,
-            kind,
-            point,
-        );
-        if (preparation.ok === false) {
-            await this.applyAuthoringPreparation(preparation);
-            return false;
-        }
-        const operation = (preparation.transaction.operations || [preparation.transaction.operation])
-            .find((candidate) => candidate.kind === "attachDisplayNode");
-        const nodeId = String((operation?.node as { id?: unknown } | null)?.id || "");
-        const applied = await this.applyAuthoringPreparation(preparation);
+        const applied = await this.displayListAuthoring.placeDesktopPrimitive(kind, point);
         if (!applied) return false;
-
         this.setDesktopObjectTool(null);
-        this.setDisplayNodeSelection(nodeId ? [nodeId] : [], nodeId);
-        this.syncDisplayNodeSelectionViews();
-        this.setDebugAttribute(
-            "data-fairy-editor-object-create",
-            `${kind}:${nodeId}@${point.x},${point.y}`,
-        );
-        this.setStatus(
-            `Created ${kind} ${nodeId} at ${point.x},${point.y}; `
-            + "Publish to update the runtime preview.",
-        );
         return true;
     }
 
@@ -1985,18 +1701,18 @@ export class EditorShell {
         switch (command) {
             case "undo": this.runEditorAction("undo"); return;
             case "redo": this.runEditorAction("redo"); return;
-            case "cut": this.cutSelectedDisplayNodes(); return;
-            case "copy": this.copySelectedDisplayNodes(); return;
-            case "paste": void this.pasteDisplayNodes(); return;
-            case "duplicate": void this.duplicateSelectedDisplayNodes(); return;
-            case "delete": void this.deleteSelectedDisplayNodes(); return;
-            case "replace": this.showReplaceObjectDialog(); return;
-            case "selectAll": this.selectAllDisplayNodes(); return;
-            case "selectNone": this.selectNoDisplayNodes(); return;
-            case "moveForward": void this.adjustSelectedDisplayNodeDepth("forward"); return;
-            case "moveBackward": void this.adjustSelectedDisplayNodeDepth("backward"); return;
-            case "moveTop": void this.adjustSelectedDisplayNodeDepth("top"); return;
-            case "moveBottom": void this.adjustSelectedDisplayNodeDepth("bottom"); return;
+            case "cut": this.displayListAuthoring.cutSelectedDisplayNodes(); return;
+            case "copy": this.displayListAuthoring.copySelectedDisplayNodes(); return;
+            case "paste": void this.displayListAuthoring.pasteDisplayNodes(); return;
+            case "duplicate": void this.displayListAuthoring.duplicateSelectedDisplayNodes(); return;
+            case "delete": void this.displayListAuthoring.deleteSelectedDisplayNodes(); return;
+            case "replace": this.displayListAuthoring.showReplaceObjectDialog(); return;
+            case "selectAll": this.displayListAuthoring.selectAllDisplayNodes(); return;
+            case "selectNone": this.displayListAuthoring.selectNoDisplayNodes(); return;
+            case "moveForward": void this.displayListAuthoring.adjustSelectedDisplayNodeDepth("forward"); return;
+            case "moveBackward": void this.displayListAuthoring.adjustSelectedDisplayNodeDepth("backward"); return;
+            case "moveTop": void this.displayListAuthoring.adjustSelectedDisplayNodeDepth("top"); return;
+            case "moveBottom": void this.displayListAuthoring.adjustSelectedDisplayNodeDepth("bottom"); return;
             case "openGroup": this.openSelectedGroup(); return;
             case "closeGroup": this.closeSelectedGroup(); return;
             case "showInLibrary": this.showSelectedDisplayNodeInLibrary(); return;
@@ -2750,313 +2466,6 @@ export class EditorShell {
         this.chrome.setDebugAttribute(name, value);
     }
 
-    private async applyLibraryDrop(
-        state: LibraryDragState,
-        point: { x: number; y: number },
-    ): Promise<void> {
-        const resourceId = state.data.kind === "component"
-            ? state.data.componentId
-            : state.data.resourceId;
-        const preparation = preparePlaceResourceDisplayNode(
-            this.liveSessionBridge.getWorkingProject(),
-            {
-                packageId: state.targetPackageId,
-                componentResourceId: state.targetComponentId,
-            },
-            { packageId: state.data.packageId, resourceId },
-            point,
-        );
-        if (preparation.ok === false) {
-            this.setDebugAttribute("data-fairy-editor-library-drag", "failed");
-            await this.applyAuthoringPreparation(preparation);
-            return;
-        }
-        const operation = (preparation.transaction.operations || [preparation.transaction.operation])
-            .find((candidate) => candidate.kind === "attachDisplayNode");
-        const nodeId = String((operation?.node as { id?: unknown } | null)?.id || "");
-
-        this.documentAuthoring.setActiveSelection(
-            state.targetPackageId,
-            state.targetComponentId,
-        );
-        this.clearResourceSelection();
-        if (!await this.applyAuthoringPreparation(preparation)) {
-            this.setDebugAttribute("data-fairy-editor-library-drag", "failed");
-            return;
-        }
-
-        this.setDisplayNodeSelection(nodeId ? [nodeId] : [], nodeId);
-        this.syncDisplayNodeSelectionViews();
-        this.setDebugAttribute("data-fairy-editor-library-drag", "placed");
-        this.setDebugAttribute(
-            "data-fairy-editor-library-drop",
-            `${resourceId}:${nodeId}@${point.x},${point.y}`,
-        );
-        this.setStatus(
-            `Placed ${resourceId} as ${nodeId} at ${point.x},${point.y}; `
-            + "Publish to update the runtime preview.",
-        );
-    }
-
-    private showHierarchyRenameDialog(): void {
-        const node = this.getSelectedDisplayNode();
-        const selector = this.getSelectedDisplayNodeSelector();
-        if (!node || !selector || this.selectedDisplayNodeIds.length !== 1) {
-            this.setTransientStatus("Select one display node to rename.");
-            return;
-        }
-        void requestEditorTextInput(
-            {
-                getActiveDialog: () => this.authoringJsonDialog,
-                setActiveDialog: (dialog) => { this.authoringJsonDialog = dialog; },
-                setStatus: (message) => this.setStatus(message),
-                setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
-                eventOwner: this,
-            },
-            "desktopHierarchyRenameDialog",
-            "重命名",
-            "输入显示对象名称",
-            node.name || node.id,
-            "重命名",
-            (value) => value.trim() ? null : "名称不能为空。",
-        ).then(async (value) => {
-            const newName = value?.trim();
-            if (!newName || newName === node.name) return;
-            const preparation = prepareRenameDisplayNode(
-                this.liveSessionBridge.getWorkingProject(),
-                selector,
-                newName,
-            );
-            if (!await this.applyAuthoringPreparation(preparation)) return;
-            this.setDisplayNodeSelection([selector.displayNodeId], selector.displayNodeId);
-            this.syncDisplayNodeSelectionViews();
-            this.setDebugAttribute("data-fairy-editor-hierarchy-rename", `${selector.displayNodeId}:${newName}`);
-        });
-    }
-
-    private toggleHierarchyNodeLock(data: HierarchyItemData): void {
-        const component = this.getSelectedComponent();
-        const node = component?.children.find((candidate) => candidate.id === data.nodeId);
-        if (!component || component.id !== data.componentId || !node) return;
-        void this.applyDisplayNodePropsCommand({
-            kind: "setDisplayNodeProps",
-            selector: {
-                packageId: this.selectedPackageId,
-                componentResourceId: component.id,
-                displayNodeId: node.id,
-            },
-            props: { locked: !node.locked },
-        }, `${node.locked ? "Unlocked" : "Locked"} ${node.name || node.id}`);
-    }
-
-    private toggleAllHierarchyLocks(): void {
-        const component = this.getSelectedComponent();
-        if (!component || component.children.length === 0) return;
-        const locked = !component.children.some((node) => node.locked);
-        const commands = component.children
-            .filter((node) => node.locked !== locked)
-            .map<SetDisplayNodePropsCommand>((node) => ({
-                kind: "setDisplayNodeProps",
-                selector: {
-                    packageId: this.selectedPackageId,
-                    componentResourceId: component.id,
-                    displayNodeId: node.id,
-                },
-                props: { locked },
-            }));
-        if (commands.length > 0) {
-            void this.applyDisplayNodePropsCommands(commands, `${locked ? "Locked" : "Unlocked"} all display nodes`);
-        }
-    }
-
-    private async applyHierarchyDrop(
-        state: HierarchyDragState,
-        target: HierarchyDropTarget,
-    ): Promise<void> {
-        const selectedPackage = this.getSelectedPackage();
-        if (!selectedPackage) return;
-        const applied = await this.applyAuthoringPreparation(prepareMoveDisplayNode(
-            this.liveSessionBridge.getWorkingProject(),
-            {
-                packageId: selectedPackage.id,
-                componentResourceId: state.sourceComponentId,
-                displayNodeId: state.nodeId,
-            },
-            target.componentId,
-            target.targetIndex,
-        ));
-        if (!applied) {
-            this.setDebugAttribute("data-fairy-editor-hierarchy-drag", "failed");
-            return;
-        }
-
-        this.documentAuthoring.setActiveSelection(
-            this.selectedPackageId,
-            target.componentId,
-            [state.nodeId],
-            state.nodeId,
-        );
-        this.clearResourceSelection();
-        this.refreshProjectViews();
-        this.setDebugAttribute("data-fairy-editor-hierarchy-drag", target.kind);
-        this.setDebugAttribute(
-            "data-fairy-editor-hierarchy-drop",
-            `${state.nodeId}:${target.componentId}@${target.targetIndex}`,
-        );
-        this.setStatus(
-            `Hierarchy ${target.kind}: `
-            + `${state.nodeId} to ${target.componentId}@${target.targetIndex}.`,
-        );
-    }
-
-    private showReplaceObjectDialog(): void {
-        if (!this.getSelectedComponentSelector() || this.selectedDisplayNodeIds.length === 0) {
-            this.setStatus("Replace requires at least one selected display node.");
-            return;
-        }
-        const project = this.liveSessionBridge.getWorkingProject();
-        const selectedLibraryTarget = this.selectedLibraryResourceSelectors.length === 1
-            ? this.selectedLibraryResourceSelectors[0]
-            : null;
-        const selectedLibraryResource = selectedLibraryTarget
-            ? findResource(project, selectedLibraryTarget)
-            : null;
-        const initialTarget = selectedLibraryTarget
-            && ["image", "component", "movieClip"].includes(String(selectedLibraryResource?.kind || ""))
-            ? getProjectResourceUrl(selectedLibraryTarget)
-            : "text";
-        openReplaceObjectDialog(
-            {
-                getActiveDialog: () => this.authoringJsonDialog,
-                setActiveDialog: (dialog) => { this.authoringJsonDialog = dialog; },
-                setStatus: (message, kind) => this.setStatus(message, kind),
-                setDebugAttribute: (name, value) => this.setDebugAttribute(name, value),
-                eventOwner: this,
-            },
-            project,
-            initialTarget,
-            this.selectedDisplayNodeIds.length,
-            (target) => void this.replaceSelectedDisplayNodes(target),
-        );
-    }
-
-    private async replaceSelectedDisplayNodes(
-        target: PrimitiveDisplayNodeKind | EditorResourceSelector,
-    ): Promise<void> {
-        const owner = this.getSelectedComponentSelector();
-        const selectedIds = this.selectedDisplayNodeIds.slice();
-        if (!owner || selectedIds.length === 0) return;
-        const preparation = prepareReplaceDisplayNodes(
-            this.liveSessionBridge.getWorkingProject(),
-            selectedIds.map((displayNodeId) => ({ ...owner, displayNodeId })),
-            target,
-        );
-        if (!await this.applyAuthoringPreparation(preparation)) return;
-        this.setDisplayNodeSelection(selectedIds, this.selectedDisplayNodeId || selectedIds[selectedIds.length - 1]);
-        this.refreshProjectViews();
-        const targetLabel = typeof target === "string" ? target : getProjectResourceUrl(target);
-        this.setDebugAttribute("data-fairy-editor-display-node-replace", `${selectedIds.join(",")}->${targetLabel}`);
-        this.setStatus(
-            `Replaced ${selectedIds.length} display node${selectedIds.length === 1 ? "" : "s"} with ${targetLabel}; `
-            + "Publish to update the runtime preview.",
-        );
-    }
-
-    private copySelectedDisplayNodes(): boolean {
-        const selectedPackage = this.getSelectedPackage();
-        const selectedComponent = this.getSelectedComponent();
-        if (!selectedPackage || !selectedComponent || this.selectedDisplayNodeIds.length === 0) {
-            this.setStatus("Copy skipped: no display node selected.");
-            return false;
-        }
-        const preparation = createDisplayNodeClipboard(
-            this.liveSessionBridge.getWorkingProject(),
-            this.selectedDisplayNodeIds.map((displayNodeId) => ({
-                packageId: selectedPackage.id,
-                componentResourceId: selectedComponent.id,
-                displayNodeId,
-            })),
-        );
-        if (preparation.ok === false) {
-            this.setStatus(`Copy unavailable: ${preparation.code}. ${preparation.message}`);
-            return false;
-        }
-        this.displayNodeClipboard = preparation.clipboard;
-        this.setDebugAttribute(
-            "data-fairy-editor-display-node-clipboard",
-            `${preparation.clipboard.packageId}/${preparation.clipboard.componentResourceId}:${preparation.clipboard.nodes.length}`,
-        );
-        this.setStatus(`Copied ${preparation.clipboard.nodes.length} display node${preparation.clipboard.nodes.length === 1 ? "" : "s"}.`);
-        return true;
-    }
-
-    private cutSelectedDisplayNodes(): void {
-        if (this.copySelectedDisplayNodes()) void this.deleteSelectedDisplayNodes();
-    }
-
-    private async pasteDisplayNodes(
-        clipboard: DisplayNodeClipboard | null = this.displayNodeClipboard,
-        pastTense: string = "Pasted",
-        debugAttribute: string = "data-fairy-editor-display-node-paste",
-    ): Promise<void> {
-        const target = this.getSelectedComponentSelector();
-        if (!target || !clipboard) {
-            this.setStatus("Paste skipped: select a target component after copying display nodes.");
-            return;
-        }
-        const preparation = preparePasteDisplayNodes(
-            this.liveSessionBridge.getWorkingProject(),
-            target,
-            clipboard,
-        );
-        if (preparation.ok === false) {
-            this.setStatus(`Paste unavailable: ${preparation.code}. ${preparation.message}`);
-            return;
-        }
-        const pastedNodeIds = (preparation.transaction.operations || [preparation.transaction.operation])
-            .flatMap((operation) => {
-                if (operation.kind !== "attachDisplayNode") return [];
-                if (
-                    operation.selector.packageId !== target.packageId
-                    || operation.selector.componentResourceId !== target.componentResourceId
-                ) return [];
-                const id = String((operation.node as { id?: unknown } | null)?.id || "");
-                return id ? [id] : [];
-            });
-        if (!await this.applyAuthoringPreparation(preparation)) return;
-
-        this.setDisplayNodeSelection(pastedNodeIds, pastedNodeIds[pastedNodeIds.length - 1] || "");
-        this.syncDisplayNodeSelectionViews();
-        this.setDebugAttribute(debugAttribute, pastedNodeIds.join(","));
-        this.setStatus(
-            `${pastTense} ${pastedNodeIds.length} display node${pastedNodeIds.length === 1 ? "" : "s"} `
-            + "Canvas updated. Publish to update the runtime preview.",
-        );
-    }
-
-    private async duplicateSelectedDisplayNodes(): Promise<void> {
-        const selectedPackage = this.getSelectedPackage();
-        const selectedComponent = this.getSelectedComponent();
-        if (!selectedPackage || !selectedComponent || this.selectedDisplayNodeIds.length === 0) return;
-        const copied = createDisplayNodeClipboard(
-            this.liveSessionBridge.getWorkingProject(),
-            this.selectedDisplayNodeIds.map((displayNodeId) => ({
-                packageId: selectedPackage.id,
-                componentResourceId: selectedComponent.id,
-                displayNodeId,
-            })),
-        );
-        if (copied.ok === false) {
-            this.setStatus(`Duplicate unavailable: ${copied.code}. ${copied.message}`);
-            return;
-        }
-        await this.pasteDisplayNodes(
-            copied.clipboard,
-            "Duplicated",
-            "data-fairy-editor-display-node-duplicate",
-        );
-    }
-
     private getSelectedDisplayNodeResourceSelector(): EditorResourceSelector | null {
         const owner = this.getSelectedComponentSelector();
         if (!owner || !this.selectedDisplayNodeId) return null;
@@ -3069,30 +2478,6 @@ export class EditorShell {
             packageId: String(node?.resource?.packageId || owner.packageId),
             resourceId,
         } : null;
-    }
-
-    private async applySelectedNodeSourceSize(): Promise<void> {
-        const selector = this.getSelectedDisplayNodeResourceSelector();
-        const owner = this.getSelectedComponentSelector();
-        const selectedNode = this.getSelectedDisplayNode();
-        if (!selector || !owner || !selectedNode) {
-            this.setStatus("Source size requires one resource-backed display node.");
-            return;
-        }
-        const pkg = this.projectSnapshot?.packages.find((candidate) => candidate.id === selector.packageId);
-        const resource = pkg?.resources.find((candidate) => candidate.id === selector.resourceId);
-        const component = pkg?.components.find((candidate) => candidate.id === selector.resourceId);
-        const width = resource?.width ?? component?.width;
-        const height = resource?.height ?? component?.height;
-        if (!Number.isFinite(width) || !Number.isFinite(height) || width! <= 0 || height! <= 0) {
-            this.setStatus("Source size is unavailable for the selected resource.");
-            return;
-        }
-        await this.applyDisplayNodePropsCommand({
-            kind: "setDisplayNodeProps",
-            selector: { ...owner, displayNodeId: selectedNode.id },
-            props: { size: { width: width!, height: height! } },
-        }, `source size ${selectedNode.id}`);
     }
 
     private showSelectedDisplayNodeInLibrary(): void {
@@ -3117,27 +2502,6 @@ export class EditorShell {
         );
         this.setDebugAttribute("data-fairy-editor-show-in-library", getProjectResourceUrl(selector));
         this.setStatus(`Shown in Library: ${getProjectResourceUrl(selector)}.`);
-    }
-
-    private async deleteSelectedDisplayNodes(): Promise<void> {
-        const selectedPackage = this.getSelectedPackage();
-        const selectedComponent = this.getSelectedComponent();
-        if (!selectedPackage || !selectedComponent || this.selectedDisplayNodeIds.length === 0) return;
-        const deletedIds = this.selectedDisplayNodeIds.slice();
-        const preparation = prepareDetachDisplayNodes(
-            this.liveSessionBridge.getWorkingProject(),
-            deletedIds.map((displayNodeId) => ({
-                packageId: selectedPackage.id,
-                componentResourceId: selectedComponent.id,
-                displayNodeId,
-            })),
-        );
-        if (!await this.applyAuthoringPreparation(preparation)) return;
-        this.setDebugAttribute("data-fairy-editor-display-node-delete", deletedIds.join(","));
-        this.setStatus(
-            `Deleted ${deletedIds.length} display node${deletedIds.length === 1 ? "" : "s"} `
-            + "Canvas updated. Publish to update the runtime preview.",
-        );
     }
 
     private async initializeProjectSnapshotNow(): Promise<boolean> {

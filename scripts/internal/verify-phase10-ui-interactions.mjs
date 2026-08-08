@@ -26,6 +26,7 @@ const documentAuthoringModuleSource = readSource("src/editor/modules/DocumentAut
 const inspectorModuleSource = readSource("src/editor/modules/InspectorModule.ts");
 const projectExplorerModuleSource = readSource("src/editor/modules/ProjectExplorerModule.ts");
 const authoringDialogsModuleSource = readSource("src/editor/modules/AuthoringDialogsModule.ts");
+const displayListAuthoringModuleSource = readSource("src/editor/modules/DisplayListAuthoringModule.ts");
 const timelineModuleSource = readSource("src/editor/modules/TimelineModule.ts");
 const resourceAuthoringModuleSource = readSource("src/editor/modules/ResourceAuthoringModule.ts");
 const projectTransferModuleSource = readSource("src/editor/modules/ProjectTransferModules.ts");
@@ -69,6 +70,7 @@ const editorShell = [
     inspectorModuleSource,
     projectExplorerModuleSource,
     authoringDialogsModuleSource,
+    displayListAuthoringModuleSource,
     timelineModuleSource,
     resourceAuthoringModuleSource,
     projectTransferModuleSource,
@@ -786,17 +788,17 @@ const shellChecks = [
     "private onHierarchyDragStart(",
     "private onHierarchyDragMove(",
     "private onHierarchyDragEnd(",
-    "private async applyHierarchyDrop(",
+    "async applyHierarchyDrop(",
     "fgui.Events.DRAG_START",
     "prepareMoveDisplayNode(",
     "data-fairy-editor-hierarchy-drag",
     "data-fairy-editor-hierarchy-drop",
-    "private copySelectedDisplayNodes(): boolean",
-    "private cutSelectedDisplayNodes(): void",
-    "private async pasteDisplayNodes(",
+    "copySelectedDisplayNodes(): boolean",
+    "cutSelectedDisplayNodes(): void",
+    "async pasteDisplayNodes(",
     "createDisplayNodeClipboard(",
     "preparePasteDisplayNodes(",
-    "private showReplaceObjectDialog(): void",
+    "showReplaceObjectDialog(): void",
     "prepareReplaceDisplayNodes(",
     'UIPackage.createObject("Builder", "ReplaceObjectDialog")',
     'UIPackage.createObject("Builder", "PasteOptionDialog")',
@@ -810,7 +812,7 @@ const shellChecks = [
     "private onLibraryDragStart(",
     "private onLibraryDragMove(",
     "private onLibraryDragEnd(",
-    "private async applyLibraryDrop(",
+    "async applyLibraryDrop(",
     "preparePlaceResourceDisplayNode(",
     "data-fairy-editor-library-drop",
     "OBJECT_TOOLBAR_ACTIONS",
@@ -820,12 +822,12 @@ const shellChecks = [
     '{ childName: "loader", kind: "loader" }',
     '{ childName: "loader3D", kind: "loader3D" }',
     "private setDesktopObjectTool(",
-    "private async groupSelectedDisplayNodes(): Promise<void>",
+    "async groupSelectedDisplayNodes(): Promise<void>",
     "prepareGroupDisplayNodes(",
-    "private async ungroupSelectedDisplayNodes(): Promise<void>",
+    "async ungroupSelectedDisplayNodes(): Promise<void>",
     "prepareUngroupDisplayNodes(",
     "data-fairy-editor-object-group",
-    "private async placeDesktopPrimitive(",
+    "async placeDesktopPrimitive(",
     "prepareAddPrimitiveDisplayNode(",
     "data-fairy-editor-object-create",
     "desktopMenuCopy",
@@ -969,6 +971,46 @@ for (const snippet of [
 ]) {
     assert(!editorShellSource.includes(snippet), `EditorShell still owns Project Explorer presentation: ${snippet}`);
 }
+for (const snippet of [
+    "bindDisplayListActions({",
+    "async applyLibraryDrop(",
+    "async applyHierarchyDrop(",
+    "showHierarchyRenameDialog(): void",
+    "toggleAllHierarchyLocks(): void",
+    "copySelectedDisplayNodes(): boolean",
+    "async pasteDisplayNodes(",
+    "showReplaceObjectDialog(): void",
+    "async deleteSelectedDisplayNodes(",
+    "onAlignToolbarAction(",
+    "showCustomArrangePanel(",
+    "this.unbindSnapshotReset = this.session.onDidResetSnapshot",
+    "this.viewUnbinders.splice(0).reverse()",
+    "await Promise.allSettled([...this.inFlight])",
+    'chrome.registerActions(["cut"]',
+    'chrome.registerActions(["copy"]',
+    'chrome.registerActions(["paste"]',
+]) {
+    assert(displayListAuthoringModuleSource.includes(snippet), `DisplayListAuthoring must own ${snippet}`);
+}
+for (const snippet of [
+    "private displayNodeClipboard",
+    "private customArrangePanel",
+    "private async applyLibraryDrop(",
+    "private async applyHierarchyDrop(",
+    "private showHierarchyRenameDialog(",
+    "private copySelectedDisplayNodes(",
+    "private async pasteDisplayNodes(",
+    "private async deleteSelectedDisplayNodes(",
+    "private onAlignToolbarAction(",
+]) {
+    assert(!editorShellSource.includes(snippet), `EditorShell still owns display-list behavior: ${snippet}`);
+}
+assert(projectExplorerModuleSource.includes("bindDisplayListActions(actions: ProjectExplorerDisplayListActions)"));
+assert(displayListAuthoringModuleSource.includes("context.onDeactivate(() => displayList.dispose())"));
+assert(displayListAuthoringModuleSource.indexOf("context.onDeactivate(() => displayList.dispose())")
+    < displayListAuthoringModuleSource.indexOf("displayList.activate();"));
+assert(editorShellSource.includes("this.displayListAuthoring.duplicateSelectedDisplayNodes()"));
+assert(editorShellSource.includes("this.displayListAuthoring.deleteSelectedDisplayNodes()"));
 for (const removedProductDiagnostic of [
     "showCapabilitySummary",
     "showCommandHistory",
@@ -1428,9 +1470,9 @@ for (const snippet of [
     "data-fairy-editor-canvas-size",
     "ALIGN_TOOLBAR_ACTIONS",
     "CUSTOM_ARRANGE_ACTIONS",
-    "private onAlignToolbarAction(",
-    "private showCustomArrangePanel(",
-    "private applyCustomArrange(): void",
+    "onAlignToolbarAction(",
+    "showCustomArrangePanel(",
+    "applyCustomArrange(): void",
     "CustomArrangePanel",
     "data-fairy-editor-canvas-arrange",
     "resolveDesktopCanvasAlignment(",
@@ -1500,10 +1542,10 @@ for (const snippet of [
     'tab.title = "显示列表"',
     "private appendHierarchyNodes(",
     "child.group !== parentGroupId",
-    "private toggleAllHierarchyLocks(): void",
+    "toggleAllHierarchyLocks(): void",
     "private handleHierarchyKey(event: Laya.Event): boolean",
     "private getHierarchySearchVisibleIds(",
-    "private showHierarchyRenameDialog(): void",
+    "showHierarchyRenameDialog(): void",
     "private toggleAllHierarchyVisibility(): void",
     "prepareRenameDisplayNode(",
 ]) {
@@ -1561,8 +1603,8 @@ for (const snippet of [
     "openDocuments:",
     "private openReferencedComponent(",
     "data-fairy-editor-open-reference",
-    "private async duplicateSelectedDisplayNodes(",
-    "private async deleteSelectedDisplayNodes(",
+    "async duplicateSelectedDisplayNodes(",
+    "async deleteSelectedDisplayNodes(",
     "data-fairy-editor-display-node-duplicate",
     "data-fairy-editor-display-node-delete",
 ]) {
@@ -1637,7 +1679,7 @@ assert(authoringPreparation.includes("this.liveSessionBridge.captureSessionIdent
 assert(projectSessionModuleSource.includes("this.liveSessionBridge.isSessionIdentityCurrent(identity)"));
 assert(editorShell.includes("Operation cancelled because the project changed while it was queued."));
 assert((editorShell.match(/applyAuthoringPreparation\(preparation, preparationIdentity\)/g) || []).length >= 9);
-assert(editorShellSource.includes("const preparation = prepareDetachDisplayNodes("));
+assert(displayListAuthoringModuleSource.includes("const preparation = prepareDetachDisplayNodes("));
 assert(!editorShell.includes("let preparation: HighRiskTransactionPreparation | null = null;"));
 for (const passThrough of [
     "populateInspectorForCurrentSelection",

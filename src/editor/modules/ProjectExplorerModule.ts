@@ -67,9 +67,6 @@ export type ProjectExplorerEvents = {
     showLibraryContextMenu(cell: fgui.GComponent, data: LibraryItemData): void;
     showHierarchyContextMenu(cell: fgui.GComponent, data: HierarchyItemData): void;
     openLibraryItem(data: Extract<LibraryItemData, { kind: "component" | "resource" }>): void;
-    toggleHierarchyNodeLock(data: HierarchyItemData): void;
-    applyLibraryDrop(state: LibraryDragState, point: { x: number; y: number }): Promise<void>;
-    applyHierarchyDrop(state: HierarchyDragState, target: HierarchyDropTarget): Promise<void>;
     getComponentPreviewEnabled(): boolean;
     setComponentPreviewEnabled(enabled: boolean): void;
     activateDocument(packageId: string, componentId: string): boolean;
@@ -79,12 +76,19 @@ export type ProjectExplorerEvents = {
     setTransientStatus(message: string): void;
 };
 
+export type ProjectExplorerDisplayListActions = {
+    toggleHierarchyNodeLock(data: HierarchyItemData): void;
+    applyLibraryDrop(state: LibraryDragState, point: { x: number; y: number }): Promise<void>;
+    applyHierarchyDrop(state: HierarchyDragState, target: HierarchyDropTarget): Promise<void>;
+};
+
 export class EditorProjectExplorer {
     readonly library: LibraryController;
     readonly treeInteraction: ProjectTreeInteractionController;
     readonly resourcePreview: ResourcePreviewController;
 
     private events: ProjectExplorerEvents | null = null;
+    private displayListActions: ProjectExplorerDisplayListActions | null = null;
     private readonly viewUnbinders: Array<() => void> = [];
     private hierarchyExpandedState = true;
     private hierarchySearchQuery = "";
@@ -133,10 +137,10 @@ export class EditorProjectExplorer {
                 openLibraryItem: (data) => this.events?.openLibraryItem(data),
                 resolveAuthoringDropPoint: (stageX, stageY) => document.preview.resolveAuthoringDropPoint(stageX, stageY),
                 selectHierarchyNode: (data) => this.selectHierarchyDragNode(data),
-                toggleHierarchyNodeLock: (data) => this.events?.toggleHierarchyNodeLock(data),
+                toggleHierarchyNodeLock: (data) => this.displayListActions?.toggleHierarchyNodeLock(data),
                 toggleHierarchyNodeHidden: (data) => this.toggleHierarchyNodeHidden(data),
-                applyLibraryDrop: (state, point) => this.events?.applyLibraryDrop(state, point) ?? Promise.resolve(),
-                applyHierarchyDrop: (state, target) => this.events?.applyHierarchyDrop(state, target) ?? Promise.resolve(),
+                applyLibraryDrop: (state, point) => this.displayListActions?.applyLibraryDrop(state, point) ?? Promise.resolve(),
+                applyHierarchyDrop: (state, target) => this.displayListActions?.applyHierarchyDrop(state, target) ?? Promise.resolve(),
                 setDebugAttribute: (name, value) => chrome.setDebugAttribute(name, value),
                 setStatus: (message) => chrome.setStatus(message),
             },
@@ -173,6 +177,14 @@ export class EditorProjectExplorer {
         this.events = events;
         return () => {
             if (this.events === events) this.events = null;
+        };
+    }
+
+    bindDisplayListActions(actions: ProjectExplorerDisplayListActions): () => void {
+        if (this.displayListActions) throw new Error("Project explorer display-list actions are already bound.");
+        this.displayListActions = actions;
+        return () => {
+            if (this.displayListActions === actions) this.displayListActions = null;
         };
     }
 
@@ -783,6 +795,7 @@ export class EditorProjectExplorer {
 
     dispose(): void {
         this.events = null;
+        this.displayListActions = null;
         for (const unbind of this.viewUnbinders.splice(0).reverse()) unbind();
         this.resourcePreview.dispose();
         this.treeInteraction.dispose();

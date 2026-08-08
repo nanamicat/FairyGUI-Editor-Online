@@ -113,6 +113,7 @@ const documentAuthoringModuleSource = readFileSync("src/editor/modules/DocumentA
 const inspectorModuleSource = readFileSync("src/editor/modules/InspectorModule.ts", "utf8");
 const projectExplorerModuleSource = readFileSync("src/editor/modules/ProjectExplorerModule.ts", "utf8");
 const authoringDialogsModuleSource = readFileSync("src/editor/modules/AuthoringDialogsModule.ts", "utf8");
+const displayListAuthoringModuleSource = readFileSync("src/editor/modules/DisplayListAuthoringModule.ts", "utf8");
 const timelineModuleSource = readFileSync("src/editor/modules/TimelineModule.ts", "utf8");
 const resourceAuthoringModuleSource = readFileSync("src/editor/modules/ResourceAuthoringModule.ts", "utf8");
 const resourceAuthoringControllerSource = readFileSync("src/editor/ui/ResourceAuthoringController.ts", "utf8");
@@ -147,6 +148,7 @@ assert(coreProductSource.includes([
     "        createProjectExplorerModule(),",
     "        createInspectorModule(),",
     "        createAuthoringDialogsModule(),",
+    "        createDisplayListAuthoringModule(),",
     "        createTimelineModule(),",
     "        createResourceAuthoringModule(),",
     "        createEditorShellModule(),",
@@ -211,6 +213,25 @@ assert(projectExplorerModuleSource.includes("this.viewUnbinders.splice(0).revers
 assert(projectExplorerModuleSource.includes("} catch (error) {"));
 assert(projectExplorerModuleSource.includes("this.dispose();"));
 assert(shellSource.includes("this.unbindProjectExplorer();"));
+assert(projectExplorerModuleSource.includes("bindDisplayListActions(actions: ProjectExplorerDisplayListActions)"));
+assert(displayListAuthoringModuleSource.includes("context.provideService(DISPLAY_LIST_AUTHORING_SERVICE, displayList)"));
+assert(displayListAuthoringModuleSource.includes("context.onDeactivate(() => displayList.dispose())"));
+assert(displayListAuthoringModuleSource.indexOf("context.onDeactivate(() => displayList.dispose())")
+    < displayListAuthoringModuleSource.indexOf("displayList.activate();"));
+assert(displayListAuthoringModuleSource.includes("hotReloadable: false"));
+assert(displayListAuthoringModuleSource.includes("this.viewUnbinders.splice(0).reverse()"));
+assert(displayListAuthoringModuleSource.includes("await Promise.allSettled([...this.inFlight])"));
+assert(displayListAuthoringModuleSource.includes("this.unbindSnapshotReset = this.session.onDidResetSnapshot"));
+assert(displayListAuthoringModuleSource.includes('chrome.registerActions(["cut"]'));
+assert(displayListAuthoringModuleSource.includes('chrome.registerActions(["copy"]'));
+assert(displayListAuthoringModuleSource.includes('chrome.registerActions(["paste"]'));
+assert(!shellSource.includes("private displayNodeClipboard"));
+assert(!shellSource.includes("private customArrangePanel"));
+assert(!shellSource.includes("private async applyHierarchyDrop("));
+assert(!shellSource.includes("private async applyLibraryDrop("));
+assert(!shellSource.includes("private showHierarchyRenameDialog("));
+assert(shellSource.includes("this.displayListAuthoring.duplicateSelectedDisplayNodes()"));
+assert(shellSource.includes("this.displayListAuthoring.deleteSelectedDisplayNodes()"));
 assert(!shellSource.includes("new AuthoringDialogController("));
 assert(authoringDialogsModuleSource.includes("new AuthoringDialogController("));
 assert(!shellSource.includes("new ControllerTimelineAuthoringController("));

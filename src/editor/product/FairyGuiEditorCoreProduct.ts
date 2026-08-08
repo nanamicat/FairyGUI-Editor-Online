@@ -10,6 +10,11 @@ import {
     DOCUMENT_AUTHORING_SERVICE,
     EditorDocumentAuthoring,
 } from "../modules/DocumentAuthoringModule";
+import {
+    createDisplayListAuthoringModule,
+    DISPLAY_LIST_AUTHORING_SERVICE,
+    EditorDisplayListAuthoring,
+} from "../modules/DisplayListAuthoringModule";
 import { createInspectorModule, EditorInspector, INSPECTOR_SERVICE } from "../modules/InspectorModule";
 import {
     createProjectExplorerModule,
@@ -45,6 +50,7 @@ export function createEditorShellModule(): EditorModule<FairyGuiEditorWorkbenchH
                 context.requireService<EditorInspector>(INSPECTOR_SERVICE),
                 context.requireService<EditorProjectExplorer>(PROJECT_EXPLORER_SERVICE),
                 context.requireService<EditorAuthoringDialogs>(AUTHORING_DIALOGS_SERVICE),
+                context.requireService<EditorDisplayListAuthoring>(DISPLAY_LIST_AUTHORING_SERVICE),
                 context.requireService<EditorTimeline>(TIMELINE_SERVICE),
                 context.requireService<EditorResourceAuthoring>(RESOURCE_AUTHORING_SERVICE),
             );
@@ -62,6 +68,7 @@ export function createFairyGuiEditorCoreModules(): EditorModule<FairyGuiEditorWo
         createProjectExplorerModule(),
         createInspectorModule(),
         createAuthoringDialogsModule(),
+        createDisplayListAuthoringModule(),
         createTimelineModule(),
         createResourceAuthoringModule(),
         createEditorShellModule(),
