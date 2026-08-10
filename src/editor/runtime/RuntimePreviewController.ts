@@ -942,7 +942,6 @@ export class RuntimePreviewController {
                 object.indent = list.indent;
                 object.clickToExpand = list.clickToExpand;
             }
-            this.runtimePublishRequired = true;
         } else if (object instanceof fgui.GTextField) {
             if (snapshotState.font !== undefined) {
                 try {

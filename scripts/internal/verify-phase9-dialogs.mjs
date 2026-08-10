@@ -65,10 +65,16 @@ class FakeWindow {
 
     dispose() {
         this.disposed = true;
+        this.undisplay?.handler.call(this.undisplay.owner);
     }
 
     show() {
         this.shown = true;
+    }
+
+    on(type, owner, handler) {
+        assert.equal(type, "undisplay");
+        this.undisplay = { owner, handler };
     }
 }
 
@@ -86,6 +92,7 @@ globalThis.fgui = {
     Window: FakeWindow,
     UIPackage: { createObject },
 };
+globalThis.Laya = { Event: { UNDISPLAY: "undisplay" } };
 
 const { showEditorConfirmation } = await importTypeScriptModule("src/editor/dialogs/EditorDialogs.ts");
 
@@ -118,10 +125,12 @@ showEditorConfirmation(
     () => { confirmed += 1; },
 );
 const confirmDialog = FakeWindow.instances.at(-1);
+assert.equal(replacementDialog.disposed, true);
+assert.equal(state.active, confirmDialog);
 confirmDialog.contentPane.getChild("n1").click();
 assert.equal(confirmed, 1);
 assert.equal(confirmDialog.disposed, true);
-assert.equal(state.active, replacementDialog);
+assert.equal(state.active, null);
 assert.deepEqual(state.debug.at(-1), ["debug-confirm", "confirmed"]);
 
 showEditorConfirmation(
@@ -136,10 +145,11 @@ showEditorConfirmation(
     () => { confirmed += 1; },
 );
 const cancelConfirmDialog = FakeWindow.instances.at(-1);
+assert.equal(state.active, cancelConfirmDialog);
 cancelConfirmDialog.contentPane.getChild("n3").click();
 assert.equal(confirmed, 1);
 assert.equal(cancelConfirmDialog.disposed, true);
-assert.equal(state.active, replacementDialog);
+assert.equal(state.active, null);
 assert.equal(state.statuses.at(-1), "Cancelled");
 assert.deepEqual(state.debug.at(-1), ["debug-cancel", "cancelled"]);
 
@@ -147,6 +157,6 @@ console.log(JSON.stringify({
     ok: true,
     verified: [
         "confirmation success and cancel lifecycle",
-        "confirmation stays independent from unrelated active dialogs",
+        "confirmation replaces and releases the shared active dialog",
     ],
 }));

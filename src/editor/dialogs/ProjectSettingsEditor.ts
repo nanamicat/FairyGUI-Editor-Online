@@ -23,7 +23,7 @@ import type {
 } from "../model/EditorCommand";
 import { createOpId, findDisplayNode } from "../commands/AuthoringTransactionSupport";
 import { readListProperties, readTextInputProperties } from "../commands/DisplayListReaders";
-import { addDialogBackground } from "../ui/EditorFormControls";
+import { addDialogBackground, setOverflowText } from "../ui/EditorFormControls";
 
 type JsonObject = Record<string, unknown>;
 
@@ -290,12 +290,16 @@ export function showProjectSettingsEditor(options: ProjectSettingsEditorContext)
     const adaptation = object(settings.adaptation);
 
     const basic = content.getChild("basic").asCom;
-    label(basic, "projectName").title = String(project.projectId || "");
+    const projectId = String(project.projectId || "");
+    const projectName = label(basic, "projectName");
+    projectName.title = projectId;
+    projectName.tooltips = projectId;
+    setOverflowText(projectName.getTextField(), projectId);
     const projectType = basic.getChild("projectType").asComboBox;
     projectType.items = [String(project.projectType ?? "")];
     projectType.values = projectType.items;
     projectType.selectedIndex = 0;
-    basic.getChild("projectName").enabled = false;
+    projectName.enabled = false;
     projectType.enabled = false;
 
     const commonPanel = content.getChild("common").asCom;

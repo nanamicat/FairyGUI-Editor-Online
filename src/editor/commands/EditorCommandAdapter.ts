@@ -55,8 +55,15 @@ export class EditorCommandAdapter {
     private liveSnapshotSynchronized = true;
 
     reset(snapshot: EditorProjectSnapshot, revision = 0): void {
+        this.clear();
         this.snapshot = snapshot;
         this.revision = revision;
+        this.liveSnapshotSynchronized = true;
+    }
+
+    clear(): void {
+        this.snapshot = null;
+        this.revision = 0;
         this.history = [];
         this.redoStack = [];
         this.currentStateId = 0;
@@ -64,7 +71,7 @@ export class EditorCommandAdapter {
         this.nextStateId = 0;
         this.commandLog = [];
         this.commandSequence = 0;
-        this.liveSnapshotSynchronized = true;
+        this.liveSnapshotSynchronized = false;
     }
 
     updateSnapshot(snapshot: EditorProjectSnapshot): void {

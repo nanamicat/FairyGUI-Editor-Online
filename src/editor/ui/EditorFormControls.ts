@@ -104,6 +104,74 @@ export function createInspectorButton(
     return button;
 }
 
+export function setOverflowText(target: fgui.GTextField, value: string): void {
+    target.text = value;
+    target.singleLine = true;
+    target.displayObject.overflow = Laya.Text.ELLIPSIS;
+    target.tooltips = value;
+}
+
+export function setOverflowButtonTitle(button: fgui.GButton, value: string): void {
+    button.title = value;
+    button.tooltips = value;
+    const title = button.getChild("title")?.asTextField;
+    if (title) title.displayObject.overflow = Laya.Text.ELLIPSIS;
+}
+
+function estimateSingleLineTextWidth(target: fgui.GTextField, value: string): number {
+    const fontSize = target.fontSize || 12;
+    let units = 0;
+    for (const character of value) {
+        if (/\s/.test(character)) units += 0.35;
+        else if (/[\u2e80-\u9fff\uf900-\ufaff]/u.test(character)) units += 1;
+        else if (/[A-Z0-9]/.test(character)) units += 0.68;
+        else units += 0.58;
+    }
+    return Math.ceil(units * fontSize);
+}
+
+export function sizeButtonToTitle(button: fgui.GButton, value: string, minWidth = 0): void {
+    setOverflowButtonTitle(button, value);
+    const title = button.getChild("title")?.asTextField;
+    if (!title) return;
+    title.ensureSizeCorrect();
+    const textWidth = Math.max(Math.ceil(title.textWidth), estimateSingleLineTextWidth(title, value));
+    const width = Math.max(minWidth, title.x + textWidth + 5);
+    button.setSize(width, button.height);
+    title.setSize(Math.max(1, width - title.x - 5), title.height);
+}
+
+export function fitSingleRowButtons(list: fgui.GList, gap = 2): void {
+    list.layout = fgui.ListLayoutType.SingleRow;
+    list.columnGap = gap;
+    const buttons = Array.from({ length: list.numChildren }, (_, index) => list.getChildAt(index).asButton);
+    if (buttons.length === 0) return;
+    const naturalWidths = buttons.map((button) => {
+        const title = button.getChild("title")?.asTextField;
+        title?.ensureSizeCorrect();
+        return title
+            ? title.x + Math.max(
+                Math.ceil(title.textWidth),
+                estimateSingleLineTextWidth(title, button.title),
+            ) + 5
+            : button.width;
+    });
+    const available = Math.max(1, list.width - gap * (buttons.length - 1));
+    const cap = naturalWidths.reduce((sum, width) => sum + width, 0) > available
+        ? Math.max(1, Math.floor(available / buttons.length))
+        : Number.POSITIVE_INFINITY;
+    for (let index = 0; index < buttons.length; index += 1) {
+        const button = buttons[index];
+        const width = Math.min(naturalWidths[index], cap);
+        button.setSize(width, button.height);
+        const title = button.getChild("title")?.asTextField;
+        if (title) {
+            title.setSize(Math.max(1, width - title.x - 5), title.height);
+            title.displayObject.overflow = Laya.Text.ELLIPSIS;
+        }
+    }
+}
+
 export function setActionEnabled(button: fgui.GButton, enabled: boolean): void {
     button.grayed = !enabled;
     button.touchable = enabled;

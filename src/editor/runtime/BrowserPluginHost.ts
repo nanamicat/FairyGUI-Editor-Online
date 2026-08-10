@@ -183,8 +183,10 @@ export function validateBrowserPluginWriteCommands(
 
 export class BrowserPluginHost {
     private readonly plugins = new Map<string, BrowserPluginRecord>();
+    private disposed = false;
 
     async initialize(): Promise<void> {
+        this.assertActive();
         if (this.restore()) this.persist();
         for (const plugin of this.plugins.values()) {
             if (plugin.enabled) await this.activate(plugin);
@@ -218,7 +220,9 @@ export class BrowserPluginHost {
     }
 
     async install(manifestUrl: string, enabled = false): Promise<BrowserPluginSummary> {
+        this.assertActive();
         const loaded = await loadBrowserPlugin(manifestUrl);
+        this.assertActive();
         const existing = this.plugins.get(loaded.manifest.id);
         existing?.sandbox?.dispose();
         const plugin: BrowserPluginRecord = {
@@ -236,9 +240,11 @@ export class BrowserPluginHost {
     }
 
     async reload(pluginId: string): Promise<BrowserPluginSummary> {
+        this.assertActive();
         const current = this.require(pluginId);
         const enabled = current.enabled;
         const loaded = await loadBrowserPlugin(current.manifestUrl);
+        this.assertActive();
         if (loaded.manifest.id !== pluginId) throw new Error("Reloaded plugin id does not match the installed plugin.");
         current.sandbox?.dispose();
         Object.assign(current, loaded, {
@@ -254,6 +260,7 @@ export class BrowserPluginHost {
     }
 
     async setEnabled(pluginId: string, enabled: boolean): Promise<BrowserPluginSummary> {
+        this.assertActive();
         const plugin = this.require(pluginId);
         plugin.enabled = enabled;
         if (enabled) await this.activate(plugin);
@@ -269,6 +276,7 @@ export class BrowserPluginHost {
     }
 
     async invoke(pluginId: string, contributionId: string, context: unknown): Promise<BrowserPluginInvokeResult> {
+        this.assertActive();
         const plugin = this.require(pluginId);
         if (!plugin.enabled) throw new Error("Plugin is disabled.");
         if (!plugin.sandbox) await this.activate(plugin);
@@ -293,6 +301,8 @@ export class BrowserPluginHost {
     }
 
     dispose(): void {
+        if (this.disposed) return;
+        this.disposed = true;
         for (const plugin of this.plugins.values()) plugin.sandbox?.dispose();
         this.plugins.clear();
     }
@@ -302,8 +312,13 @@ export class BrowserPluginHost {
         plugin.sandbox = null;
         plugin.error = "";
         try {
-            plugin.sandbox = await BrowserPluginSandbox.create(plugin.source, plugin.manifest);
-            plugin.environment = plugin.sandbox.environment;
+            const sandbox = await BrowserPluginSandbox.create(plugin.source, plugin.manifest);
+            if (this.disposed) {
+                sandbox.dispose();
+                throw new Error("Browser plugin host was disposed during activation.");
+            }
+            plugin.sandbox = sandbox;
+            plugin.environment = sandbox.environment;
             plugin.state = "ready";
         } catch (error) {
             this.fail(plugin, error);
@@ -325,6 +340,10 @@ export class BrowserPluginHost {
         const plugin = this.plugins.get(pluginId);
         if (!plugin) throw new Error(`Browser plugin ${pluginId} is not installed.`);
         return plugin;
+    }
+
+    private assertActive(): void {
+        if (this.disposed) throw new Error("Browser plugin host is disposed.");
     }
 
     private restore(): boolean {

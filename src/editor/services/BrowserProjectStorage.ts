@@ -29,6 +29,10 @@ export interface BrowserProjectStorageAdapter {
     dispose?(): void;
 }
 
+export class BrowserWorkspaceRollbackError extends Error {
+    readonly code = "BROWSER_WORKSPACE_ROLLBACK_FAILED";
+}
+
 interface IndexedDbFileRecord {
     path: string;
     data: ArrayBuffer;
@@ -150,21 +154,36 @@ export class BrowserProjectStorage {
     async replaceWorkspaceFiles(files: BrowserWorkspaceFile[]): Promise<BrowserProjectStorageState> {
         const state = await this.initialize();
         if (!state.available || !this.adapter) return state;
-
-        if (this.adapter.clear) {
-            await this.adapter.clear();
-        } else {
-            await this.clearFilesOnly(this.adapter, ".");
+        const previousFiles = await this.collectFiles(this.adapter, ".");
+        const replace = async (nextFiles: readonly BrowserWorkspaceFile[]): Promise<void> => {
+            if (this.adapter?.clear) await this.adapter.clear();
+            else if (this.adapter) await this.clearFilesOnly(this.adapter, ".");
+            if (!this.adapter) throw new Error("Browser workspace storage is unavailable.");
+            await this.adapter.mkdir(".", { recursive: true });
+            for (const file of nextFiles) {
+                const normalizedPath = normalizeStoragePath(file.path);
+                if (normalizedPath !== ".") await this.adapter.writeFileRaw(normalizedPath, file.data);
+            }
+        };
+        try {
+            await replace(files);
+            const replaced = await this.getState();
+            if (!replaced.projectFileExists) {
+                throw new Error(`Imported workspace does not contain ${this.fairyPath}.`);
+            }
+            return replaced;
+        } catch (error) {
+            try {
+                await replace(previousFiles);
+            } catch (rollbackError) {
+                const failed = error instanceof Error ? error.message : String(error);
+                const rollbackFailed = rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
+                throw new BrowserWorkspaceRollbackError(
+                    `Workspace replacement failed: ${failed} Rollback also failed: ${rollbackFailed}`,
+                );
+            }
+            throw error;
         }
-        await this.adapter.mkdir(".", { recursive: true });
-
-        for (const file of files) {
-            const normalizedPath = normalizeStoragePath(file.path);
-            if (normalizedPath === ".") continue;
-            await this.adapter.writeFileRaw(normalizedPath, file.data);
-        }
-
-        return await this.getState();
     }
 
     async exportWorkspaceManifest(): Promise<BrowserWorkspaceExport> {

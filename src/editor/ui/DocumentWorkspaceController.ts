@@ -51,6 +51,14 @@ export class DocumentWorkspaceController {
         this.openTabs = [];
         this.nodeSelections.clear();
         this.groupPaths.clear();
+        this.tabs.removeChildrenToPool();
+        this.tabs.selectedIndex = -1;
+        this.groupPathList.removeChildrenToPool();
+        this.groupPathBar.visible = false;
+        this.context.setDebugAttribute("data-fairy-editor-document-tabs", "");
+        this.context.setDebugAttribute("data-fairy-editor-document-tab-count", "0");
+        this.context.setDebugAttribute("data-fairy-editor-active-document", "");
+        this.context.setDebugAttribute("data-fairy-editor-group-path", "root");
     }
 
     dispose(): void {

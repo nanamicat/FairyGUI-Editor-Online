@@ -18,6 +18,8 @@ import {
     createInspectorTextInput,
     createTimelineComboBox,
     setActionEnabled,
+    setOverflowButtonTitle,
+    setOverflowText,
 } from "../ui/EditorFormControls";
 
 export type ControllerEditorContext = {
@@ -199,6 +201,7 @@ function showControllerActionEditor(
         86,
         236,
     );
+    setOverflowButtonTitle(fromPageButton, formatPageSet(fromPageIds));
     addInspectorLine(content, "controllerActionToLabel", "To", 320, 90, 40, "#bdbdbd");
     const toPageButton = createInspectorButton(
         content,
@@ -208,6 +211,7 @@ function showControllerActionEditor(
         86,
         260,
     );
+    setOverflowButtonTitle(toPageButton, formatPageSet(toPageIds));
     const showPageSetMenu = (
         anchor: fgui.GButton,
         selected: string[],
@@ -244,13 +248,13 @@ function showControllerActionEditor(
     fromPageButton.onClick(options.eventOwner, () => {
         showPageSetMenu(fromPageButton, fromPageIds, (pageIds) => {
             fromPageIds = pageIds;
-            fromPageButton.title = formatPageSet(fromPageIds);
+            setOverflowButtonTitle(fromPageButton, formatPageSet(fromPageIds));
         });
     });
     toPageButton.onClick(options.eventOwner, () => {
         showPageSetMenu(toPageButton, toPageIds, (pageIds) => {
             toPageIds = pageIds;
-            toPageButton.title = formatPageSet(toPageIds);
+            setOverflowButtonTitle(toPageButton, formatPageSet(toPageIds));
         });
     });
 
@@ -736,19 +740,24 @@ export function showControllerEditor(options: ControllerEditorContext, controlle
     };
     const renderActions = (): void => {
         actionList.removeChildrenToPool();
+        const setRowLabel = (label: fgui.GLabel, value: string): void => {
+            label.title = value;
+            label.tooltips = value;
+            setOverflowText(label.getTextField(), value);
+        };
         for (let index = 0; index < model.actions.length; index += 1) {
             const action = model.actions[index];
             const row = actionList.addItemFromPool().asButton;
             row.data = { actionIndex: index } satisfies ControllerActionRowData;
             row.getController("type").selectedIndex = action.actionType === 1 ? 1 : 0;
-            row.getChild("fromPage").asLabel.title = formatPages(action.fromPageIds);
-            row.getChild("toPage").asLabel.title = formatPages(action.toPageIds);
-            row.getChild("transitionName").asLabel.title = action.transitionName || "(transition)";
-            row.getChild("controllerName").asLabel.title = [
+            setRowLabel(row.getChild("fromPage").asLabel, formatPages(action.fromPageIds));
+            setRowLabel(row.getChild("toPage").asLabel, formatPages(action.toPageIds));
+            setRowLabel(row.getChild("transitionName").asLabel, action.transitionName || "(transition)");
+            setRowLabel(row.getChild("controllerName").asLabel, [
                 action.targetNodeId,
                 action.controllerName,
-            ].filter(Boolean).join(".") || "(controller)";
-            row.getChild("targetPage").asLabel.title = action.targetPage || "(page)";
+            ].filter(Boolean).join(".") || "(controller)");
+            setRowLabel(row.getChild("targetPage").asLabel, action.targetPage || "(page)");
             for (const childName of [
                 "fromPage",
                 "toPage",

@@ -11,7 +11,10 @@ import type {
     BrowserWorkspaceFile,
     BrowserWorkspaceWriteback,
 } from "../model/BrowserWorkspace";
-import { BrowserProjectStorage } from "./BrowserProjectStorage";
+import {
+    BrowserProjectStorage,
+    BrowserWorkspaceRollbackError,
+} from "./BrowserProjectStorage";
 import {
     compareDirectoryWritebackVersions,
     createDirectoryVersionEntry,
@@ -49,31 +52,62 @@ export class BrowserSaveCoordinator {
     }
 
     async switchWorkspace(workspaceName: string, fairyPath: string): Promise<BrowserProjectStorageState> {
+        const previousWorkspaceName = this.storage.getWorkspaceName();
+        const previousFairyPath = this.storage.getFairyPath();
+        const previousBinding = this.directoryBinding;
+        const previousBindingState = this.directoryBindingState;
+        const previousBindingRestoreAttempted = this.directoryBindingRestoreAttempted;
         const reset = await this.liveSession.reset();
         if (!reset.ok) throw new Error(reset.message || "Active authoring session could not be closed.");
-        this.directoryBinding = null;
-        this.directoryBindingRestoreAttempted = false;
-        this.directoryBindingRestorePromise = null;
-        this.directoryBindingState = {
-            status: "none",
-            baselineFileCount: 0,
-            restored: false,
-            message: "No Folder is attached to this browser workspace.",
-        };
-        const storage = await this.storage.switchWorkspace(workspaceName, fairyPath);
-        await this.restoreDirectoryBinding(storage);
-        return await this.resolveStorageState(storage);
+        this.resetDirectoryBindingState();
+        try {
+            const storage = await this.storage.switchWorkspace(workspaceName, fairyPath);
+            if (!storage.available) throw new Error(storage.error || "Target browser workspace storage is unavailable.");
+            await this.restoreDirectoryBinding(storage);
+            return await this.resolveStorageState(storage);
+        } catch (error) {
+            this.resetDirectoryBindingState();
+            try {
+                const restored = await this.storage.switchWorkspace(previousWorkspaceName, previousFairyPath);
+                if (!restored.available) throw new Error(restored.error || "Previous browser workspace storage is unavailable.");
+                this.restorePreviousDirectoryBinding(
+                    previousBinding,
+                    previousBindingState,
+                    previousBindingRestoreAttempted,
+                );
+            } catch (rollbackError) {
+                throw new Error(`Workspace switch failed: ${formatError(error)} Rollback also failed: ${formatError(rollbackError)}`);
+            }
+            throw error;
+        }
     }
 
     async reauthorizeDirectoryBinding(): Promise<BrowserProjectStorageState> {
-        const storage = await this.restoreWorkspaceBinding();
         const binding = this.directoryBinding;
-        if (!binding) return storage;
+        if (!binding) {
+            const restored = await this.restoreWorkspaceBinding();
+            if (restored.directoryWriteback?.status === "permission_prompt") {
+                return {
+                    ...restored,
+                    directoryWriteback: {
+                        ...restored.directoryWriteback,
+                        message: "Folder binding was restored. Click reauthorize again to open the browser permission prompt.",
+                    },
+                };
+            }
+            return restored;
+        }
+        const workspaceName = this.storage.getWorkspaceName();
+        let state: BrowserDirectoryWritebackState;
         try {
-            await ensureDirectoryWritePermission(binding.directory);
-            this.directoryBindingState = createDirectoryBindingState(binding, "granted");
+            const permissionHandle = binding.directory as unknown as DirectoryPermissionHandle;
+            const permission = typeof permissionHandle.requestPermission === "function"
+                ? await permissionHandle.requestPermission({ mode: "readwrite" })
+                : await queryDirectoryWritePermission(binding.directory);
+            if (permission !== "granted") throw new Error("Permission state: " + permission + ".");
+            state = createDirectoryBindingState(binding, "granted");
         } catch (error) {
-            this.directoryBindingState = {
+            state = {
                 status: "permission_denied",
                 directoryName: binding.directoryName,
                 baselineFileCount: binding.baseline.length,
@@ -81,7 +115,10 @@ export class BrowserSaveCoordinator {
                 message: "Folder permission was not granted: " + formatError(error),
             };
         }
-        return await this.resolveStorageState(storage);
+        if (this.directoryBinding === binding && this.storage.getWorkspaceName() === workspaceName) {
+            this.directoryBindingState = state;
+        }
+        return await this.resolveStorageState(await this.storage.getState());
     }
 
     async checkExternalChanges(): Promise<BrowserWorkspaceWriteback> {
@@ -317,18 +354,70 @@ export class BrowserSaveCoordinator {
             );
         }
 
+        const previousFairyPath = this.storage.getFairyPath();
+        const previousBinding = this.directoryBinding;
+        const previousBindingState = this.directoryBindingState;
+        const previousBindingRestoreAttempted = this.directoryBindingRestoreAttempted;
         try {
             await this.clearDirectoryBinding();
         } catch (error) {
+            this.restorePreviousDirectoryBinding(
+                previousBinding,
+                previousBindingState,
+                previousBindingRestoreAttempted,
+            );
+            let bindingRestoreFailure = "";
+            if (previousBinding) {
+                try {
+                    await this.persistDirectoryBinding(previousBinding);
+                } catch (bindingError) {
+                    bindingRestoreFailure = ` Folder binding restore also failed: ${formatError(bindingError)}.`;
+                }
+            }
             return this.createFailedLifecycleResult(
                 mode,
                 storageState,
                 "DIRECTORY_BINDING_CLEAR_FAILED",
-                "Browser workspace was not replaced because the saved Folder binding could not be removed: " + formatError(error),
+                "Browser workspace was not replaced because the saved Folder binding could not be removed: "
+                    + formatError(error) + "." + bindingRestoreFailure,
             );
         }
         this.storage.setFairyPath(imported.fairyPath);
-        const storage = this.decorateStorageState(await this.storage.replaceWorkspaceFiles(files));
+        let storage: BrowserProjectStorageState;
+        try {
+            storage = this.decorateStorageState(await this.storage.replaceWorkspaceFiles(files));
+        } catch (error) {
+            this.storage.setFairyPath(previousFairyPath);
+            if (error instanceof BrowserWorkspaceRollbackError) {
+                this.resetDirectoryBindingState(true);
+                return this.createFailedLifecycleResult(
+                    mode,
+                    this.decorateStorageState(await this.storage.getState()),
+                    error.code,
+                    `${error.message} Re-import the workspace before editing or saving.`,
+                );
+            }
+            this.restorePreviousDirectoryBinding(
+                previousBinding,
+                previousBindingState,
+                previousBindingRestoreAttempted,
+            );
+            let bindingRestoreFailure = "";
+            if (previousBinding) {
+                try {
+                    await this.persistDirectoryBinding(previousBinding);
+                } catch (bindingError) {
+                    bindingRestoreFailure = ` Folder binding restore also failed: ${formatError(bindingError)}.`;
+                }
+            }
+            const restored = this.decorateStorageState(await this.storage.getState());
+            return this.createFailedLifecycleResult(
+                mode,
+                restored,
+                "BROWSER_WORKSPACE_IMPORT_ROLLED_BACK",
+                `Browser workspace import failed and the previous files were restored: ${formatError(error)}.${bindingRestoreFailure}`,
+            );
+        }
         const projectFileExists = storage.projectFileExists;
         const diagnostics: EditorCommandDiagnostic[] = [
             {
@@ -660,16 +749,32 @@ export class BrowserSaveCoordinator {
     }
 
     private async clearDirectoryBinding(): Promise<void> {
+        const storage = await this.storage.getState();
+        await deletePersistedDirectoryBinding(storage.workspaceName);
+        this.resetDirectoryBindingState(true);
+    }
+
+    private resetDirectoryBindingState(restored = false): void {
         this.directoryBinding = null;
-        this.directoryBindingRestoreAttempted = true;
+        this.directoryBindingRestoreAttempted = restored;
+        this.directoryBindingRestorePromise = null;
         this.directoryBindingState = {
             status: "none",
             baselineFileCount: 0,
             restored: false,
             message: "No Folder is attached to this browser workspace.",
         };
-        const storage = await this.storage.getState();
-        await deletePersistedDirectoryBinding(storage.workspaceName);
+    }
+
+    private restorePreviousDirectoryBinding(
+        binding: DirectoryWritebackBinding | null,
+        state: BrowserDirectoryWritebackState,
+        restoreAttempted: boolean,
+    ): void {
+        this.directoryBinding = binding;
+        this.directoryBindingState = state;
+        this.directoryBindingRestoreAttempted = restoreAttempted;
+        this.directoryBindingRestorePromise = null;
     }
 
     private async setDirectoryBinding(

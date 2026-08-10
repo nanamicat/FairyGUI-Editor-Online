@@ -14,11 +14,30 @@ const editorShellConfig = readSource("src/editor/EditorShellConfig.ts");
 const desktopLayoutControllerSource = readSource("src/editor/ui/DesktopLayoutController.ts");
 const editorUiExtensions = readSource("src/editor/ui/EditorUiExtensions.ts");
 const browserPluginDialogSource = readSource("src/editor/dialogs/BrowserPluginDialog.ts");
+const browserPluginsModuleSource = readSource("src/editor/modules/BrowserPluginsModule.ts");
 const browserWorkspaceDialogSource = readSource("src/editor/dialogs/BrowserWorkspaceDialog.ts");
 const projectImportDialogSource = readSource("src/editor/dialogs/ProjectImportDialog.ts");
+const projectSettingsEditorSource = readSource("src/editor/dialogs/ProjectSettingsEditor.ts");
 const resourceHealthDialogSource = readSource("src/editor/dialogs/ResourceHealthDialog.ts");
+const resourceHealthModuleSource = readSource("src/editor/modules/ResourceHealthModule.ts");
+const projectSessionModuleSource = readSource("src/editor/modules/ProjectSessionModule.ts");
+const shellChromeModuleSource = readSource("src/editor/modules/ShellChromeModule.ts");
+const authoringPreviewModuleSource = readSource("src/editor/modules/AuthoringPreviewModule.ts");
+const documentAuthoringModuleSource = readSource("src/editor/modules/DocumentAuthoringModule.ts");
+const workspaceLifecycleModuleSource = readSource("src/editor/modules/WorkspaceLifecycleModule.ts");
+const inspectorModuleSource = readSource("src/editor/modules/InspectorModule.ts");
+const projectExplorerModuleSource = readSource("src/editor/modules/ProjectExplorerModule.ts");
+const authoringDialogsModuleSource = readSource("src/editor/modules/AuthoringDialogsModule.ts");
+const displayListAuthoringModuleSource = readSource("src/editor/modules/DisplayListAuthoringModule.ts");
+const timelineModuleSource = readSource("src/editor/modules/TimelineModule.ts");
+const resourceAuthoringModuleSource = readSource("src/editor/modules/ResourceAuthoringModule.ts");
+const projectTransferModuleSource = readSource("src/editor/modules/ProjectTransferModules.ts");
 const editorMenuControllerSource = readSource("src/editor/ui/EditorMenuController.ts");
+const editorFormControlsSource = readSource("src/editor/ui/EditorFormControls.ts");
+const controllerEditorsSource = readSource("src/editor/dialogs/ControllerEditors.ts");
+const controllerTimelineSource = readSource("src/editor/ui/ControllerTimelineAuthoringController.ts");
 const resourceAuthoringControllerSource = readSource("src/editor/ui/ResourceAuthoringController.ts");
+const publishedTestControllerSource = readSource("src/editor/runtime/PublishedTestController.ts");
 const projectTreeInteractionSource = readSource("src/editor/ui/ProjectTreeInteractionController.ts");
 const resourcePreviewSource = readSource("src/editor/ui/ResourcePreviewController.ts");
 const resourceEditorsSource = readSource("src/editor/dialogs/ResourceEditors.ts");
@@ -37,6 +56,7 @@ const editorShell = [
     readSource("src/editor/dialogs/ComponentTemplateEditors.ts"),
     browserWorkspaceDialogSource,
     browserPluginDialogSource,
+    browserPluginsModuleSource,
     readSource("src/editor/dialogs/ControllerEditors.ts"),
     readSource("src/editor/dialogs/ListPropertyEditors.ts"),
     readSource("src/editor/dialogs/LoaderPropertyEditors.ts"),
@@ -48,6 +68,19 @@ const editorShell = [
     readSource("src/editor/dialogs/ReplaceObjectDialog.ts"),
     readSource("src/editor/dialogs/ResourceEditors.ts"),
     resourceHealthDialogSource,
+    resourceHealthModuleSource,
+    projectSessionModuleSource,
+    shellChromeModuleSource,
+    authoringPreviewModuleSource,
+    documentAuthoringModuleSource,
+    workspaceLifecycleModuleSource,
+    inspectorModuleSource,
+    projectExplorerModuleSource,
+    authoringDialogsModuleSource,
+    displayListAuthoringModuleSource,
+    timelineModuleSource,
+    resourceAuthoringModuleSource,
+    projectTransferModuleSource,
     readSource("src/editor/dialogs/TextGraphPropertyEditors.ts"),
     readSource("src/editor/dialogs/TimelineItemEditor.ts"),
     readSource("src/editor/ui/EditorFormControls.ts"),
@@ -66,7 +99,7 @@ const editorShell = [
     resourcePreviewSource,
     resourceAuthoringControllerSource,
     readSource("src/editor/ui/TimelinePanelController.ts"),
-    readSource("src/editor/runtime/PublishedTestController.ts"),
+    publishedTestControllerSource,
     readSource("src/editor/runtime/WorkspaceLifecycleController.ts"),
 ].join("\n");
 const mainSource = readSource("src/Main.ts");
@@ -96,6 +129,8 @@ const authoringTransactions = [
 const browserProjectImport = readSource("src/editor/services/BrowserProjectImport.ts");
 const browserProjectStorage = readSource("src/editor/services/BrowserProjectStorage.ts");
 const browserSaveCoordinator = readSource("src/editor/services/BrowserSaveCoordinator.ts");
+const browserWorkspaceRegistrySource = readSource("src/editor/runtime/BrowserWorkspaceRegistry.ts");
+const workspaceLifecycleControllerSource = readSource("src/editor/runtime/WorkspaceLifecycleController.ts");
 const directoryWritebackPolicy = readSource("src/editor/services/DirectoryWritebackPolicy.ts");
 const browserPluginHostSource = readSource("src/editor/runtime/BrowserPluginHost.ts");
 const phase6Adapter = readSource("src/editor/commands/EditorCommandAdapter.ts");
@@ -220,22 +255,21 @@ assert(!editorShellSource.includes("const TOOLBAR_ACTIONS"));
 assert(editorShellConfig.includes("export const TOOLBAR_ACTIONS"));
 assert(!editorShellSource.includes("private layoutPanelContents"));
 assert(desktopLayoutControllerSource.includes("private layoutPanelContents"));
-assert(editorShellSource.includes("private authoringOperationQueue: Promise<void> = Promise.resolve();"));
-assert(editorShellSource.includes("this.authoringOperationQueue.then(() => this.liveSessionBridge.reset())"));
-assert(editorShellSource.includes("let pendingEditorShellDisposal: Promise<void> = Promise.resolve();"));
-assert(editorShellSource.includes("const priorDisposal = pendingEditorShellDisposal;"));
-assert(editorShellSource.includes("await priorDisposal;"));
-assert(editorShellSource.includes("pendingEditorShellDisposal = closeLiveSession.then("));
-assert(editorShellSource.includes("this.disposed ? false : task()"));
-assert(editorShellSource.includes("return this.disposed ? false : this.initializeProjectSnapshotNow();"));
-assert(!editorShellSource.includes("void this.initializeProjectSnapshot();"));
+assert(projectSessionModuleSource.includes("private operationQueue: Promise<void>"));
+assert(projectSessionModuleSource.includes("this.operationQueue.then(() => this.liveSessionBridge.reset())"));
+assert(projectSessionModuleSource.includes("let pendingProjectSessionDisposal: Promise<void> = Promise.resolve();"));
+assert(projectSessionModuleSource.includes("this.operationQueue = pendingProjectSessionDisposal;"));
+assert(projectSessionModuleSource.includes("pendingProjectSessionDisposal = close.then("));
+assert(editorShellSource.includes("this.projectSession.runExclusive(() => ("));
+assert(editorShellSource.includes("this.disposed ? Promise.resolve(false) : task()"));
+assert(editorShellSource.includes("void this.workspaceLifecycle.initialize();"));
+assert(!editorShellSource.includes("initializeProjectSnapshotNow"));
 assert(editorShellSource.includes("runWorkspaceTextFileTask: async (task)"));
 assert(!editorShellSource.includes("readWorkspaceTextFile:"));
 assert(editorShell.includes("await options.runWorkspaceTextFileTask(async (files) =>"));
-assert(editorShellSource.includes("if (!await this.initializeProjectSnapshotNow())"));
-assert(editorShellSource.includes("private async connectBrowserLiveSession(): Promise<boolean>"));
-assert(editorShellSource.includes("if (!await this.connectBrowserLiveSession() || this.disposed) return false;"));
-assert(editorShellSource.includes("Browser live session connected without a synchronized project snapshot."));
+assert(workspaceLifecycleModuleSource.includes("private async initializeNow("));
+assert(workspaceLifecycleModuleSource.includes("private async connectNow("));
+assert(workspaceLifecycleModuleSource.includes("Browser live session connected without a synchronized project snapshot."));
 assert(phase6Adapter.includes("markSaved(stateId = this.currentStateId)"));
 assert(phase6Adapter.includes('"live_session_revision_mismatch"'));
 
@@ -349,6 +383,10 @@ await pluginHost.initialize();
 assert.deepEqual(pluginHost.list().map((plugin) => plugin.id), ["example.user-plugin"]);
 assert.equal(persistedPlugins.includes("fairygui.selection-summary"), false);
 pluginHost.dispose();
+await assert.rejects(
+    pluginHost.install("http://localhost/plugins/late/plugin.json"),
+    /host is disposed/,
+);
 delete globalThis.localStorage;
 delete globalThis.window;
 
@@ -369,6 +407,87 @@ assert.equal(
     ).entries.find((entry) => entry.id === initialWorkspaceRegistry.activeId)?.fairyPath,
     "Original.fairy",
 );
+const quarantinedRegistry = browserWorkspaceRegistry.parseBrowserWorkspaceRegistry(JSON.stringify({
+    ...initialWorkspaceRegistry,
+    entries: initialWorkspaceRegistry.entries.map((entry) => ({
+        ...entry,
+        quarantined: true,
+        quarantineReason: "rollback failed",
+    })),
+}));
+assert.equal(quarantinedRegistry.entries[0].quarantined, undefined);
+assert.equal(quarantinedRegistry.entries[0].quarantineReason, undefined);
+const quarantineStorage = new Map();
+globalThis.localStorage = {
+    getItem: (key) => quarantineStorage.get(key) ?? null,
+    setItem: (key, value) => { quarantineStorage.set(key, value); },
+    removeItem: (key) => { quarantineStorage.delete(key); },
+};
+await browserWorkspaceRegistry.writeBrowserWorkspaceQuarantine(initialWorkspaceRegistry.activeId, "rollback failed");
+assert.equal(
+    await browserWorkspaceRegistry.readBrowserWorkspaceQuarantine(initialWorkspaceRegistry.activeId),
+    "rollback failed",
+);
+await browserWorkspaceRegistry.clearBrowserWorkspaceQuarantine(initialWorkspaceRegistry.activeId);
+assert.equal(await browserWorkspaceRegistry.readBrowserWorkspaceQuarantine(initialWorkspaceRegistry.activeId), null);
+globalThis.localStorage.setItem = () => { throw new Error("quota"); };
+await assert.rejects(
+    browserWorkspaceRegistry.writeBrowserWorkspaceQuarantine(initialWorkspaceRegistry.activeId, "unsafe"),
+    /quota/,
+);
+const quarantineIndexedStorage = new Map();
+globalThis.indexedDB = {
+    open: () => {
+        const request = {};
+        queueMicrotask(() => {
+            const database = {
+                objectStoreNames: { contains: () => true },
+                transaction: () => {
+                    const transaction = {};
+                    const store = {
+                        get: (key) => {
+                            const getRequest = {};
+                            queueMicrotask(() => {
+                                getRequest.result = quarantineIndexedStorage.get(key);
+                                getRequest.onsuccess?.();
+                            });
+                            return getRequest;
+                        },
+                        put: (value) => {
+                            quarantineIndexedStorage.set(value.workspaceId, value);
+                            queueMicrotask(() => transaction.oncomplete?.());
+                        },
+                        delete: (key) => {
+                            quarantineIndexedStorage.delete(key);
+                            queueMicrotask(() => transaction.oncomplete?.());
+                        },
+                    };
+                    transaction.objectStore = () => store;
+                    return transaction;
+                },
+                close: () => {},
+            };
+            request.result = database;
+            request.onsuccess?.();
+        });
+        return request;
+    },
+};
+await browserWorkspaceRegistry.writeBrowserWorkspaceQuarantine(initialWorkspaceRegistry.activeId, "indexed fallback");
+assert.equal(
+    await browserWorkspaceRegistry.readBrowserWorkspaceQuarantine(initialWorkspaceRegistry.activeId),
+    "indexed fallback",
+);
+globalThis.localStorage.setItem = (key, value) => { quarantineStorage.set(key, value); };
+await browserWorkspaceRegistry.clearBrowserWorkspaceQuarantine(initialWorkspaceRegistry.activeId);
+delete globalThis.indexedDB;
+await browserWorkspaceRegistry.writeBrowserWorkspaceQuarantine(initialWorkspaceRegistry.activeId, "rollback failed");
+globalThis.localStorage.removeItem = () => { throw new Error("blocked"); };
+await assert.rejects(
+    browserWorkspaceRegistry.clearBrowserWorkspaceQuarantine(initialWorkspaceRegistry.activeId),
+    /blocked/,
+);
+delete globalThis.localStorage;
 
 const defaultPreferences = editorPreferences.createDefaultEditorPreferences();
 assert.equal(
@@ -403,11 +522,11 @@ assert.equal(editorPreferences.normalizeEditorShortcut("cmd + shift + tab"), "Ct
 for (const snippet of [
     '"使用指南"',
     '"快捷键说明"',
-    "this.editorPreferences.publishAction",
-    "this.editorPreferences.saveBeforePublish",
+    "preferences.publishAction",
+    "preferences.saveBeforePublish",
     "Laya.Config.defaultFont = font",
 ]) {
-    assert(editorShellSource.includes(snippet), `Preferences or Help product wiring is missing: ${snippet}`);
+    assert(editorShell.includes(snippet), `Preferences or Help product wiring is missing: ${snippet}`);
 }
 for (const snippet of [
     "fairygui-editor-online.resource-imports.v1:",
@@ -583,11 +702,11 @@ const shellChecks = [
     "async applyAuthoringAddPackage(): Promise<void>",
     "async applyAuthoringAddComponent(): Promise<void>",
     "private createComponentTemplateEditorContext(): ComponentTemplateEditorContext",
-    'register(["toolbar:createComboBox"]',
+    'chrome.registerActions(["toolbar:createComboBox"]',
     'comboBox: showComboBoxTemplateEditor',
-    'register(["toolbar:createProgressBar"]',
+    'chrome.registerActions(["toolbar:createProgressBar"]',
     'progressBar: showProgressBarTemplateEditor',
-    'register(["toolbar:createSlider"]',
+    'chrome.registerActions(["toolbar:createSlider"]',
     'slider: showSliderTemplateEditor',
     '"desktopMenuCreateScrollBar"',
     '"desktopMenuCreateWindowFrame"',
@@ -753,22 +872,22 @@ const shellChecks = [
     "data-fairy-editor-transaction-remove-component-confirmation",
     "data-fairy-editor-transaction-move-component-confirmation",
     "data-fairy-editor-preview-projection",
-    "private toggleHierarchyExpansion(): void",
+    "toggleHierarchyExpansion(): void",
     "configureHierarchyTree(tree: fgui.GTree): void",
     "private onHierarchyDragStart(",
     "private onHierarchyDragMove(",
     "private onHierarchyDragEnd(",
-    "private async applyHierarchyDrop(",
+    "async applyHierarchyDrop(",
     "fgui.Events.DRAG_START",
     "prepareMoveDisplayNode(",
     "data-fairy-editor-hierarchy-drag",
     "data-fairy-editor-hierarchy-drop",
-    "private copySelectedDisplayNodes(): boolean",
-    "private cutSelectedDisplayNodes(): void",
-    "private async pasteDisplayNodes(",
+    "copySelectedDisplayNodes(): boolean",
+    "cutSelectedDisplayNodes(): void",
+    "async pasteDisplayNodes(",
     "createDisplayNodeClipboard(",
     "preparePasteDisplayNodes(",
-    "private showReplaceObjectDialog(): void",
+    "showReplaceObjectDialog(): void",
     "prepareReplaceDisplayNodes(",
     'UIPackage.createObject("Builder", "ReplaceObjectDialog")',
     'UIPackage.createObject("Builder", "PasteOptionDialog")',
@@ -782,7 +901,7 @@ const shellChecks = [
     "private onLibraryDragStart(",
     "private onLibraryDragMove(",
     "private onLibraryDragEnd(",
-    "private async applyLibraryDrop(",
+    "async applyLibraryDrop(",
     "preparePlaceResourceDisplayNode(",
     "data-fairy-editor-library-drop",
     "OBJECT_TOOLBAR_ACTIONS",
@@ -792,12 +911,12 @@ const shellChecks = [
     '{ childName: "loader", kind: "loader" }',
     '{ childName: "loader3D", kind: "loader3D" }',
     "private setDesktopObjectTool(",
-    "private async groupSelectedDisplayNodes(): Promise<void>",
+    "async groupSelectedDisplayNodes(): Promise<void>",
     "prepareGroupDisplayNodes(",
-    "private async ungroupSelectedDisplayNodes(): Promise<void>",
+    "async ungroupSelectedDisplayNodes(): Promise<void>",
     "prepareUngroupDisplayNodes(",
     "data-fairy-editor-object-group",
-    "private async placeDesktopPrimitive(",
+    "async placeDesktopPrimitive(",
     "prepareAddPrimitiveDisplayNode(",
     "data-fairy-editor-object-create",
     "desktopMenuCopy",
@@ -856,7 +975,7 @@ const shellChecks = [
     "private showPopup(anchor: fgui.GObject): void",
     "private toggleTooltips(anchor: fgui.GObject): void",
     "resolvePublishedTestViewport(",
-    'openResourceHealthDialog({',
+    "showResourceHealthDialog(dialogContext)",
     "repairResourceHealthIssue(issue: ResourceHealthIssue, entries: ResourceHealthEntry[]): void",
     "prepareRemoveResources(project, entries)",
     "private prepareResourceHealthConflictRename(",
@@ -864,17 +983,15 @@ const shellChecks = [
     'openPreferencesDialog({',
     "private resetDesktopLayout(): void",
     "resolveEditorShortcut(event, this.editorPreferences)",
-    "private readonly editorActions = new Map<EditorActionId, () => void>()",
+    "private readonly actions = new Map<EditorActionId, () => void>()",
     "private registerEditorActions(): void",
-    'register(["toolbar:save", "save"]',
     "this.runEditorAction(id)",
     "export class ActiveDocumentController",
-    "return this.activeDocument.restore(snapshot, selection)",
+    "this.activeDocument.restore(snapshot, selection)",
     "createPersistedSelection(",
     'data-fairy-editor-component-preview',
     'data-fairy-editor-layout-reset',
     'openBrowserWorkspaceDialog({',
-    "private async switchBrowserWorkspace(entry: BrowserWorkspaceRegistryEntry): Promise<void>",
     'data-fairy-editor-workspace-switch',
     'data-fairy-editor-workspace-external',
     'setDebugAttribute("data-fairy-editor-test-runtime", "published")',
@@ -890,6 +1007,153 @@ const shellChecks = [
 for (const snippet of shellChecks) {
     assert(editorShell.includes(snippet), `Missing UI interaction wiring: ${snippet}`);
 }
+for (const snippet of [
+    "controllerList.columnGap = 2;",
+    "controllerList.layout = fgui.ListLayoutType.SingleRow;",
+    "private setControllerItemTitle(",
+    "fitSingleRowButtons(controllerList);",
+    "this.setControllerItemTitle(itemObject.asButton, `${data.name}: Page ${controller.selectedIndex + 1}`);",
+    'this.setControllerItemTitle(anchor.asButton, this.tooltipsVisible ? "Hide Tooltips" : "Tooltips");',
+    "device.tooltips = device.text;",
+    "screenMatch.tooltips = screenMatch.text;",
+]) {
+    assert(publishedTestControllerSource.includes(snippet), `Missing TestView controller item sizing: ${snippet}`);
+}
+for (const snippet of [
+    "target.displayObject.overflow = Laya.Text.ELLIPSIS;",
+    "export function setOverflowButtonTitle(",
+    "export function fitSingleRowButtons(",
+    "list.layout = fgui.ListLayoutType.SingleRow;",
+]) {
+    assert(editorFormControlsSource.includes(snippet), `Missing shared text-overflow behavior: ${snippet}`);
+}
+for (const snippet of [
+    "private fitEditingBar(",
+    '"当前过渡没有时间轴动作。"',
+    '{ name: "timelineAddAction", title: "+ 动作"',
+]) {
+    assert(timelinePanelSource.includes(snippet), `Missing Timeline text fitting: ${snippet}`);
+}
+for (const snippet of ["fitSingleRowButtons(list);", "fitLayout(): void", "this.controllerTimeline.fitLayout();"]) {
+    assert(editorShell.includes(snippet), `Controller panel must remain on one fitted row: ${snippet}`);
+}
+for (const snippet of [
+    "populateLibrary(scrollSelectionIntoView = false)",
+    "this.populateLibrary(true);",
+    "setOverflowButtonTitle(item, result.label);",
+    '"输入关键词搜索项目"',
+]) {
+    assert(projectExplorerModuleSource.includes(snippet), `Missing Explorer overflow behavior: ${snippet}`);
+}
+for (const snippet of [
+    "private readonly favoritesEmptyState",
+    "tree.selectNode(node, scrollSelectionIntoView)",
+    "list.addSelection(index, scrollSelectionIntoView)",
+    "this.favoritesEmptyState.visible = favoriteCount === 0;",
+]) {
+    assert(libraryControllerSource.includes(snippet), `Missing Library detail behavior: ${snippet}`);
+}
+assert(
+    /private onLibraryTreeItemClick[\s\S]*?_expandedStatusInEvt[\s\S]*?node\.expanded = true;[\s\S]*?this\.library\.captureExpansionState\(\);[\s\S]*?this\.handleLibraryItemClick/.test(projectExplorerModuleSource),
+    "Library package labels must expand before package selection refreshes the tree without hijacking arrow clicks.",
+);
+assert(!libraryControllerSource.includes(".asTree.clickToExpand = 1;"), "Library resource rows must remain stable across double-clicks.");
+assert(projectTreeInteractionSource.includes("private setCellLabel("), "Tree cells must expose fitted labels and tooltips.");
+assert(projectImportDialogSource.includes("setOverflowText(child.asTextField, text);"), "Import preview must ellipsize long paths with tooltips.");
+assert(projectSettingsEditorSource.includes("setOverflowText(projectName.getTextField(), projectId);"), "Project ID must ellipsize with its complete value available as a tooltip.");
+assert(controllerEditorsSource.includes("setRowLabel(row.getChild"), "Controller action rows must expose complete values.");
+assert(inspectorCommandPanel.includes("setOverflowButtonTitle(title,"), "Inspector resource identity must preserve its complete title.");
+for (const snippet of [
+    'browserWorkspaceReauthorizeFolderMenu',
+    'void this.workspaceLifecycle.reauthorizeFolder();',
+    'browserWorkspaceCheckExternalMenu',
+    'void this.workspaceLifecycle.checkExternalChanges();',
+]) {
+    assert(editorShellSource.includes(snippet), `Missing reachable workspace lifecycle action: ${snippet}`);
+}
+assert.equal(
+    workspaceLifecycleModuleSource.match(/this\.recordSaveResult\(result\);/g)?.length,
+    1,
+    "Workspace save should record its result once.",
+);
+for (const [source, action] of [
+    [authoringDialogsModuleSource, "toolbar:createButton"],
+    [resourceAuthoringModuleSource, "toolbar:createPackage"],
+]) {
+    assert(source.includes(`chrome.registerActions(["${action}"]`), `${action} must be owned by its feature module.`);
+    assert(!editorShellSource.includes(`register(["${action}"]`), `${action} must not remain owned by EditorShell.`);
+}
+assert(
+    !authoringDialogsModuleSource.slice(
+        authoringDialogsModuleSource.indexOf("export type AuthoringDialogsEvents"),
+        authoringDialogsModuleSource.indexOf("export class EditorAuthoringDialogs"),
+    ).includes("getSelectedPackage()"),
+    "Authoring dialogs must read document selection from concrete services instead of proxying through EditorShell.",
+);
+assert(
+    !resourceAuthoringModuleSource.slice(
+        resourceAuthoringModuleSource.indexOf("export type ResourceAuthoringEvents"),
+        resourceAuthoringModuleSource.indexOf("export class EditorResourceAuthoring"),
+    ).includes("getSelectedPackage()"),
+    "Resource authoring must read selection from concrete services instead of proxying through EditorShell.",
+);
+for (const snippet of [
+    "populateHierarchy(): void",
+    "refreshProjectSearch(): void",
+    "refreshProjectReferences(): void",
+    "toggleHierarchyExpansion(): void",
+    "private bindViewActions(): void",
+]) {
+    assert(projectExplorerModuleSource.includes(snippet), `Project Explorer must own presentation wiring: ${snippet}`);
+}
+for (const snippet of [
+    "private populateHierarchyFromSnapshot(): void",
+    "private refreshProjectSearch(): void",
+    "private refreshProjectReferences(): void",
+    "private toggleHierarchyExpansion(): void",
+]) {
+    assert(!editorShellSource.includes(snippet), `EditorShell still owns Project Explorer presentation: ${snippet}`);
+}
+for (const snippet of [
+    "bindDisplayListActions({",
+    "async applyLibraryDrop(",
+    "async applyHierarchyDrop(",
+    "showHierarchyRenameDialog(): void",
+    "toggleAllHierarchyLocks(): void",
+    "copySelectedDisplayNodes(): boolean",
+    "async pasteDisplayNodes(",
+    "showReplaceObjectDialog(): void",
+    "async deleteSelectedDisplayNodes(",
+    "onAlignToolbarAction(",
+    "showCustomArrangePanel(",
+    "this.unbindSnapshotReset = this.session.onDidResetSnapshot",
+    "this.viewUnbinders.splice(0).reverse()",
+    "await Promise.allSettled([...this.inFlight])",
+    'chrome.registerActions(["cut"]',
+    'chrome.registerActions(["copy"]',
+    'chrome.registerActions(["paste"]',
+]) {
+    assert(displayListAuthoringModuleSource.includes(snippet), `DisplayListAuthoring must own ${snippet}`);
+}
+for (const snippet of [
+    "private displayNodeClipboard",
+    "private customArrangePanel",
+    "private async applyLibraryDrop(",
+    "private async applyHierarchyDrop(",
+    "private showHierarchyRenameDialog(",
+    "private copySelectedDisplayNodes(",
+    "private async pasteDisplayNodes(",
+    "private async deleteSelectedDisplayNodes(",
+    "private onAlignToolbarAction(",
+]) {
+    assert(!editorShellSource.includes(snippet), `EditorShell still owns display-list behavior: ${snippet}`);
+}
+assert(projectExplorerModuleSource.includes("bindDisplayListActions(actions: ProjectExplorerDisplayListActions)"));
+assert(displayListAuthoringModuleSource.includes("context.onDeactivate(() => displayList.dispose())"));
+assert(displayListAuthoringModuleSource.indexOf("context.onDeactivate(() => displayList.dispose())")
+    < displayListAuthoringModuleSource.indexOf("displayList.activate();"));
+assert(editorShellSource.includes("this.displayListAuthoring.duplicateSelectedDisplayNodes()"));
+assert(editorShellSource.includes("this.displayListAuthoring.deleteSelectedDisplayNodes()"));
 for (const removedProductDiagnostic of [
     "showCapabilitySummary",
     "showCommandHistory",
@@ -1024,7 +1288,7 @@ for (const snippet of [
     '["资源", "library", "panel_lib"]',
     '["收藏", "favorites", "panel_favorite"]',
     '["搜索", "search", "panel_search"]',
-    'this.libraryDock.getChild("tab2")',
+    'this.chrome.libraryDock.getChild("tab2")',
     "library.width * 137 / 283",
     "slider.y - list.y",
 ]) {
@@ -1033,7 +1297,7 @@ for (const snippet of [
 for (const snippet of [
     'btnTwoColumn").asButton.selected = false',
     'list.visible = separator.visible = slider.visible = twoColumn',
-    'this.listenClick(this.panels.library.getChild("btnCollapseAll"), this.collapseLibrary)',
+    'this.listenClick(this.chrome.panels.library.getChild("btnCollapseAll"), this.collapseLibrary)',
     'data-fairy-editor-library-columns',
 ]) {
     assert(editorShell.includes(snippet), `Desktop single-column LibraryView behavior is missing: ${snippet}`);
@@ -1093,6 +1357,13 @@ assert(
 assert(
     runtimePreview.includes("requiresRuntimePublish(): boolean"),
     "Published test mode must honor the runtime publish-required boundary.",
+);
+const runtimeListProjectionStart = runtimePreview.indexOf("} else if (object instanceof fgui.GList && snapshotState.listProperties) {");
+const runtimeListProjectionEnd = runtimePreview.indexOf("} else if (object instanceof fgui.GTextField) {", runtimeListProjectionStart);
+assert(runtimeListProjectionStart >= 0 && runtimeListProjectionEnd > runtimeListProjectionStart);
+assert(
+    !runtimePreview.slice(runtimeListProjectionStart, runtimeListProjectionEnd).includes("this.runtimePublishRequired = true"),
+    "Loading an unchanged published list must not require another Publish.",
 );
 
 for (const snippet of [
@@ -1245,7 +1516,7 @@ for (const snippet of [
     assert(phase7Bridge.includes(snippet), `Missing browser runtime publish wiring: ${snippet}`);
 }
 assert(editorShell.includes("Browser publish blocked: save changes first."), "Dirty browser publish must require a saved checkpoint.");
-assert(editorShell.includes("this.runtimePreview.resetRuntimePackages()"), "Successful browser publish must unload stale runtime packages.");
+assert(authoringPreviewModuleSource.includes("this.controller.resetRuntimePackages()"), "Successful browser publish must unload stale runtime packages.");
 
 for (const snippet of [
     "export async function pickBrowserFile(",
@@ -1340,29 +1611,29 @@ for (const snippet of [
 }
 assert(!previewProjection.includes('status: "stale"'), "Authoring canvas must not become stale for supported UAM operations.");
 for (const snippet of [
-    "commitPreviewNodePositions",
-    "queueSelectedNodeNudge",
-    "applyDesktopNodePositions",
-    "commitPreviewNodeTransforms",
-    "applyDesktopNodeTransforms",
+    "commitPositions",
+    "nudgeSelectedNodes",
+    "applyPositions",
+    "commitTransforms",
+    "applyTransforms",
     "group scale",
     "data-fairy-editor-canvas-size",
     "ALIGN_TOOLBAR_ACTIONS",
     "CUSTOM_ARRANGE_ACTIONS",
-    "private onAlignToolbarAction(",
-    "private showCustomArrangePanel(",
-    "private applyCustomArrange(): void",
+    "onAlignToolbarAction(",
+    "showCustomArrangePanel(",
+    "applyCustomArrange(): void",
     "CustomArrangePanel",
     "data-fairy-editor-canvas-arrange",
     "resolveDesktopCanvasAlignment(",
     "resolveDesktopCanvasCustomArrange(",
     "data-fairy-editor-canvas-align",
-    "commitPreviewNodeRotation",
-    "applyDesktopNodeRotation",
-    "commitPreviewNodePivot",
-    "applyDesktopNodePivot",
-    "commitPreviewGraphPoints",
-    "applyDesktopGraphPoints",
+    "commitRotations",
+    "applyRotations",
+    "commitPivot",
+    "applyPivot",
+    "commitGraphPoints",
+    "applyGraphPoints",
     "data-fairy-editor-canvas-graph-point",
     "canvas group rotate",
     "data-fairy-editor-canvas-rotation",
@@ -1421,14 +1692,14 @@ for (const snippet of [
     'tab.title = "显示列表"',
     "private appendHierarchyNodes(",
     "child.group !== parentGroupId",
-    "private toggleAllHierarchyLocks(): void",
+    "toggleAllHierarchyLocks(): void",
     "private handleHierarchyKey(event: Laya.Event): boolean",
     "private getHierarchySearchVisibleIds(",
-    "private showHierarchyRenameDialog(): void",
+    "showHierarchyRenameDialog(): void",
     "private toggleAllHierarchyVisibility(): void",
     "prepareRenameDisplayNode(",
 ]) {
-    assert(editorShellSource.includes(snippet), `Missing desktop display-list alignment wiring: ${snippet}`);
+    assert(editorShell.includes(snippet), `Missing desktop display-list alignment wiring: ${snippet}`);
 }
 assert(
     !editorShellSource.includes('const rootNode = this.createTreeNode(true, selectedComponent.name);'),
@@ -1482,8 +1753,8 @@ for (const snippet of [
     "openDocuments:",
     "private openReferencedComponent(",
     "data-fairy-editor-open-reference",
-    "private async duplicateSelectedDisplayNodes(",
-    "private async deleteSelectedDisplayNodes(",
+    "async duplicateSelectedDisplayNodes(",
+    "async deleteSelectedDisplayNodes(",
     "data-fairy-editor-display-node-duplicate",
     "data-fairy-editor-display-node-delete",
 ]) {
@@ -1533,31 +1804,32 @@ assert(
     stageKeyDown.includes("runtimePreview.hasCanvasFocus()"),
     "Arrow-key nudge must be scoped to canvas focus.",
 );
-const displayPropsApply = editorShell.slice(
-    editorShell.indexOf("private async applyDisplayNodePropsCommand"),
-    editorShell.indexOf("private async undoCommand"),
+const displayPropsApply = projectSessionModuleSource.slice(
+    projectSessionModuleSource.indexOf("async applyDisplayNodePropsNow"),
+    projectSessionModuleSource.indexOf("async undoNow"),
 );
 assert(
-    displayPropsApply.includes("liveSessionBridge.getProjectSnapshot()"),
-    "Low-risk apply must synchronize the EditorShell snapshot from the live bridge.",
+    displayPropsApply.includes("this.syncCommandResult(result, notify)"),
+    "Low-risk apply must synchronize the project session snapshot.",
 );
-const displayPropsUndo = editorShell.slice(
-    editorShell.indexOf("private async undoCommand"),
-    editorShell.indexOf("private async applyAuthoringPreparation"),
+const displayPropsUndo = projectSessionModuleSource.slice(
+    projectSessionModuleSource.indexOf("async undoNow"),
+    projectSessionModuleSource.indexOf("async saveWorkspaceNow"),
 );
 assert(
-    displayPropsUndo.includes("liveSessionBridge.getProjectSnapshot()"),
-    "Low-risk undo must synchronize the EditorShell snapshot from the live bridge.",
+    displayPropsUndo.includes("this.syncCommandResult(")
+        && projectSessionModuleSource.includes("this.liveSessionBridge.getProjectSnapshot()"),
+    "Low-risk undo/redo must synchronize the project session snapshot from the live bridge.",
 );
 const authoringPreparation = editorShellSource.slice(
     editorShellSource.indexOf("private async applyAuthoringPreparation"),
     editorShellSource.indexOf("private refreshPreviewForSelectedNode"),
 );
 assert(authoringPreparation.includes("this.liveSessionBridge.captureSessionIdentity()"));
-assert(authoringPreparation.includes("this.liveSessionBridge.isSessionIdentityCurrent(preparationIdentity)"));
-assert(authoringPreparation.includes("Operation cancelled because the project changed while it was queued."));
+assert(projectSessionModuleSource.includes("this.liveSessionBridge.isSessionIdentityCurrent(identity)"));
+assert(editorShell.includes("Operation cancelled because the project changed while it was queued."));
 assert((editorShell.match(/applyAuthoringPreparation\(preparation, preparationIdentity\)/g) || []).length >= 9);
-assert(editorShellSource.includes("const preparation = prepareDetachDisplayNodes("));
+assert(displayListAuthoringModuleSource.includes("const preparation = prepareDetachDisplayNodes("));
 assert(!editorShell.includes("let preparation: HighRiskTransactionPreparation | null = null;"));
 for (const passThrough of [
     "populateInspectorForCurrentSelection",
@@ -1569,48 +1841,117 @@ for (const passThrough of [
     "private get selectedTransitionName",
     "private set selectedTransitionName",
 ]) assert(!editorShellSource.includes(passThrough), `Pure pass-through must stay removed: ${passThrough}`);
-const projectRefresh = editorShellSource.slice(
-    editorShellSource.indexOf("private async refreshProjectSnapshot"),
-    editorShellSource.indexOf("private async publishBrowserRuntimeBundle"),
-);
+const projectRefreshStart = editorShellSource.indexOf("private async refreshProjectSnapshot");
+const projectRefreshEnd = editorShellSource.indexOf("private showBrowserWorkspaceSelector", projectRefreshStart);
+assert(projectRefreshStart >= 0 && projectRefreshEnd > projectRefreshStart, "Project refresh verifier markers are stale.");
+const projectRefresh = editorShellSource.slice(projectRefreshStart, projectRefreshEnd);
 assert(projectRefresh.includes("enqueueAuthoringOperation"));
 assert(projectRefresh.includes("applyLiveProjectSnapshot(snapshot)"));
 assert(!projectRefresh.includes("commandAdapter.reset"));
-const projectReset = editorShellSource.slice(
-    editorShellSource.indexOf("private applyProjectSnapshot"),
-    editorShellSource.indexOf("private applyLiveProjectSnapshot"),
+const projectReset = projectSessionModuleSource.slice(
+    projectSessionModuleSource.indexOf("resetSnapshot("),
+    projectSessionModuleSource.indexOf("syncSnapshot("),
 );
 assert(projectReset.includes("commandAdapter.reset(snapshot, revision)"));
-const browserPublish = editorShellSource.slice(
-    editorShellSource.indexOf("private async publishBrowserRuntimeBundle"),
-    editorShellSource.indexOf("private async saveBrowserWorkspace"),
+const browserPublish = projectTransferModuleSource.slice(
+    projectTransferModuleSource.indexOf("createRuntimePublishModule"),
 );
-assert(browserPublish.includes("if (!this.commandAdapter.isLiveSessionAligned())"));
-const browserSave = editorShellSource.slice(
-    editorShellSource.indexOf("private async saveBrowserWorkspace"),
-    editorShellSource.indexOf("private renderBrowserSaveResult"),
+assert(browserPublish.includes("if (!session.commandAdapter.isLiveSessionAligned())"));
+assert(browserPublish.includes("workspace.invalidateRuntime(true)"));
+assert(browserPublish.includes("const inFlight = new Set<Promise<unknown>>()"));
+assert(browserPublish.includes("await Promise.allSettled([...inFlight])"));
+assert(browserPublish.includes("const identity = session.liveSessionBridge.captureSessionIdentity()"));
+assert(browserPublish.includes("session.liveSessionBridge.isSessionIdentityCurrent(identity)"));
+assert(browserPublish.includes("const requestedPackageId = document.activeDocument.getPackage(session.snapshot)?.id"));
+assert(
+    browserPublish.indexOf("captureSessionIdentity()") < browserPublish.indexOf("session.runExclusive(async () =>"),
+    "Runtime publish must bind the request to its click-time session before entering the queue.",
 );
-assert(browserSave.includes("enqueueAuthoringOperation"));
-assert(browserSave.includes("getCurrentStateId()"));
-assert(browserSave.includes("markSaved(checkpointStateId)"));
-assert(browserSave.includes("result.results.save.revision === checkpointRevision"));
-const createWorkspace = editorShellSource.slice(
-    editorShellSource.indexOf("private async createBrowserWorkspace"),
-    editorShellSource.indexOf("private async switchBrowserWorkspace"),
+const browserSaveStart = workspaceLifecycleModuleSource.indexOf("private async saveNow");
+const browserSaveEnd = workspaceLifecycleModuleSource.indexOf("private async switchNow", browserSaveStart);
+assert(browserSaveStart >= 0 && browserSaveEnd > browserSaveStart, "Workspace save verifier markers are stale.");
+const browserSave = workspaceLifecycleModuleSource.slice(browserSaveStart, browserSaveEnd);
+assert(browserSave.includes("this.session.saveWorkspaceNow(this.createSaveTarget())"));
+const sessionSave = projectSessionModuleSource.slice(
+    projectSessionModuleSource.indexOf("saveWorkspaceNow("),
+    projectSessionModuleSource.indexOf("runExclusive<T>"),
 );
-assert(createWorkspace.indexOf("enqueueAuthoringOperation") < createWorkspace.indexOf("workspaceLifecycle.addWorkspace(name)"));
+assert(sessionSave.includes("getCurrentStateId()"));
+assert(sessionSave.includes("markSaved(checkpointStateId)"));
+assert(sessionSave.includes("result.results.save.revision === checkpointRevision"));
+for (const queued of [
+    "this.session.runExclusive(() => this.initializeNow(",
+    "this.session.runExclusive(() => this.saveNow(",
+    "this.session.runExclusive(() => this.createNow(name)",
+    "this.session.runExclusive(() => this.switchNow(entry)",
+    "this.session.runExclusive(() => this.closeNow(",
+    "this.session.runExclusive(() => this.importWorkspaceNow(",
+]) assert(workspaceLifecycleModuleSource.includes(queued), `Workspace operation must use the session queue: ${queued}`);
+assert(workspaceLifecycleModuleSource.includes("this.session.workspaceLifecycle.createWorkspace(name)"));
+const createWorkspaceStart = workspaceLifecycleControllerSource.indexOf("async createWorkspace(name:");
+const createWorkspaceEnd = workspaceLifecycleControllerSource.indexOf("async switchWorkspace", createWorkspaceStart);
+assert(createWorkspaceStart >= 0 && createWorkspaceEnd > createWorkspaceStart);
+const createWorkspace = workspaceLifecycleControllerSource.slice(createWorkspaceStart, createWorkspaceEnd);
+assert(
+    createWorkspace.indexOf("await this.coordinator.switchWorkspace") < createWorkspace.indexOf("this.currentRegistry ="),
+    "A new recent workspace must only be committed after its storage switch succeeds.",
+);
+assert(!workspaceLifecycleControllerSource.includes("addWorkspace(name:"));
+const reauthorizeStart = workspaceLifecycleModuleSource.indexOf("reauthorizeFolder(): Promise<void>");
+const reauthorizeEnd = workspaceLifecycleModuleSource.indexOf("checkExternalChanges(): Promise<void>", reauthorizeStart);
+assert(reauthorizeStart >= 0 && reauthorizeEnd > reauthorizeStart);
+const reauthorize = workspaceLifecycleModuleSource.slice(reauthorizeStart, reauthorizeEnd);
+assert(reauthorize.includes("this.reauthorizeFolderNow()") && !reauthorize.includes("runExclusive"));
 for (const transition of ["switch", "close", "import"]) {
     assert(
-        editorShellSource.includes(`guardWorkspaceTransition("${transition}"`),
+        workspaceLifecycleModuleSource.includes(`guardTransition("${transition}"`),
         `${transition} must share the dirty workspace-transition guard.`,
     );
 }
+const closeStart = workspaceLifecycleModuleSource.indexOf("private async closeNow");
+const closeEnd = workspaceLifecycleModuleSource.indexOf("private async reauthorizeFolderNow", closeStart);
+const closeWorkspace = workspaceLifecycleModuleSource.slice(closeStart, closeEnd);
+assert(closeWorkspace.includes("this.session.clearSnapshot()"));
+assert(closeWorkspace.includes("this.document.reset()"));
+assert(closeWorkspace.includes("this.recordSessionState(this.session.liveSessionBridge.getState())"));
+assert(projectSessionModuleSource.includes("this.commandAdapter.clear()"));
+assert(phase6Adapter.includes("clear(): void"));
+const importStart = workspaceLifecycleModuleSource.indexOf("private async importWorkspaceNow");
+const importEnd = workspaceLifecycleModuleSource.indexOf("private async connectNow", importStart);
+const importWorkspace = workspaceLifecycleModuleSource.slice(importStart, importEnd);
+assert(importWorkspace.includes("this.registry.activeId !== workspaceId"));
+assert(importWorkspace.includes("captureSessionIdentity()"));
+assert(importWorkspace.includes("isSessionIdentityCurrent(identity)"));
+assert(importWorkspace.includes("if (!result.ok)"));
+assert(importWorkspace.includes('diagnostic.code === "BROWSER_WORKSPACE_ROLLBACK_FAILED"'));
+assert(importWorkspace.includes("this.recordSessionState(this.session.liveSessionBridge.getState())"));
+assert(importWorkspace.includes("this.host?.showStartScene()"));
+assert(importWorkspace.includes("this.session.clearSnapshot()"));
+assert(importWorkspace.includes("this.document.reset()"));
+assert.equal(importWorkspace.match(/await this\.reconcileImportNow\(\);/g)?.length, 2, "Returned and thrown import failures must both reconcile a changed session.");
+assert(importWorkspace.includes("await this.initializeNow(false"));
+assert(importWorkspace.includes("else {\n                this.document.refreshPreview();"));
+const workspaceImportStart = projectTransferModuleSource.indexOf("export function createWorkspaceImportModule");
+const workspaceImportEnd = projectTransferModuleSource.indexOf("export function createRuntimePublishModule", workspaceImportStart);
+const workspaceImport = projectTransferModuleSource.slice(workspaceImportStart, workspaceImportEnd);
+for (const delegated of [
+    "workspace.importWorkspace(picked, label)",
+    "workspace.pickDirectoryProject()",
+    "workspace.pickZipProject()",
+]) assert(workspaceImport.includes(delegated), `Workspace import must delegate: ${delegated}`);
+for (const duplicateOwner of [
+    "session.runExclusive",
+    "connectNow(",
+    "resetRuntimePackages",
+    "recordSessionState",
+    "recordWorkspaceLifecycleDebug",
+]) assert(!workspaceImport.includes(duplicateOwner), `Workspace import still owns lifecycle work: ${duplicateOwner}`);
 assert(
     libraryControllerSource.includes("this.treeInteraction.configureLibraryTree(tree);"),
     "Snapshot refresh must restore Library drag handlers after resetting the tree.",
 );
 assert(
-    editorShellSource.includes("if (child.isFolder) {\n                    const nested = find(child);"),
+    /if \(child\.isFolder\) \{\r?\n\s+const nested = find\(child\);/.test(projectExplorerModuleSource),
     "Hierarchy selection restore must not read leaf-node children.",
 );
 assert(
@@ -1674,8 +2015,8 @@ assert(
 );
 assert(
     editorShellSource.includes("if (!this.resourcePreview.play())")
-        && editorShellSource.includes("this.resourcePreview.dispose()"),
-    "Resource preview playback and disposal must be wired through EditorShell.",
+        && projectExplorerModuleSource.includes("this.resourcePreview.dispose()"),
+    "Resource preview playback and module-owned disposal must be wired.",
 );
 assert(
     libraryControllerSource.includes("pkg.id === this.currentPackageId")
@@ -1685,6 +2026,16 @@ assert(
             libraryControllerSource.indexOf("setResourceSelection("),
         ).includes("applySelection"),
     "Library browsing package must stay independent from the active document package.",
+);
+const packageSelectionSlice = editorShellSource.slice(
+    editorShellSource.indexOf('if (data.kind === "package")'),
+    editorShellSource.indexOf('if (data.kind === "component")', editorShellSource.indexOf('if (data.kind === "package")')),
+);
+assert(
+    packageSelectionSlice.includes("this.projectExplorer.populateLibrary();")
+        && !packageSelectionSlice.includes("setActiveSelection(")
+        && !packageSelectionSlice.includes("refreshProjectViews()"),
+    "Selecting a Library package must refresh its resources without opening or switching documents.",
 );
 
 for (const snippet of [
@@ -1711,6 +2062,19 @@ assert(
     !restoreDirectoryBinding.includes("requestPermission"),
     "Folder binding restore must not prompt for permission.",
 );
+const reauthorizeDirectoryBindingStart = browserSaveCoordinator.indexOf("async reauthorizeDirectoryBinding");
+const reauthorizeDirectoryBindingEnd = browserSaveCoordinator.indexOf("async checkExternalChanges", reauthorizeDirectoryBindingStart);
+assert(reauthorizeDirectoryBindingStart >= 0 && reauthorizeDirectoryBindingEnd > reauthorizeDirectoryBindingStart);
+const reauthorizeDirectoryBinding = browserSaveCoordinator.slice(
+    reauthorizeDirectoryBindingStart,
+    reauthorizeDirectoryBindingEnd,
+);
+const permissionPromptPath = reauthorizeDirectoryBinding.slice(reauthorizeDirectoryBinding.indexOf("const workspaceName"));
+assert(permissionPromptPath.indexOf("await ") >= 0);
+assert.equal(permissionPromptPath.indexOf("await permissionHandle.requestPermission"), permissionPromptPath.indexOf("await "));
+assert(reauthorizeDirectoryBinding.includes("requestPermission({ mode: \"readwrite\" })"));
+assert(reauthorizeDirectoryBinding.includes("this.directoryBinding === binding"));
+assert(reauthorizeDirectoryBinding.includes("this.storage.getWorkspaceName() === workspaceName"));
 assert(
     editorShell.includes("data-fairy-editor-workspace-folder-binding"),
     "Workspace UI must expose restored Folder binding state.",
@@ -1726,6 +2090,43 @@ assert(
 assert(browserProjectStorage.includes("async switchWorkspace(workspaceName: string, fairyPath: string)"));
 assert(browserSaveCoordinator.includes("async switchWorkspace(workspaceName: string, fairyPath: string)"));
 assert(browserSaveCoordinator.includes("async checkExternalChanges(): Promise<BrowserWorkspaceWriteback>"));
+const storageReplaceStart = browserProjectStorage.indexOf("async replaceWorkspaceFiles");
+const storageReplaceEnd = browserProjectStorage.indexOf("async exportWorkspaceManifest", storageReplaceStart);
+const storageReplace = browserProjectStorage.slice(storageReplaceStart, storageReplaceEnd);
+assert(storageReplace.includes('const previousFiles = await this.collectFiles(this.adapter, ".")'));
+assert(storageReplace.includes("await replace(previousFiles)"));
+assert(storageReplace.includes("if (!replaced.projectFileExists)"));
+assert(storageReplace.includes("throw new BrowserWorkspaceRollbackError("));
+const workspaceSwitchStart = browserSaveCoordinator.indexOf("async switchWorkspace(workspaceName:");
+const workspaceSwitchEnd = browserSaveCoordinator.indexOf("async reauthorizeDirectoryBinding", workspaceSwitchStart);
+const workspaceSwitch = browserSaveCoordinator.slice(workspaceSwitchStart, workspaceSwitchEnd);
+assert(workspaceSwitch.includes("previousWorkspaceName"));
+assert(workspaceSwitch.includes("previousBindingState"));
+assert(workspaceSwitch.includes("this.restorePreviousDirectoryBinding("));
+assert.equal(workspaceSwitch.match(/this\.storage\.switchWorkspace\(/g)?.length, 2, "Workspace switch must include one rollback switch.");
+for (const transitionMethod of ["private async createNow", "private async switchNow"]) {
+    const start = workspaceLifecycleModuleSource.indexOf(transitionMethod);
+    const end = workspaceLifecycleModuleSource.indexOf("\n    private ", start + transitionMethod.length);
+    const transitionSource = workspaceLifecycleModuleSource.slice(start, end);
+    assert(transitionSource.includes("captureSessionIdentity()"));
+    assert(transitionSource.includes("await this.reconcileSwitchFailureNow(identity)"));
+}
+assert(workspaceLifecycleModuleSource.includes("getActiveWorkspaceQuarantine()"));
+assert(workspaceLifecycleModuleSource.includes('data-fairy-editor-workspace-quarantined'));
+assert(workspaceLifecycleModuleSource.includes("this.host?.showStartScene()"));
+assert(editorShellSource.includes("showStartScene: () => this.showStartScene()"));
+assert(workspaceLifecycleModuleSource.includes("return this.quarantineImportedWorkspaceNow("));
+assert(workspaceLifecycleControllerSource.includes("await writeBrowserWorkspaceQuarantine(workspaceId, reason)"));
+assert(workspaceLifecycleControllerSource.includes("await clearBrowserWorkspaceQuarantine(workspaceId)"));
+assert(workspaceLifecycleModuleSource.includes("await this.session.workspaceLifecycle.clearActiveWorkspaceQuarantine()"));
+assert(browserWorkspaceRegistrySource.includes("writeIndexedWorkspaceQuarantine(workspaceId, reason)"));
+assert(browserWorkspaceRegistrySource.includes("readIndexedWorkspaceQuarantine(workspaceId)"));
+assert(browserWorkspaceRegistrySource.includes("clearIndexedWorkspaceQuarantine(workspaceId)"));
+assert(
+    workspaceLifecycleModuleSource.indexOf("connected = await this.connectNow()")
+        < workspaceLifecycleModuleSource.indexOf("clearActiveWorkspaceQuarantine()"),
+    "A workspace quarantine marker must only be cleared after live-session validation succeeds.",
+);
 for (const snippet of [
     "BrowserPluginHost",
     "desktopMenuBrowserPlugins",

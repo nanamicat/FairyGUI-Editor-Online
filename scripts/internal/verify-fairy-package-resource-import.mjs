@@ -22,6 +22,7 @@ for (const packageName of ["core", "functions", "backend", "cli"]) {
 const editorUiSource = [
     readFileSync("src/editor/EditorShell.ts", "utf8"),
     readFileSync("src/editor/dialogs/EditorDialogs.ts", "utf8"),
+    readFileSync("src/editor/modules/ProjectTransferModules.ts", "utf8"),
     readFileSync("src/editor/ui/ResourceAuthoringController.ts", "utf8"),
 ].join("\n");
 for (const sourceContract of [
@@ -34,7 +35,7 @@ for (const sourceContract of [
     "prepareImportFairyPackageResources(",
     "captureSessionIdentity()",
     "isSessionIdentityCurrent(identity)",
-    "ensureFairyPackageInteractionCurrent(interactionIdentity",
+    "this.ensureCurrent(interactionIdentity",
 ]) {
     assert(editorUiSource.includes(sourceContract), `Editor UI must wire ${sourceContract}`);
 }

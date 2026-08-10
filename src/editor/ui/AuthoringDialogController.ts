@@ -141,6 +141,9 @@ export class AuthoringDialogController {
 
     constructor(private readonly options: AuthoringDialogControllerOptions) {}
 
+    getActiveDialog(): fgui.Window | null { return this.activeDialog; }
+    setActiveDialog(dialog: fgui.Window | null): void { this.activeDialog = dialog; }
+
     dispose(): void {
         this.activeDialog?.dispose();
         this.activeDialog = null;

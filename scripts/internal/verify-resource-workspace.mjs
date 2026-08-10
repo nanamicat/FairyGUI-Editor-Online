@@ -222,6 +222,8 @@ assert.equal(transactions.prepareAddResourceFolder(baseline, pkg.id, "/../bad/")
 const editorUiSource = [
     readFileSync("src/editor/EditorShell.ts", "utf8"),
     readFileSync("src/editor/dialogs/EditorDialogs.ts", "utf8"),
+    readFileSync("src/editor/modules/ProjectExplorerModule.ts", "utf8"),
+    readFileSync("src/editor/modules/ShellChromeModule.ts", "utf8"),
     readFileSync("src/editor/ui/LibraryController.ts", "utf8"),
     readFileSync("src/editor/ui/ResourceAuthoringController.ts", "utf8"),
 ].join("\n");
@@ -238,8 +240,8 @@ for (const snippet of [
     'for (const [index, resource] of visibleResources.entries())',
     'const node = this.createTreeNode(true, folder.path);',
     'appendFolderContents(node, folder);',
-    'const liveSnapshot = this.liveSessionBridge.getProjectSnapshot();',
-    'this.applyProjectSnapshot(liveSnapshot, state.revision);',
+    'const snapshot = this.liveSessionBridge.getProjectSnapshot();',
+    'this.applyLiveProjectSnapshot(snapshot);',
 ]) assert(editorUiSource.includes(snippet), `Missing resource workspace UI wiring: ${snippet}`);
 assert(!editorUiSource.includes("for (const [index, component] of selectedPackage.components.entries())"));
 assert(!editorUiSource.includes("window.prompt("), "Resource workspace must use the in-editor input dialog.");

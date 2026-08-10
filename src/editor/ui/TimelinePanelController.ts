@@ -81,6 +81,8 @@ export class TimelinePanelController {
 
     dispose(): void {
         this.cancelDrag(true);
+        Laya.stage.off(Laya.Event.MOUSE_MOVE, this, this.onTimelineDragMouseMove);
+        Laya.stage.off(Laya.Event.MOUSE_UP, this, this.onTimelineDragMouseUp);
         this.view.getChild("nameList").off(
             fgui.Events.CLICK_ITEM,
             this,
@@ -91,6 +93,23 @@ export class TimelinePanelController {
             this,
             this.onTimelineRowItemClick,
         );
+        for (const [name, handler] of [
+            ["timelineAddAction", this.callbacks.onAdd],
+            ["timelineEditAction", this.callbacks.onEdit],
+            ["timelineRemoveAction", this.callbacks.onRemove],
+        ] as const) {
+            const button = this.view.getChild(name);
+            if (!button) continue;
+            button.offClick(this, handler);
+            this.view.removeChild(button, true);
+        }
+        for (const name of ["nameList", "list", "timeTitles"] as const) {
+            const list = this.view.getChild(name).asList;
+            list.removeChildrenToPool();
+            list.itemPool.clear();
+        }
+        this.keyboardActive = false;
+        this.liveSession = false;
     }
 
     getSelectedItemIndex(): number {
@@ -206,11 +225,10 @@ export class TimelinePanelController {
         const prompt = this.view.getChild("prompt");
         if (prompt) {
             prompt.text = transitions.length > 0
-                ? "The selected transition has no timeline items."
-                : "No transition is available on the selected component.";
+                ? "当前过渡没有时间轴动作。"
+                : "当前组件没有可用的过渡。";
         }
-        editingBar.title = selectedTransitionName || "Transition";
-        editingBar.tooltips = "Click to exit timeline editing.";
+        this.fitEditingBar(editingBar, selectedTransitionName || "无过渡");
         this.callbacks.setDebugAttribute(
             "data-fairy-editor-timeline-model",
             `${selectedTransitionName || "none"}:${items.map((item) => (
@@ -225,9 +243,9 @@ export class TimelinePanelController {
 
     private configureActionBar(): void {
         const actions = [
-            { name: "timelineAddAction", title: "+ Action", x: 4, handler: this.callbacks.onAdd },
-            { name: "timelineEditAction", title: "Edit", x: 62, handler: this.callbacks.onEdit },
-            { name: "timelineRemoveAction", title: "Delete", x: 112, handler: this.callbacks.onRemove },
+            { name: "timelineAddAction", title: "+ 动作", x: 4, handler: this.callbacks.onAdd },
+            { name: "timelineEditAction", title: "编辑", x: 62, handler: this.callbacks.onEdit },
+            { name: "timelineRemoveAction", title: "删除", x: 112, handler: this.callbacks.onRemove },
         ];
         for (const action of actions) {
             const button = createInspectorButton(
@@ -246,6 +264,23 @@ export class TimelinePanelController {
     private setActionState(name: string, enabled: boolean): void {
         const button = this.view.getChild(name)?.asButton;
         if (button) setActionEnabled(button, enabled);
+    }
+
+    private fitEditingBar(editingBar: fgui.GLabel, value: string): void {
+        const right = editingBar.x + editingBar.width;
+        editingBar.title = value;
+        const title = editingBar.getTextField();
+        title.ensureSizeCorrect();
+        const naturalTextWidth = Math.max(
+            Math.ceil(title.textWidth),
+            Array.from(value).length * title.fontSize,
+        );
+        const width = Math.max(79, Math.min(280, naturalTextWidth + 58));
+        editingBar.setSize(width, editingBar.height);
+        editingBar.x = right - width;
+        title.setSize(Math.max(15, width - 58), title.height);
+        title.displayObject.overflow = Laya.Text.ELLIPSIS;
+        editingBar.tooltips = `编辑过渡：${value}\n点击退出时间轴编辑。`;
     }
 
     private onTimelineNameItemClick(itemObject: fgui.GObject): void {

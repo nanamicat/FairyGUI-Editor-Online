@@ -5,15 +5,17 @@ import type { BrowserLiveSessionBridge } from "../services/BrowserLiveSessionBri
 import type { BrowserProjectStorage } from "../services/BrowserProjectStorage";
 import type {
     BrowserSaveTarget,
-    BrowserWorkspaceLifecycleResult,
 } from "../model/BrowserWorkspace";
 import {
     BROWSER_WORKSPACE_REGISTRY_STORAGE_KEY,
     activateBrowserWorkspace,
     addBrowserWorkspace,
+    clearBrowserWorkspaceQuarantine,
     parseBrowserWorkspaceRegistry,
+    readBrowserWorkspaceQuarantine,
     type BrowserWorkspaceRegistry,
     type BrowserWorkspaceRegistryEntry,
+    writeBrowserWorkspaceQuarantine,
 } from "./BrowserWorkspaceRegistry";
 
 export function loadBrowserWorkspaceRegistry(): BrowserWorkspaceRegistry {
@@ -31,8 +33,8 @@ export function loadBrowserWorkspaceRegistry(): BrowserWorkspaceRegistry {
 export class WorkspaceLifecycleController {
     private readonly coordinator: BrowserSaveCoordinator;
     private readonly importer = new BrowserProjectImport();
+    private readonly quarantineFallback = new Map<string, string>();
     private currentRegistry: BrowserWorkspaceRegistry;
-    private currentLifecycleResult: BrowserWorkspaceLifecycleResult | null = null;
 
     constructor(
         private readonly liveSession: BrowserLiveSessionBridge,
@@ -47,10 +49,6 @@ export class WorkspaceLifecycleController {
         return this.currentRegistry;
     }
 
-    get lifecycleResult(): typeof this.currentLifecycleResult {
-        return this.currentLifecycleResult;
-    }
-
     pickDirectoryProject(): Promise<BrowserProjectImportResult> {
         return this.importer.pickDirectoryProject();
     }
@@ -63,22 +61,20 @@ export class WorkspaceLifecycleController {
         return this.coordinator.restoreWorkspaceBinding();
     }
 
-    getStorageState() {
-        return this.coordinator.getStorageState();
-    }
-
     save(target?: BrowserSaveTarget) {
         return this.coordinator.save(target);
     }
 
-    addWorkspace(name: string): BrowserWorkspaceRegistryEntry {
+    async createWorkspace(name: string): Promise<BrowserWorkspaceRegistryEntry> {
         const added = addBrowserWorkspace(this.currentRegistry, name);
-        this.currentRegistry = {
-            activeId: this.currentRegistry.activeId,
-            entries: added.registry.entries,
-        };
+        const state = await this.coordinator.switchWorkspace(added.entry.id, added.entry.fairyPath);
+        this.currentRegistry = activateBrowserWorkspace(
+            added.registry,
+            added.entry.id,
+            state.fairyPath,
+        );
         this.persistRegistry();
-        return added.entry;
+        return this.currentRegistry.entries.find((entry) => entry.id === added.entry.id) || added.entry;
     }
 
     async switchWorkspace(entry: BrowserWorkspaceRegistryEntry) {
@@ -88,7 +84,6 @@ export class WorkspaceLifecycleController {
             entry.id,
             state.fairyPath,
         );
-        this.currentLifecycleResult = null;
         this.persistRegistry();
         return state;
     }
@@ -102,8 +97,7 @@ export class WorkspaceLifecycleController {
     }
 
     async checkExternalChanges() {
-        const result = await this.coordinator.checkExternalChanges();
-        return { result, state: await this.coordinator.getStorageState() };
+        return this.coordinator.checkExternalChanges();
     }
 
     async importWorkspace(picked: BrowserProjectImportResult) {
@@ -112,7 +106,6 @@ export class WorkspaceLifecycleController {
             picked.files,
             picked.directoryHandle,
         );
-        this.currentLifecycleResult = result;
         if (result.ok) {
             this.currentRegistry = activateBrowserWorkspace(
                 this.currentRegistry,
@@ -124,22 +117,27 @@ export class WorkspaceLifecycleController {
         return result;
     }
 
-    async bootstrapWorkspace() {
-        const result = await this.coordinator.bootstrapWorkspace();
-        this.currentLifecycleResult = result;
-        return result;
+    async getActiveWorkspaceQuarantine(): Promise<string | null> {
+        const workspaceId = this.currentRegistry.activeId;
+        return this.quarantineFallback.get(workspaceId)
+            || await readBrowserWorkspaceQuarantine(workspaceId);
     }
 
-    async clearWorkspace() {
-        const result = await this.coordinator.clearWorkspace();
-        this.currentLifecycleResult = result;
-        return result;
+    async quarantineActiveWorkspace(reason: string): Promise<void> {
+        const workspaceId = this.currentRegistry.activeId;
+        this.quarantineFallback.set(workspaceId, reason);
+        await writeBrowserWorkspaceQuarantine(workspaceId, reason);
+        this.quarantineFallback.delete(workspaceId);
+    }
+
+    async clearActiveWorkspaceQuarantine(): Promise<void> {
+        const workspaceId = this.currentRegistry.activeId;
+        await clearBrowserWorkspaceQuarantine(workspaceId);
+        this.quarantineFallback.delete(workspaceId);
     }
 
     async exportWorkspaceZip() {
-        const result = await this.coordinator.exportWorkspaceZip();
-        this.currentLifecycleResult = result;
-        return result;
+        return this.coordinator.exportWorkspaceZip();
     }
 
     private persistRegistry(): void {

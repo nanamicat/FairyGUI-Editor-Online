@@ -22,6 +22,7 @@ for (const [name, version] of Object.entries(versions)) {
 }
 const editorShellSource = [
     readFileSync("src/editor/EditorShell.ts", "utf8"),
+    readFileSync("src/editor/modules/ProjectTransferModules.ts", "utf8"),
     readFileSync("src/editor/ui/ResourceAuthoringController.ts", "utf8"),
 ].join("\n");
 for (const sourceContract of [
@@ -31,7 +32,7 @@ for (const sourceContract of [
     "exportFairyPackage(",
     "prepareImportPackage(",
 ]) {
-    assert(editorShellSource.includes(sourceContract), `EditorShell must wire ${sourceContract}`);
+    assert(editorShellSource.includes(sourceContract), `Editor product must wire ${sourceContract}`);
 }
 
 const [core, uam, projectIo, backend, transfer, transactions, saveTargetVerifier] = await Promise.all([
