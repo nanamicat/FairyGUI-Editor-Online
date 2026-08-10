@@ -28,6 +28,7 @@ import {
     type HierarchyDragState,
 } from "../ui/ProjectTreeInteractionController";
 import { ResourcePreviewController } from "../ui/ResourcePreviewController";
+import { setOverflowButtonTitle } from "../ui/EditorFormControls";
 import type { EditorModule } from "../workbench/EditorWorkbench";
 import type { FairyGuiEditorWorkbenchHost } from "../workbench/EditorShellModuleHost";
 import { DOCUMENT_AUTHORING_SERVICE, EditorDocumentAuthoring } from "./DocumentAuthoringModule";
@@ -210,8 +211,8 @@ export class EditorProjectExplorer {
         }
     }
 
-    populateLibrary(): void {
-        this.library.populate();
+    populateLibrary(scrollSelectionIntoView = false): void {
+        this.library.populate(scrollSelectionIntoView);
     }
 
     populateFavorites(): void {
@@ -268,7 +269,7 @@ export class EditorProjectExplorer {
             packageId: tab.packageId,
             resourceId: tab.componentId,
         });
-        this.populateLibrary();
+        this.populateLibrary(true);
         this.chrome.requestLayout();
         this.chrome.setDebugAttribute(
             "data-fairy-editor-library-locate-document",
@@ -284,7 +285,7 @@ export class EditorProjectExplorer {
         this.refreshProjectSearch();
         this.chrome.requestLayout();
         this.chrome.searchInput.requestFocus();
-        this.setTransientStatus("Project search opened.");
+        this.setTransientStatus("项目搜索已打开。");
     }
 
     showLibraryPanel(): void {
@@ -490,13 +491,12 @@ export class EditorProjectExplorer {
         list.removeChildrenToPool();
         for (const result of this.searchResults) {
             const item = list.addItemFromPool().asButton;
-            item.title = result.label;
+            setOverflowButtonTitle(item, result.label);
             item.data = result;
-            item.tooltips = result.label;
         }
         this.chrome.searchView.getChild("result").text = keyword
-            ? `${this.searchResults.length} result${this.searchResults.length === 1 ? "" : "s"}`
-            : "Enter a project search term";
+            ? `${this.searchResults.length} 个结果`
+            : "输入关键词搜索项目";
         this.chrome.setDebugAttribute("data-fairy-editor-search-query", keyword);
         this.chrome.setDebugAttribute("data-fairy-editor-search-count", String(this.searchResults.length));
     }
@@ -521,14 +521,14 @@ export class EditorProjectExplorer {
         list.removeChildrenToPool();
         for (const reference of references) {
             const item = list.addItemFromPool().asButton;
-            item.title = `${reference.label} · ${reference.count}`;
+            setOverflowButtonTitle(item, `${reference.label} · ${reference.count}`);
             item.data = reference;
-            item.tooltips = `${reference.label} (${reference.count} reference${reference.count === 1 ? "" : "s"})`;
+            item.tooltips = `${reference.label}（${reference.count} 个引用）`;
         }
         const totalCount = references.reduce((count, reference) => count + reference.count, 0);
         this.chrome.referenceView.getChild("result").text = source
-            ? `${totalCount} reference${totalCount === 1 ? "" : "s"} in ${references.length} file${references.length === 1 ? "" : "s"}`
-            : "Resource URL not found";
+            ? `${totalCount} 个引用，分布在 ${references.length} 个文件中`
+            : "未找到资源 URL";
         this.chrome.setDebugAttribute("data-fairy-editor-reference-direction", direction);
         this.chrome.setDebugAttribute("data-fairy-editor-reference-source", this.chrome.referenceInput.text.trim());
         this.chrome.setDebugAttribute("data-fairy-editor-reference-count", String(references.length));
@@ -797,6 +797,7 @@ export class EditorProjectExplorer {
         this.events = null;
         this.displayListActions = null;
         for (const unbind of this.viewUnbinders.splice(0).reverse()) unbind();
+        this.library.dispose();
         this.resourcePreview.dispose();
         this.treeInteraction.dispose();
         const trees = [

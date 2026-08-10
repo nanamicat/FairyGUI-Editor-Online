@@ -27,7 +27,11 @@ import type {
     BrowserLiveSessionIdentity,
 } from "../services/BrowserLiveSessionBridge";
 import type { AuthoringDialogController } from "./AuthoringDialogController";
-import { setActionEnabled } from "./EditorFormControls";
+import {
+    fitSingleRowButtons,
+    setActionEnabled,
+    sizeButtonToTitle,
+} from "./EditorFormControls";
 import {
     TimelinePanelController,
     type TimelineModel,
@@ -129,6 +133,9 @@ export class ControllerTimelineAuthoringController {
     getSelectedTimelineItemIndex(): number { return this.timelinePanel.getSelectedItemIndex(); }
     setSelectedTimelineItemIndex(index: number): void { this.timelinePanel.setSelectedItemIndex(index); }
     setKeyboardActive(active: boolean): void { this.timelinePanel.setKeyboardActive(active); }
+    fitLayout(): void {
+        fitSingleRowButtons(this.options.documentView.getChild("controllerPanel").asCom.getChild("list").asList);
+    }
 
     private get selectedDisplayNodeId(): string { return this.options.getSelectedDisplayNodeId(); }
     private get timelineVisible(): boolean { return this.options.getTimelineVisible(); }
@@ -168,11 +175,11 @@ export class ControllerTimelineAuthoringController {
 
         for (const controller of controllers) {
             const item = list.addItemFromPool().asButton;
-            item.title = `${controller.name} ${controller.selectedIndex + 1}/${controller.pageCount}`;
-            item.setSize(Math.max(82, item.title.length * 7 + 26), 23);
+            sizeButtonToTitle(item, `${controller.name} ${controller.selectedIndex + 1}/${controller.pageCount}`, 82);
+            item.setSize(item.width, 23);
             item.enabled = liveSession;
             item.selected = controller.name === this.selectedControllerName;
-            item.tooltips = "Click to switch to the next controller page.";
+            item.tooltips = `${item.title}\n点击切换到下一个控制器页面。`;
             item.data = {
                 kind: "controller",
                 name: controller.name,
@@ -186,26 +193,27 @@ export class ControllerTimelineAuthoringController {
         const sourceName = this.selectedControllerName || controllers[0]?.name || "";
         if (sourceName) {
             const edit = list.addItemFromPool().asButton;
-            edit.title = "Edit...";
-            edit.setSize(58, 23);
+            sizeButtonToTitle(edit, "编辑…", 58);
+            edit.setSize(edit.width, 23);
             edit.enabled = liveSession;
-            edit.tooltips = "Edit controller pages and actions.";
+            edit.tooltips = "编辑控制器页面和动作。";
             edit.data = { kind: "edit", sourceName } satisfies ControllerPanelItemData;
             edit.offClick(this, this.onControllerPanelItemClick);
             edit.onClick(this, this.onControllerPanelItemClick, [edit]);
         }
         const add = list.addItemFromPool().asButton;
-        add.title = controllers.length > 0 ? "+ Controller" : "+ Controller";
-        add.setSize(94, 23);
+        sizeButtonToTitle(add, controllers.length > 0 ? "+ 复制控制器" : "+ 控制器", 82);
+        add.setSize(add.width, 23);
         add.enabled = liveSession && Boolean(selector);
         add.tooltips = controllers.length > 0
-            ? "Duplicate the selected controller."
-            : "Create a controller with two pages.";
+            ? "复制当前控制器。"
+            : "创建包含两个页面的控制器。";
         add.data = sourceName
             ? { kind: "duplicate", sourceName } satisfies ControllerPanelItemData
             : { kind: "create" } satisfies ControllerPanelItemData;
         add.offClick(this, this.onControllerPanelItemClick);
         add.onClick(this, this.onControllerPanelItemClick, [add]);
+        fitSingleRowButtons(list);
         this.setDebugAttribute(
             "data-fairy-editor-controller-panel",
             controllers.map((controller) => (

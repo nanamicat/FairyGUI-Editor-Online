@@ -17,6 +17,7 @@ const browserPluginDialogSource = readSource("src/editor/dialogs/BrowserPluginDi
 const browserPluginsModuleSource = readSource("src/editor/modules/BrowserPluginsModule.ts");
 const browserWorkspaceDialogSource = readSource("src/editor/dialogs/BrowserWorkspaceDialog.ts");
 const projectImportDialogSource = readSource("src/editor/dialogs/ProjectImportDialog.ts");
+const projectSettingsEditorSource = readSource("src/editor/dialogs/ProjectSettingsEditor.ts");
 const resourceHealthDialogSource = readSource("src/editor/dialogs/ResourceHealthDialog.ts");
 const resourceHealthModuleSource = readSource("src/editor/modules/ResourceHealthModule.ts");
 const projectSessionModuleSource = readSource("src/editor/modules/ProjectSessionModule.ts");
@@ -32,6 +33,9 @@ const timelineModuleSource = readSource("src/editor/modules/TimelineModule.ts");
 const resourceAuthoringModuleSource = readSource("src/editor/modules/ResourceAuthoringModule.ts");
 const projectTransferModuleSource = readSource("src/editor/modules/ProjectTransferModules.ts");
 const editorMenuControllerSource = readSource("src/editor/ui/EditorMenuController.ts");
+const editorFormControlsSource = readSource("src/editor/ui/EditorFormControls.ts");
+const controllerEditorsSource = readSource("src/editor/dialogs/ControllerEditors.ts");
+const controllerTimelineSource = readSource("src/editor/ui/ControllerTimelineAuthoringController.ts");
 const resourceAuthoringControllerSource = readSource("src/editor/ui/ResourceAuthoringController.ts");
 const publishedTestControllerSource = readSource("src/editor/runtime/PublishedTestController.ts");
 const projectTreeInteractionSource = readSource("src/editor/ui/ProjectTreeInteractionController.ts");
@@ -1005,12 +1009,55 @@ for (const snippet of shellChecks) {
 }
 for (const snippet of [
     "controllerList.columnGap = 2;",
+    "controllerList.layout = fgui.ListLayoutType.SingleRow;",
     "private setControllerItemTitle(",
-    "Math.ceil(title.textWidth) + 2",
+    "fitSingleRowButtons(controllerList);",
     "this.setControllerItemTitle(itemObject.asButton, `${data.name}: Page ${controller.selectedIndex + 1}`);",
+    'this.setControllerItemTitle(anchor.asButton, this.tooltipsVisible ? "Hide Tooltips" : "Tooltips");',
+    "device.tooltips = device.text;",
+    "screenMatch.tooltips = screenMatch.text;",
 ]) {
     assert(publishedTestControllerSource.includes(snippet), `Missing TestView controller item sizing: ${snippet}`);
 }
+for (const snippet of [
+    "target.displayObject.overflow = Laya.Text.ELLIPSIS;",
+    "export function setOverflowButtonTitle(",
+    "export function fitSingleRowButtons(",
+    "list.layout = fgui.ListLayoutType.SingleRow;",
+]) {
+    assert(editorFormControlsSource.includes(snippet), `Missing shared text-overflow behavior: ${snippet}`);
+}
+for (const snippet of [
+    "private fitEditingBar(",
+    '"当前过渡没有时间轴动作。"',
+    '{ name: "timelineAddAction", title: "+ 动作"',
+]) {
+    assert(timelinePanelSource.includes(snippet), `Missing Timeline text fitting: ${snippet}`);
+}
+for (const snippet of ["fitSingleRowButtons(list);", "fitLayout(): void", "this.controllerTimeline.fitLayout();"]) {
+    assert(editorShell.includes(snippet), `Controller panel must remain on one fitted row: ${snippet}`);
+}
+for (const snippet of [
+    "populateLibrary(scrollSelectionIntoView = false)",
+    "this.populateLibrary(true);",
+    "setOverflowButtonTitle(item, result.label);",
+    '"输入关键词搜索项目"',
+]) {
+    assert(projectExplorerModuleSource.includes(snippet), `Missing Explorer overflow behavior: ${snippet}`);
+}
+for (const snippet of [
+    "private readonly favoritesEmptyState",
+    "tree.selectNode(node, scrollSelectionIntoView)",
+    "list.addSelection(index, scrollSelectionIntoView)",
+    "this.favoritesEmptyState.visible = favoriteCount === 0;",
+]) {
+    assert(libraryControllerSource.includes(snippet), `Missing Library detail behavior: ${snippet}`);
+}
+assert(projectTreeInteractionSource.includes("private setCellLabel("), "Tree cells must expose fitted labels and tooltips.");
+assert(projectImportDialogSource.includes("setOverflowText(child.asTextField, text);"), "Import preview must ellipsize long paths with tooltips.");
+assert(projectSettingsEditorSource.includes("setOverflowText(projectName.getTextField(), projectId);"), "Project ID must ellipsize with its complete value available as a tooltip.");
+assert(controllerEditorsSource.includes("setRowLabel(row.getChild"), "Controller action rows must expose complete values.");
+assert(inspectorCommandPanel.includes("setOverflowButtonTitle(title,"), "Inspector resource identity must preserve its complete title.");
 for (const snippet of [
     'browserWorkspaceReauthorizeFolderMenu',
     'void this.workspaceLifecycle.reauthorizeFolder();',

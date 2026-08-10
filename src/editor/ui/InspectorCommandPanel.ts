@@ -10,6 +10,7 @@ import {
     createInspectorNumericInput,
     createTimelineComboBox,
     setActionEnabled,
+    setOverflowButtonTitle,
 } from "./EditorFormControls";
 import type { EditorNumericInput, EditorTextInput } from "./EditorUiExtensions";
 
@@ -303,6 +304,10 @@ export class InspectorCommandPanel {
                 || child.name === "multiSelectionPanel"
             ) {
                 child.setSize(lineWidth, child.height);
+                if (child.name === "inspectorInfoPanel") {
+                    const title = child.asCom.getChild("title");
+                    title?.setSize(Math.max(40, lineWidth - (title?.x || 0) - 6), title.height);
+                }
             } else if (child.name.startsWith("inspectorActionPanel")) {
                 child.setSize(lineWidth, child.height);
                 const label = child.asCom.getChild("label");
@@ -402,7 +407,9 @@ export class InspectorCommandPanel {
         if (selectedNode.src) {
             const infoPanel = fgui.UIPackage.createObject("Builder", "InfoPropsPanel").asCom;
             infoPanel.name = "inspectorInfoPanel";
-            infoPanel.getChild("title").text = `${selectedNode.type} · ${selectedNode.name || selectedNode.id}`;
+            const title = infoPanel.getChild("title").asButton;
+            setOverflowButtonTitle(title, `${selectedNode.type} · ${selectedNode.name || selectedNode.id}`);
+            title.setSize(Math.max(40, infoPanel.width - title.x - 6), title.height);
             this.list.addChild(infoPanel);
         }
 

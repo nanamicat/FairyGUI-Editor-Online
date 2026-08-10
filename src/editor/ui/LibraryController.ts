@@ -9,6 +9,7 @@ import {
     type ProjectTreeInteractionController,
 } from "./ProjectTreeInteractionController";
 import { readPackageGroups } from "../dialogs/PackageGroupsEditor";
+import { setOverflowText } from "./EditorFormControls";
 
 interface LibraryControllerOptions {
     getSnapshot: () => EditorProjectSnapshot | null;
@@ -51,17 +52,36 @@ export class LibraryController {
     private restoredExpandedKeys: Set<string> | null = null;
     private selectedResourceSelectors: EditorResourceSelector[] = [];
     private inspectorSelection: LibraryInspectorSelection = null;
+    private readonly favoritesEmptyState = new fgui.GTextField();
 
     constructor(
         private readonly libraryView: fgui.GComponent,
         private readonly favoritesView: fgui.GComponent,
         private readonly treeInteraction: ProjectTreeInteractionController,
         private readonly options: LibraryControllerOptions,
-    ) {}
+    ) {
+        this.favoritesEmptyState.name = "favoritesEmptyState";
+        this.favoritesEmptyState.text = "暂无收藏\n可在资源右键菜单中添加收藏";
+        this.favoritesEmptyState.fontSize = 12;
+        this.favoritesEmptyState.color = "#878787";
+        this.favoritesEmptyState.align = "center";
+        this.favoritesEmptyState.valign = "middle";
+        this.favoritesEmptyState.touchable = false;
+        this.favoritesEmptyState.visible = false;
+        this.favoritesEmptyState.setXY(16, 64);
+        this.favoritesEmptyState.setSize(Math.max(1, this.favoritesView.width - 32), 44);
+        this.favoritesEmptyState.addRelation(this.favoritesView, fgui.RelationType.Width);
+        this.favoritesView.addChild(this.favoritesEmptyState);
+    }
 
     get packageId(): string { return this.currentPackageId; }
     get resourceSelectors(): EditorResourceSelector[] {
         return this.selectedResourceSelectors.map((selector) => ({ ...selector }));
+    }
+
+    dispose(): void {
+        this.favoritesEmptyState.removeFromParent();
+        this.favoritesEmptyState.dispose();
     }
 
     setPackageId(packageId: string): void {
@@ -154,7 +174,7 @@ export class LibraryController {
         }
     }
 
-    populate(): void {
+    populate(scrollSelectionIntoView = false): void {
         const snapshot = this.options.getSnapshot();
         if (!snapshot) return;
         if (!snapshot.packages.some((pkg) => pkg.id === this.currentPackageId)) {
@@ -170,6 +190,8 @@ export class LibraryController {
         packageSelector.values = ["all", "local", ...groups.map((_, index) => `group:${index}`), "edit"];
         if (!packageSelector.values.includes(this.currentFilter)) this.currentFilter = "all";
         packageSelector.selectedIndex = packageSelector.values.indexOf(this.currentFilter);
+        setOverflowText(packageSelector.getTextField(), packageSelector.text);
+        packageSelector.tooltips = packageSelector.text;
         this.options.setDebugAttribute("data-fairy-editor-library-package", this.currentPackageId);
         this.options.setDebugAttribute("data-fairy-editor-library-filter", this.currentFilter);
 
@@ -253,7 +275,7 @@ export class LibraryController {
             }
             tree.rootNode.addChild(packageNode);
         }
-        for (const node of selectedTreeNodes) tree.selectNode(node);
+        for (const node of selectedTreeNodes) tree.selectNode(node, scrollSelectionIntoView);
 
         const selectedPackage = visiblePackages.find((pkg) => pkg.id === this.currentPackageId);
         const list = this.libraryView.getChild("listView").asList;
@@ -290,7 +312,7 @@ export class LibraryController {
                 : { kind: "resource", packageId: selectedPackage.id, resourceId: resource.id } as LibraryItemData;
             this.treeInteraction.configureLibraryCell(item, item.data as LibraryItemData);
         }
-        for (const index of selectedIndexes) list.addSelection(index);
+        for (const index of selectedIndexes) list.addSelection(index, scrollSelectionIntoView);
     }
 
     populateFavorites(): void {
@@ -379,6 +401,7 @@ export class LibraryController {
             tree.rootNode.addChild(packageNode);
         }
         for (const node of selectedTreeNodes) tree.selectNode(node);
+        this.favoritesEmptyState.visible = favoriteCount === 0;
         this.options.setDebugAttribute("data-fairy-editor-favorites-count", String(favoriteCount));
     }
 

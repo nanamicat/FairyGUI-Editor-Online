@@ -1,5 +1,5 @@
 import type { BrowserProjectImportResult } from "../services/BrowserProjectImport";
-import { createInspectorButton } from "../ui/EditorFormControls";
+import { createInspectorButton, setOverflowText } from "../ui/EditorFormControls";
 
 type ProjectImportDialogCallbacks = {
     applyImport: (picked: BrowserProjectImportResult, label: string) => Promise<boolean>;
@@ -307,25 +307,25 @@ export class ProjectImportDialog {
     ): void {
         const line = new fgui.GTextField();
         line.name = name;
-        line.text = text;
         line.fontSize = 12;
         line.color = color;
-        line.singleLine = true;
         line.setXY(x, y);
         line.setSize(width, 18);
+        setOverflowText(line, text);
         dialog.addChild(line);
     }
 
     private setText(dialog: fgui.GComponent, childName: string, text: string): void {
         const child = dialog.getChild(childName);
-        if (child) child.asTextField.text = text;
+        if (child) setOverflowText(child.asTextField, text);
     }
 
     private setInput(dialog: fgui.GComponent, childName: string, text: string): void {
         const child = dialog.getChild(childName);
         if (!child) return;
         const input = child.asCom.getChild("title").asTextInput;
-        input.text = text;
+        setOverflowText(input, text);
+        child.tooltips = text;
         input.editable = false;
         input.color = "#bdbdbd";
     }

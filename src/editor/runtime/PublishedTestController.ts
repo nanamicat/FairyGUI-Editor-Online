@@ -2,6 +2,10 @@ import { inspectComponent } from "../commands/HighRiskAuthoringTransactions";
 import type { EditorComponentSelector } from "../model/EditorCommand";
 import type { ProjectSnapshotComponent, ProjectSnapshotPackage } from "../model/ProjectSnapshot";
 import {
+    fitSingleRowButtons,
+    sizeButtonToTitle,
+} from "../ui/EditorFormControls";
+import {
     readPublishedTestAdaptationSettings,
     resolvePublishedTestViewport,
     type PublishedTestAdaptationSettings,
@@ -154,6 +158,7 @@ export class PublishedTestController {
         this.viewportHost.visible = false;
         const controllerList = this.view.getChild("controllerList").asList;
         controllerList.selectionMode = fgui.ListSelectionMode.None;
+        controllerList.layout = fgui.ListLayoutType.SingleRow;
         controllerList.columnGap = 2;
         this.view.getChild("contentScaler").tooltips = "Open Project Settings for adaptation settings.";
         this.loadViewportState();
@@ -189,6 +194,9 @@ export class PublishedTestController {
         portrait.setXY(Math.max(320, width - 32), 3);
         device.setXY(screenMatch.x + screenMatch.width + 8, 6);
         device.setSize(Math.min(197, Math.max(90, landscape.x - device.x - 8)), 20);
+        const controllerList = this.view.getChild("controllerList").asList;
+        controllerList.setSize(Math.max(1, width - 6), controllerList.height);
+        fitSingleRowButtons(controllerList);
     }
 
     private clear(): void {
@@ -229,15 +237,12 @@ export class PublishedTestController {
         const tooltips = list.addItemFromPool().asButton;
         this.setControllerItemTitle(tooltips, "Tooltips");
         tooltips.data = { kind: "tooltips" } satisfies PublishedTestItemData;
+        fitSingleRowButtons(list);
         list.visible = true;
     }
 
     private setControllerItemTitle(item: fgui.GButton, value: string): void {
-        item.title = value;
-        const title = item.getChild("title").asTextField;
-        title.ensureSizeCorrect();
-        title.setSize(Math.max(11, Math.ceil(title.textWidth) + 2), title.height);
-        item.setSize(title.x + title.width + 5, item.height);
+        sizeButtonToTitle(item, value);
     }
 
     private onControllerClick(itemObject: fgui.GObject): void {
@@ -247,6 +252,7 @@ export class PublishedTestController {
             if (!controller || data.pageCount === 0) return;
             controller.selectedIndex = (controller.selectedIndex + 1) % data.pageCount;
             this.setControllerItemTitle(itemObject.asButton, `${data.name}: Page ${controller.selectedIndex + 1}`);
+            fitSingleRowButtons(itemObject.parent.asList);
             this.context.setDebugAttribute("data-fairy-editor-test-controller", `${data.name}:${controller.selectedIndex}`);
             return;
         }
@@ -317,6 +323,8 @@ export class PublishedTestController {
                 ? screenMatch
                 : "",
         };
+        this.view.getChild("device").tooltips = this.view.getChild("device").asComboBox.text;
+        this.view.getChild("screenMatch").tooltips = this.view.getChild("screenMatch").asComboBox.text;
         this.saveViewportState();
         this.layoutPreview();
         this.context.setStatus(`Runtime test viewport: ${this.viewportState.deviceName}, ${this.viewportState.orientation}.`);
@@ -330,8 +338,13 @@ export class PublishedTestController {
         device.values = settings.devices.map((item) => item.name);
         if (!device.values.includes(this.viewportState.deviceName)) this.viewportState.deviceName = device.values[0] || "";
         device.value = this.viewportState.deviceName;
+        device.getTextField().displayObject.overflow = Laya.Text.ELLIPSIS;
+        device.tooltips = device.text;
         this.view.getChild("adaptation").asButton.selected = this.viewportState.adaptation;
-        this.view.getChild("screenMatch").asComboBox.value = this.viewportState.screenMatch;
+        const screenMatch = this.view.getChild("screenMatch").asComboBox;
+        screenMatch.value = this.viewportState.screenMatch;
+        screenMatch.getTextField().displayObject.overflow = Laya.Text.ELLIPSIS;
+        screenMatch.tooltips = screenMatch.text;
         this.view.getController("orientation").setSelectedIndex(this.viewportState.orientation === "portrait" ? 1 : 0);
         this.view.getChild("contentScaler").tooltips = settings.designResolutionX > 0 && settings.designResolutionY > 0
             ? `Published design resolution: ${settings.designResolutionX}x${settings.designResolutionY}. Open Project Settings.`
@@ -377,11 +390,11 @@ export class PublishedTestController {
         this.tooltipsVisible = !this.tooltipsVisible;
         if (this.tooltipsVisible) {
             fgui.GRoot.inst.showTooltips(`Runtime tooltip: ${this.viewportState.deviceName}`);
-            anchor.asButton.title = "Hide Tooltips";
         } else {
             fgui.GRoot.inst.hideTooltips();
-            anchor.asButton.title = "Tooltips";
         }
+        this.setControllerItemTitle(anchor.asButton, this.tooltipsVisible ? "Hide Tooltips" : "Tooltips");
+        fitSingleRowButtons(anchor.parent.asList);
         this.context.setDebugAttribute("data-fairy-editor-test-tooltips", this.tooltipsVisible ? "visible" : "hidden");
         this.context.setStatus(`Runtime test tooltips ${this.tooltipsVisible ? "shown" : "hidden"}.`);
     }

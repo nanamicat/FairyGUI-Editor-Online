@@ -431,6 +431,7 @@ export class EditorShell {
             getWorkspaceName: () => this.projectStorage.getWorkspaceName(),
             isTestActive: () => this.publishedTest.isActive(),
             afterLayout: () => {
+                this.controllerTimeline.fitLayout();
                 this.publishedTest.layout();
                 this.runtimePreview.layout();
                 this.layoutInspectorLines();

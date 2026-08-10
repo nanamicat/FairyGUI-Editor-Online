@@ -1,5 +1,6 @@
 import type { ProjectSnapshotComponent, ProjectSnapshotPackage } from "../model/ProjectSnapshot";
 import { resolveDesktopHierarchyDropIndex } from "../runtime/DesktopHierarchyInteraction";
+import { setOverflowText } from "./EditorFormControls";
 
 export type LibraryItemData =
     | { kind: "package"; packageId: string }
@@ -99,13 +100,13 @@ export class ProjectTreeInteractionController {
     resetTree(tree: fgui.GTree): void {
         tree.rootNode.removeChildren();
         tree.removeChildrenToPool();
-        tree.treeNodeRender = (node, cell) => { cell.text = this.nodeLabels.get(node) || ""; };
+        tree.treeNodeRender = (node, cell) => this.setCellLabel(cell, this.nodeLabels.get(node) || "");
     }
 
     configureLibraryTree(tree: fgui.GTree): void {
         this.resetLibrarySelection(tree);
         tree.treeNodeRender = (node, cell) => {
-            cell.text = this.nodeLabels.get(node) || "";
+            this.setCellLabel(cell, this.nodeLabels.get(node) || "");
             const icon = this.nodeIcons.get(node);
             cell.icon = icon ? fgui.UIPackage.getItemURL("Builder", node.expanded ? icon.open : icon.closed) : "";
             this.configureLibraryCell(cell, node.data as LibraryItemData | null);
@@ -114,7 +115,7 @@ export class ProjectTreeInteractionController {
 
     configureHierarchyTree(tree: fgui.GTree): void {
         tree.treeNodeRender = (node, cell) => {
-            cell.text = this.nodeLabels.get(node) || "";
+            this.setCellLabel(cell, this.nodeLabels.get(node) || "");
             const icon = this.nodeIcons.get(node);
             cell.icon = icon ? fgui.UIPackage.getItemURL("Builder", node.expanded ? icon.open : icon.closed) : "";
             cell.off(fgui.Events.DRAG_START, this, this.onHierarchyDragStart);
@@ -188,6 +189,7 @@ export class ProjectTreeInteractionController {
     }
 
     configureLibraryCell(cell: fgui.GComponent, data: LibraryItemData | null): void {
+        if (cell.text) this.setCellLabel(cell, cell.text);
         cell.off(fgui.Events.DRAG_START, this, this.onLibraryDragStart);
         cell.off(fgui.Events.DRAG_MOVE, this, this.onLibraryDragMove);
         cell.off(fgui.Events.DRAG_END, this, this.onLibraryDragEnd);
@@ -212,6 +214,13 @@ export class ProjectTreeInteractionController {
         cell.on(fgui.Events.DRAG_START, this, this.onLibraryDragStart, [cell]);
         cell.on(fgui.Events.DRAG_MOVE, this, this.onLibraryDragMove, [cell]);
         cell.on(fgui.Events.DRAG_END, this, this.onLibraryDragEnd, [cell]);
+    }
+
+    private setCellLabel(cell: fgui.GComponent, value: string): void {
+        cell.text = value;
+        cell.tooltips = value;
+        const title = cell.getChild("title")?.asTextField;
+        if (title) setOverflowText(title, value);
     }
 
     private isPlaceableLibraryItem(
