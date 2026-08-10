@@ -33,6 +33,7 @@ const resourceAuthoringModuleSource = readSource("src/editor/modules/ResourceAut
 const projectTransferModuleSource = readSource("src/editor/modules/ProjectTransferModules.ts");
 const editorMenuControllerSource = readSource("src/editor/ui/EditorMenuController.ts");
 const resourceAuthoringControllerSource = readSource("src/editor/ui/ResourceAuthoringController.ts");
+const publishedTestControllerSource = readSource("src/editor/runtime/PublishedTestController.ts");
 const projectTreeInteractionSource = readSource("src/editor/ui/ProjectTreeInteractionController.ts");
 const resourcePreviewSource = readSource("src/editor/ui/ResourcePreviewController.ts");
 const resourceEditorsSource = readSource("src/editor/dialogs/ResourceEditors.ts");
@@ -94,7 +95,7 @@ const editorShell = [
     resourcePreviewSource,
     resourceAuthoringControllerSource,
     readSource("src/editor/ui/TimelinePanelController.ts"),
-    readSource("src/editor/runtime/PublishedTestController.ts"),
+    publishedTestControllerSource,
     readSource("src/editor/runtime/WorkspaceLifecycleController.ts"),
 ].join("\n");
 const mainSource = readSource("src/Main.ts");
@@ -1003,6 +1004,14 @@ for (const snippet of shellChecks) {
     assert(editorShell.includes(snippet), `Missing UI interaction wiring: ${snippet}`);
 }
 for (const snippet of [
+    "controllerList.columnGap = 2;",
+    "private setControllerItemTitle(",
+    "Math.ceil(title.textWidth) + 2",
+    "this.setControllerItemTitle(itemObject.asButton, `${data.name}: Page ${controller.selectedIndex + 1}`);",
+]) {
+    assert(publishedTestControllerSource.includes(snippet), `Missing TestView controller item sizing: ${snippet}`);
+}
+for (const snippet of [
     'browserWorkspaceReauthorizeFolderMenu',
     'void this.workspaceLifecycle.reauthorizeFolder();',
     'browserWorkspaceCheckExternalMenu',
@@ -1296,6 +1305,13 @@ assert(
 assert(
     runtimePreview.includes("requiresRuntimePublish(): boolean"),
     "Published test mode must honor the runtime publish-required boundary.",
+);
+const runtimeListProjectionStart = runtimePreview.indexOf("} else if (object instanceof fgui.GList && snapshotState.listProperties) {");
+const runtimeListProjectionEnd = runtimePreview.indexOf("} else if (object instanceof fgui.GTextField) {", runtimeListProjectionStart);
+assert(runtimeListProjectionStart >= 0 && runtimeListProjectionEnd > runtimeListProjectionStart);
+assert(
+    !runtimePreview.slice(runtimeListProjectionStart, runtimeListProjectionEnd).includes("this.runtimePublishRequired = true"),
+    "Loading an unchanged published list must not require another Publish.",
 );
 
 for (const snippet of [

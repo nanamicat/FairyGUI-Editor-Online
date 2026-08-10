@@ -152,7 +152,9 @@ export class PublishedTestController {
         this.viewportHost.addChild(this.viewportFrame);
         this.container.addChild(this.viewportHost);
         this.viewportHost.visible = false;
-        this.view.getChild("controllerList").asList.selectionMode = fgui.ListSelectionMode.None;
+        const controllerList = this.view.getChild("controllerList").asList;
+        controllerList.selectionMode = fgui.ListSelectionMode.None;
+        controllerList.columnGap = 2;
         this.view.getChild("contentScaler").tooltips = "Open Project Settings for adaptation settings.";
         this.loadViewportState();
     }
@@ -209,7 +211,7 @@ export class PublishedTestController {
         const inspection = selector ? inspectComponent(this.context.getWorkingProject(), selector) : null;
         for (const controller of inspection?.controllers || []) {
             const item = list.addItemFromPool().asButton;
-            item.title = controller.name;
+            this.setControllerItemTitle(item, controller.name);
             item.data = {
                 kind: "controller",
                 name: controller.name,
@@ -218,16 +220,24 @@ export class PublishedTestController {
         }
         for (const transition of inspection?.transitions || []) {
             const item = list.addItemFromPool().asButton;
-            item.title = `Play ${transition.name}`;
+            this.setControllerItemTitle(item, `Play ${transition.name}`);
             item.data = { kind: "transition", name: transition.name } satisfies PublishedTestItemData;
         }
         const popup = list.addItemFromPool().asButton;
-        popup.title = "Popup";
+        this.setControllerItemTitle(popup, "Popup");
         popup.data = { kind: "popup" } satisfies PublishedTestItemData;
         const tooltips = list.addItemFromPool().asButton;
-        tooltips.title = "Tooltips";
+        this.setControllerItemTitle(tooltips, "Tooltips");
         tooltips.data = { kind: "tooltips" } satisfies PublishedTestItemData;
         list.visible = true;
+    }
+
+    private setControllerItemTitle(item: fgui.GButton, value: string): void {
+        item.title = value;
+        const title = item.getChild("title").asTextField;
+        title.ensureSizeCorrect();
+        title.setSize(Math.max(11, Math.ceil(title.textWidth) + 2), title.height);
+        item.setSize(title.x + title.width + 5, item.height);
     }
 
     private onControllerClick(itemObject: fgui.GObject): void {
@@ -236,7 +246,7 @@ export class PublishedTestController {
             const controller = this.previewRoot?.getController(data.name);
             if (!controller || data.pageCount === 0) return;
             controller.selectedIndex = (controller.selectedIndex + 1) % data.pageCount;
-            itemObject.asButton.title = `${data.name}: Page ${controller.selectedIndex + 1}`;
+            this.setControllerItemTitle(itemObject.asButton, `${data.name}: Page ${controller.selectedIndex + 1}`);
             this.context.setDebugAttribute("data-fairy-editor-test-controller", `${data.name}:${controller.selectedIndex}`);
             return;
         }
