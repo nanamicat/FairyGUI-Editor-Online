@@ -19,7 +19,8 @@ const editorUiSource = [
 for (const sourceContract of [
     "prepareDuplicateResources(",
     "prepareRemoveResources(",
-    "this.handleLibraryItemClick(data, itemObject.parent as fgui.GList)",
+    "const tree = itemObject.parent as fgui.GTree;",
+    "this.handleLibraryItemClick(data, tree)",
     "list.selectionMode = fgui.ListSelectionMode.Multiple",
     "_lastSelectedIndex = -1",
     "this.selectedLibraryResourceSelectors = [];",

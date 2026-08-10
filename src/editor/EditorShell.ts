@@ -2337,11 +2337,7 @@ export class EditorShell {
             this.libraryPackageId = data.packageId;
             this.clearResourceSelection();
             const selectedPackage = this.projectSnapshot?.packages.find((pkg) => pkg.id === data.packageId) || null;
-            this.documentAuthoring.setActiveSelection(
-                data.packageId,
-                selectedPackage?.components[0]?.id || "",
-            );
-            this.refreshProjectViews();
+            this.projectExplorer.populateLibrary();
             this.setTransientStatus(`Package selected: ${selectedPackage ? selectedPackage.name : data.packageId}.`);
             return;
         }

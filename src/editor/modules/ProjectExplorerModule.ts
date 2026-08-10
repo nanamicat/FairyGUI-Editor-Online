@@ -435,9 +435,14 @@ export class EditorProjectExplorer {
 
     private onLibraryTreeItemClick(itemObject: fgui.GObject): void {
         this.events?.deactivateTimelineKeyboard();
-        const data = itemObject.treeNode ? (itemObject.treeNode.data as LibraryItemData | null) : null;
-        this.handleLibraryItemClick(data, itemObject.parent as fgui.GList);
+        const node = itemObject.treeNode;
+        const data = node ? (node.data as LibraryItemData | null) : null;
+        const tree = itemObject.parent as fgui.GTree;
+        const expandedStatusInEvent = (tree as unknown as { _expandedStatusInEvt: boolean })._expandedStatusInEvt;
+        // ponytail: frozen FairyGUI does not implement clickToExpand=2; expand package labels without hijacking arrow clicks.
+        if (data?.kind === "package" && node && node.expanded === expandedStatusInEvent) node.expanded = true;
         this.library.captureExpansionState();
+        this.handleLibraryItemClick(data, tree);
     }
 
     private onLibraryItemClick(itemObject: fgui.GObject): void {

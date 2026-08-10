@@ -120,16 +120,9 @@ const exposedNodeIds = selectionController.nodeIds;
 exposedNodeIds.length = 0;
 assert.deepEqual(selectionController.nodeIds, ["node", "node-2"], "Selection state must not be externally mutable.");
 
-commonSnapshot.packages[0].resources.push({ id: "image", type: "Image" });
+const libraryController = Object.create(LibraryController.prototype);
+libraryController.options = { setDebugAttribute: () => undefined };
 commonSnapshot.packages[0].folders = [{ branch: "main", path: "/images/" }];
-const libraryController = new LibraryController(null, null, null, {
-    getSnapshot: () => commonSnapshot,
-    getSelectedPackageId: () => "package",
-    applySelection: () => undefined,
-    clearSelection: () => undefined,
-    setDebugAttribute: () => undefined,
-    setStatus: () => undefined,
-});
 libraryController.setResourceSelection([{ packageId: "package", resourceId: "image" }]);
 const exposedResourceSelectors = libraryController.resourceSelectors;
 exposedResourceSelectors[0].resourceId = "changed";

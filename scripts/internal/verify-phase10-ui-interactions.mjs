@@ -1053,6 +1053,11 @@ for (const snippet of [
 ]) {
     assert(libraryControllerSource.includes(snippet), `Missing Library detail behavior: ${snippet}`);
 }
+assert(
+    /private onLibraryTreeItemClick[\s\S]*?_expandedStatusInEvt[\s\S]*?node\.expanded = true;[\s\S]*?this\.library\.captureExpansionState\(\);[\s\S]*?this\.handleLibraryItemClick/.test(projectExplorerModuleSource),
+    "Library package labels must expand before package selection refreshes the tree without hijacking arrow clicks.",
+);
+assert(!libraryControllerSource.includes(".asTree.clickToExpand = 1;"), "Library resource rows must remain stable across double-clicks.");
 assert(projectTreeInteractionSource.includes("private setCellLabel("), "Tree cells must expose fitted labels and tooltips.");
 assert(projectImportDialogSource.includes("setOverflowText(child.asTextField, text);"), "Import preview must ellipsize long paths with tooltips.");
 assert(projectSettingsEditorSource.includes("setOverflowText(projectName.getTextField(), projectId);"), "Project ID must ellipsize with its complete value available as a tooltip.");
@@ -2021,6 +2026,16 @@ assert(
             libraryControllerSource.indexOf("setResourceSelection("),
         ).includes("applySelection"),
     "Library browsing package must stay independent from the active document package.",
+);
+const packageSelectionSlice = editorShellSource.slice(
+    editorShellSource.indexOf('if (data.kind === "package")'),
+    editorShellSource.indexOf('if (data.kind === "component")', editorShellSource.indexOf('if (data.kind === "package")')),
+);
+assert(
+    packageSelectionSlice.includes("this.projectExplorer.populateLibrary();")
+        && !packageSelectionSlice.includes("setActiveSelection(")
+        && !packageSelectionSlice.includes("refreshProjectViews()"),
+    "Selecting a Library package must refresh its resources without opening or switching documents.",
 );
 
 for (const snippet of [
