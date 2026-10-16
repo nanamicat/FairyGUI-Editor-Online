@@ -2627,11 +2627,27 @@ export class EditorShell {
     private async openLocalProject(): Promise<void> {
         if (this.localProjectOpening || !this.canOpenLocalProject()) return;
         this.localProjectOpening = true;
+        this.setDebugAttribute("data-fairy-editor-directory-picker", "waiting");
+        this.setStatus("等待选择项目目录，请在浏览器提示中允许读写。");
         try {
-            const picked = await new BrowserProjectImport().pickDirectoryProject();
-            if (!this.disposed) await this.openPickedLocalProject(picked);
+            const picked = await new BrowserProjectImport().pickDirectoryProject((progress) => {
+                if (this.disposed) return;
+                this.setDebugAttribute("data-fairy-editor-directory-picker", "reading");
+                this.setStatus(`已选择 ${progress.sourceName}，正在读取工程：${progress.fileCount} 个文件，${(progress.totalBytes / 1024 / 1024).toFixed(1)} MB…`);
+            });
+            if (!this.disposed) {
+                this.setDebugAttribute("data-fairy-editor-directory-picker", "opening");
+                this.setStatus(`正在打开 ${picked.imported.fairyPath}，共 ${picked.imported.fileCount} 个文件…`);
+                const opened = await this.openPickedLocalProject(picked);
+                this.setDebugAttribute("data-fairy-editor-directory-picker", opened ? "opened" : "failed");
+            }
         } catch (error) {
-            if (!isFilePickerCancelled(error)) {
+            console.warn("[Workspace] Local directory selection failed", error);
+            if (isFilePickerCancelled(error)) {
+                this.setDebugAttribute("data-fairy-editor-directory-picker", "cancelled-or-denied");
+                this.setStatus("目录选择已取消或未获浏览器授权（AbortError），尚未读取工程。请重新选择目录并完成访问/编辑授权。", "warning");
+            } else {
+                this.setDebugAttribute("data-fairy-editor-directory-picker", "failed");
                 this.setStatus(`项目打开失败：${error instanceof Error ? error.message : String(error)}`, "error");
             }
         } finally {

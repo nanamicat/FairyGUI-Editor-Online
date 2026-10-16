@@ -1525,7 +1525,7 @@ for (const snippet of [
     'input.type = "file"',
     "input.dataset.fairyEditorFilePicker = debugName",
     "if (supportsLocalDirectories())",
-    "this.readDirectoryProject(await pickLocalDirectory())",
+    "this.readDirectoryProject(await pickLocalDirectory(), onProgress)",
 ]) {
     assert(browserProjectImport.includes(snippet), `Missing native file picker wiring: ${snippet}`);
 }

@@ -16,7 +16,10 @@ export function pickLocalDirectory(): Promise<FileSystemDirectoryHandle> {
         return Promise.reject(new Error("本地目录读写需要在 HTTPS 或 localhost 下使用 Chrome / Edge。可通过导入 ZIP 使用浏览器工作区。"));
     }
     // Calling an extracted picker without its Window receiver can cause Illegal invocation.
-    return (window as DirectoryPickerWindow).showDirectoryPicker!({ id: "fairygui-project", mode: "readwrite" });
+    return (window as DirectoryPickerWindow).showDirectoryPicker!({ id: "fairygui-project", mode: "readwrite" }).then((directory) => {
+        console.info("[FileSystemAccess] Directory picker returned a handle", { name: directory.name, kind: directory.kind });
+        return directory;
+    });
 }
 
 export async function authorizeLocalDirectory(directory: FileSystemDirectoryHandle): Promise<void> {

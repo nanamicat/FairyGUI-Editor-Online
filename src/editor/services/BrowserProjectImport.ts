@@ -29,10 +29,19 @@ export interface BrowserProjectImportResult {
     directoryHandle?: FileSystemDirectoryHandle;
 }
 
+export interface BrowserProjectReadProgress {
+    fileCount: number;
+    totalBytes: number;
+    sourceName: string;
+}
+
+type ProjectReadProgressHandler = (progress: BrowserProjectReadProgress) => void;
+const PROJECT_CACHE_NAMES = new Set([".objs", ".git", ".svn", "node_modules"]);
+
 export class BrowserProjectImport {
-    async pickDirectoryProject(): Promise<BrowserProjectImportResult> {
+    async pickDirectoryProject(onProgress?: ProjectReadProgressHandler): Promise<BrowserProjectImportResult> {
         if (supportsLocalDirectories()) {
-            return this.readDirectoryProject(await pickLocalDirectory());
+            return this.readDirectoryProject(await pickLocalDirectory(), onProgress);
         }
 
         const fallback = await pickDirectoryFilesFallback();
@@ -43,11 +52,16 @@ export class BrowserProjectImport {
         });
     }
 
-    async readDirectoryProject(directory: FileSystemDirectoryHandle): Promise<BrowserProjectImportResult> {
+    async readDirectoryProject(
+        directory: FileSystemDirectoryHandle,
+        onProgress?: ProjectReadProgressHandler,
+    ): Promise<BrowserProjectImportResult> {
+        const progress: BrowserProjectReadProgress = { fileCount: 0, totalBytes: 0, sourceName: directory.name };
+        onProgress?.({ ...progress });
         return this.createImportResult({
             source: "directory",
             sourceName: directory.name || "selected-folder",
-            files: await this.readDirectoryFiles(directory, "."),
+            files: await this.readDirectoryFiles(directory, ".", progress, onProgress),
             directoryHandle: directory,
         });
     }
@@ -65,10 +79,13 @@ export class BrowserProjectImport {
     private async readDirectoryFiles(
         directory: FileSystemDirectoryHandle,
         dirPath: string,
+        progress: BrowserProjectReadProgress,
+        onProgress?: ProjectReadProgressHandler,
     ): Promise<BrowserWorkspaceFile[]> {
         const files: BrowserWorkspaceFile[] = [];
         const names = await readDirectoryHandleNames(directory);
         for (const name of names) {
+            if (PROJECT_CACHE_NAMES.has(name.toLowerCase())) continue;
             const childPath = joinImportPath(dirPath, name);
             try {
                 const fileHandle = await directory.getFileHandle(name);
@@ -77,6 +94,9 @@ export class BrowserProjectImport {
                     path: childPath,
                     data: new Uint8Array(await file.arrayBuffer()),
                 });
+                progress.fileCount += 1;
+                progress.totalBytes += file.size;
+                if (progress.fileCount === 1 || progress.fileCount % 16 === 0) onProgress?.({ ...progress });
                 continue;
             } catch (error) {
                 if (!(error instanceof Error) || error.name !== "TypeMismatchError") throw error;
@@ -84,8 +104,9 @@ export class BrowserProjectImport {
             }
 
             const childDirectory = await directory.getDirectoryHandle(name);
-            files.push(...await this.readDirectoryFiles(childDirectory, childPath));
+            files.push(...await this.readDirectoryFiles(childDirectory, childPath, progress, onProgress));
         }
+        onProgress?.({ ...progress });
         return files;
     }
 
@@ -156,6 +177,7 @@ async function pickDirectoryFilesFallback(): Promise<{
 
                 const files: BrowserWorkspaceFile[] = [];
                 for (const file of selected) {
+                    if ((file.webkitRelativePath || file.name).split("/").some((part) => PROJECT_CACHE_NAMES.has(part.toLowerCase()))) continue;
                     files.push({
                         path: file.webkitRelativePath || file.name,
                         data: new Uint8Array(await file.arrayBuffer()),

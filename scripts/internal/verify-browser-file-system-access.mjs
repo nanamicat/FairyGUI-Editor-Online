@@ -48,9 +48,11 @@ function directory(name) {
 }
 
 const parent = directory("Projects");
+let pickerCalls = 0;
 globalThis.window = {
     isSecureContext: true,
     showDirectoryPicker(options) {
+        pickerCalls += 1;
         assert.equal(this, window, "Picker must retain its Window receiver.");
         assert.equal(options.mode, "readwrite");
         this.pickerRequested = true;
@@ -61,6 +63,8 @@ assert(supportsLocalDirectories());
 const picking = pickLocalDirectory();
 assert(window.pickerRequested, "Picker must start before yielding user activation.");
 assert.equal(await picking, parent);
+assert.equal(pickerCalls, 1, "Opening a directory must request read/write access in one picker call.");
+assert.equal(parent.permissionRequested, undefined, "The initial picker must not require a second authorization action.");
 const authorizing = authorizeLocalDirectory(parent);
 assert(parent.permissionRequested, "Recent authorization must start before queued work.");
 await authorizing;
@@ -79,10 +83,17 @@ for (const invalid of ["", "..", "../escape", "A/B", "a\\b", "NUL", "CON.txt", "
     assert.throws(() => validateLocalProjectName(invalid), /有效的项目名称/);
 }
 const created = await createLocalProject(parent, "测试项目", true);
-const picked = await new BrowserProjectImport().readDirectoryProject(created);
+const cache = await created.getDirectoryHandle(".objs", { create: true });
+await cache.getFileHandle("cached.fairy", { create: true });
+const git = await created.getDirectoryHandle(".git", { create: true });
+await git.getFileHandle("config", { create: true });
+const progressEvents = [];
+const picked = await new BrowserProjectImport().readDirectoryProject(created, (progress) => progressEvents.push(progress));
 assert.equal(picked.directoryHandle, created);
 assert.equal(picked.imported.fairyPath, "测试项目.fairy");
 assert.equal(picked.imported.fileCount, 1);
+assert.equal(progressEvents[0].fileCount, 0, "Report the selected directory before reading files.");
+assert.equal(progressEvents.at(-1).fileCount, 1, "Progress must exclude editor cache and Git metadata.");
 const original = new TextDecoder().decode(picked.files[0].data);
 assert.match(original, /<projectDescription id="[a-f0-9]{32}" type="Layabox" version="3.0"\/>/);
 assert(created.entries.has("assets"));
