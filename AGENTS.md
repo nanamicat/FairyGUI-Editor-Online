@@ -2,7 +2,8 @@
 
 ## 分支和提交
 
-- 当前工作分支为 `file-system`，将本任务的提交推送到 `origin/file-system`。
+- 当前工作分支为 `file-system`，将本任务的提交推送到 `fork/file-system`。
+- `origin` 保留为上游 `https://github.com/OpenFairyGUI/FairyGUI-Editor-Online.git`；`fork` 指向用户授权的 `https://github.com/nanamicat/FairyGUI-Editor-Online.git`。使用明确的分支 refspec 推送，并让本地 `file-system` 跟踪 `fork/file-system`。
 - 用户明确要求不改动 `main`：不要向 `main` 提交、合并或推送，也不要强制推送。
 - 本仓库提交身份为 `nanamicat <nanamicat77@gmail.com>`，通过仓库级 Git 配置设置。
 - 推送前检查当前分支、暂存内容和验证结果；保留与本任务无关的用户修改。
