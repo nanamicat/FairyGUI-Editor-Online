@@ -24,6 +24,11 @@ import {
     writeDirectoryFilesWithRollback,
 } from "./DirectoryWritebackPolicy";
 import type { BrowserLiveSessionBridge } from "./BrowserLiveSessionBridge";
+import {
+    readPersistedDirectoryBinding, savePersistedDirectoryBinding, deletePersistedDirectoryBinding,
+    type DirectoryWritebackBinding, type PersistedDirectoryBinding, type DirectoryPermissionHandle,
+} from "./BrowserDirectoryBinding";
+export { readPersistedDirectoryBinding } from "./BrowserDirectoryBinding";
 
 export class BrowserSaveCoordinator {
     private directoryBinding: DirectoryWritebackBinding | null = null;
@@ -296,6 +301,7 @@ export class BrowserSaveCoordinator {
         files: BrowserWorkspaceFile[],
         directoryHandle?: FileSystemDirectoryHandle,
     ): Promise<BrowserWorkspaceLifecycleResult> {
+        if (imported.onDemand && directoryHandle) return this.mountDirectoryProject(imported, directoryHandle);
         const storageState = await this.restoreWorkspaceBinding();
         const mode: BrowserWorkspaceLifecycleMode = "workspace_import_directory";
         if (!storageState.available) {
@@ -422,6 +428,42 @@ export class BrowserSaveCoordinator {
             results: {},
             diagnostics,
         };
+    }
+
+    private async mountDirectoryProject(
+        imported: BrowserWorkspaceImport,
+        selected: FileSystemDirectoryHandle,
+    ): Promise<BrowserWorkspaceLifecycleResult> {
+        const workspaceName = this.storage.getWorkspaceName();
+        const previousFairyPath = this.storage.getFairyPath();
+        const previous = await readPersistedDirectoryBinding(workspaceName);
+        const reset = await this.liveSession.reset();
+        if (!reset.ok) throw new Error(reset.message || "Active session could not be closed.");
+        try {
+            const directory = await resolveProjectDirectoryHandle(selected, imported.projectRoot);
+            await directory.getFileHandle(imported.fairyPath);
+            const storage = await this.storage.mountDirectory({
+                directory, directoryName: directory.name, fairyPath: imported.fairyPath,
+                baseline: [], restored: false,
+                cacheName: `${workspaceName}-directory-${crypto.randomUUID()}`,
+            });
+            if (!storage.available || !storage.projectFileExists) throw new Error(storage.error || "Project directory could not be mounted.");
+            this.directoryBinding = this.storage.getDirectoryAdapter()!.binding;
+            this.directoryBinding.restored = false;
+            this.directoryBindingRestoreAttempted = true;
+            this.directoryBindingState = createDirectoryBindingState(this.directoryBinding, await queryDirectoryWritePermission(directory));
+            return {
+                ok: true, generatedAt: new Date().toISOString(), mode: "workspace_import_directory",
+                storage: this.decorateStorageState(storage), imported, results: {},
+                diagnostics: [{ severity: "info", code: "DIRECTORY_MOUNTED_ON_DEMAND", message: "Project directory mounted; files are read only when requested." }],
+            };
+        } catch (error) {
+            if (previous) await savePersistedDirectoryBinding(workspaceName, { ...previous, restored: true });
+            else await deletePersistedDirectoryBinding(workspaceName);
+            this.resetDirectoryBindingState();
+            await this.storage.switchWorkspace(workspaceName, previousFairyPath);
+            throw error;
+        }
     }
 
     async save(target?: BrowserSaveTarget): Promise<BrowserSaveResult> {
@@ -562,14 +604,20 @@ export class BrowserSaveCoordinator {
 
             // ponytail: compare-before-write cannot lock another process; re-import after an external writer races this check.
             const changes: DirectoryWritebackFileChange[] = snapshots
-                .filter(({ file, previous }) => previous === undefined || !sameBytes(file.data, previous))
-                .map(({ file, previous }) => ({ file, previous }));
+                .filter(({ file, previous, remove }) => remove ? previous !== undefined : previous === undefined || !sameBytes(file.data, previous))
+                .map(({ file, previous, remove }) => ({ file, previous, remove }));
             await writeDirectoryFilesWithRollback(
                 changes,
                 (file) => writeDirectoryFile(binding.directory, file),
                 (path) => removeDirectoryFile(binding.directory, path),
             );
-            binding.baseline = await createDirectoryWritebackBaseline(files);
+            const versions = await createDirectoryWritebackBaseline(files);
+            const directoryAdapter = this.storage.getDirectoryAdapter?.();
+            binding.baseline = directoryAdapter
+                ? [...binding.baseline.filter((entry) => !files.some((file) => file.path === entry.path)), ...versions]
+                : versions;
+            binding.missingPaths = (binding.missingPaths || []).filter((path) => !files.some((file) => file.path === path));
+            directoryAdapter?.acceptWriteback(files);
             let message = changes.length === 0
                 ? "Verified " + files.length + " workspace files in " + binding.directoryName + "; no Folder changes were needed."
                 : "Wrote and verified " + changes.length + " changed workspace file(s) in " + binding.directoryName + ".";
@@ -583,7 +631,7 @@ export class BrowserSaveCoordinator {
             } catch (error) {
                 try {
                     const storage = await this.storage.getState();
-                    await deletePersistedDirectoryBinding(storage.workspaceName);
+                    if (!directoryAdapter) await deletePersistedDirectoryBinding(storage.workspaceName);
                 } catch {
                     // Keep the current-page binding, but never claim a stale cross-refresh baseline is safe.
                 }
@@ -623,15 +671,22 @@ export class BrowserSaveCoordinator {
             file: BrowserWorkspaceFile;
             previous: Uint8Array | undefined;
             observed: DirectoryWritebackObservedEntry;
+            remove?: boolean;
         }>;
         conflicts: ReturnType<typeof compareDirectoryWritebackVersions>;
     }> {
-        const files = await this.storage.readWorkspaceFiles();
-        const snapshots = await Promise.all(files.map(async (file) => {
+        const directoryAdapter = this.storage.getDirectoryAdapter?.();
+        const files = directoryAdapter ? await directoryAdapter.stagedFiles() : await this.storage.readWorkspaceFiles();
+        const targets = [
+            ...files.map((file) => ({ file, remove: false })),
+            ...(directoryAdapter ? binding.deletedPaths || [] : []).map((path) => ({ file: { path, data: new Uint8Array() }, remove: true })),
+        ];
+        const snapshots = await Promise.all(targets.map(async ({ file, remove }) => {
             const previous = await readDirectoryFile(binding.directory, file.path);
             return {
                 file,
                 previous,
+                remove,
                 observed: {
                     path: file.path,
                     version: previous === undefined
@@ -674,8 +729,7 @@ export class BrowserSaveCoordinator {
             if (!persisted) return;
 
             try {
-                const files = await this.storage.readWorkspaceFiles();
-                if (!files.some((file) => file.path === persisted.fairyPath)) {
+                if (!await this.storage.getAdapter()?.exists(persisted.fairyPath)) {
                     this.directoryBindingState = {
                         status: "unavailable",
                         directoryName: persisted.directoryName,
@@ -687,7 +741,7 @@ export class BrowserSaveCoordinator {
                 }
 
                 this.storage.setFairyPath(persisted.fairyPath);
-                this.directoryBinding = {
+                this.directoryBinding = this.storage.getDirectoryAdapter?.()?.binding || {
                     ...persisted,
                     restored: true,
                 };
@@ -714,6 +768,9 @@ export class BrowserSaveCoordinator {
     private async clearDirectoryBinding(): Promise<void> {
         const storage = await this.storage.getState();
         await deletePersistedDirectoryBinding(storage.workspaceName);
+        if (this.storage.getDirectoryAdapter?.()) {
+            await this.storage.switchWorkspace(storage.workspaceName, this.storage.getFairyPath());
+        }
         this.resetDirectoryBindingState(true);
     }
 
@@ -734,7 +791,9 @@ export class BrowserSaveCoordinator {
         state: BrowserDirectoryWritebackState,
         restoreAttempted: boolean,
     ): void {
-        this.directoryBinding = binding;
+        const directoryAdapter = this.storage.getDirectoryAdapter?.();
+        if (directoryAdapter && binding) Object.assign(directoryAdapter.binding, binding);
+        this.directoryBinding = directoryAdapter?.binding || binding;
         this.directoryBindingState = state;
         this.directoryBindingRestoreAttempted = restoreAttempted;
         this.directoryBindingRestorePromise = null;
@@ -854,31 +913,6 @@ export class BrowserSaveCoordinator {
     }
 }
 
-interface DirectoryWritebackBinding {
-    directory: FileSystemDirectoryHandle;
-    directoryName: string;
-    fairyPath: string;
-    baseline: DirectoryVersionEntry[];
-    restored: boolean;
-}
-
-interface PersistedDirectoryBinding {
-    key: "active";
-    directory: FileSystemDirectoryHandle;
-    directoryName: string;
-    fairyPath: string;
-    baseline: DirectoryVersionEntry[];
-}
-
-const DIRECTORY_BINDING_DATABASE_SUFFIX = "-directory-binding";
-const DIRECTORY_BINDING_STORE = "bindings";
-const DIRECTORY_BINDING_KEY = "active";
-
-interface DirectoryPermissionHandle {
-    queryPermission?: (descriptor: { mode: "readwrite" }) => Promise<PermissionState>;
-    requestPermission?: (descriptor: { mode: "readwrite" }) => Promise<PermissionState>;
-}
-
 function createDirectoryBindingState(
     binding: DirectoryWritebackBinding,
     permission: PermissionState | "unavailable",
@@ -906,113 +940,6 @@ function createDirectoryBindingState(
         baselineFileCount: binding.baseline.length,
         restored: binding.restored,
         message: message || defaultMessage,
-    };
-}
-
-export async function readPersistedDirectoryBinding(workspaceName: string): Promise<PersistedDirectoryBinding | null> {
-    const database = await openDirectoryBindingDatabase(workspaceName);
-    if (!database) return null;
-    try {
-        const record = await new Promise<unknown>((resolve, reject) => {
-            const request = database.transaction(DIRECTORY_BINDING_STORE, "readonly")
-                .objectStore(DIRECTORY_BINDING_STORE)
-                .get(DIRECTORY_BINDING_KEY);
-            request.onerror = () => reject(request.error || new Error("Failed to read Folder binding."));
-            request.onsuccess = () => resolve(request.result);
-        });
-        return parsePersistedDirectoryBinding(record);
-    } finally {
-        database.close();
-    }
-}
-
-async function savePersistedDirectoryBinding(
-    workspaceName: string,
-    binding: DirectoryWritebackBinding,
-): Promise<void> {
-    const database = await openDirectoryBindingDatabase(workspaceName);
-    if (!database) {
-        throw createDirectoryBindingError(
-            "DIRECTORY_BINDING_PERSIST_UNAVAILABLE",
-            "IndexedDB is unavailable for Folder binding persistence.",
-        );
-    }
-    try {
-        await new Promise<void>((resolve, reject) => {
-            const transaction = database.transaction(DIRECTORY_BINDING_STORE, "readwrite");
-            transaction.objectStore(DIRECTORY_BINDING_STORE).put({
-                key: DIRECTORY_BINDING_KEY,
-                directory: binding.directory,
-                directoryName: binding.directoryName,
-                fairyPath: binding.fairyPath,
-                baseline: binding.baseline,
-            } satisfies PersistedDirectoryBinding);
-            transaction.oncomplete = () => resolve();
-            transaction.onerror = () => reject(transaction.error || new Error("Failed to save Folder binding."));
-            transaction.onabort = () => reject(transaction.error || new Error("Folder binding save was aborted."));
-        });
-    } finally {
-        database.close();
-    }
-}
-
-async function deletePersistedDirectoryBinding(workspaceName: string): Promise<void> {
-    const database = await openDirectoryBindingDatabase(workspaceName);
-    if (!database) return;
-    try {
-        await new Promise<void>((resolve, reject) => {
-            const transaction = database.transaction(DIRECTORY_BINDING_STORE, "readwrite");
-            transaction.objectStore(DIRECTORY_BINDING_STORE).delete(DIRECTORY_BINDING_KEY);
-            transaction.oncomplete = () => resolve();
-            transaction.onerror = () => reject(transaction.error || new Error("Failed to remove Folder binding."));
-            transaction.onabort = () => reject(transaction.error || new Error("Folder binding removal was aborted."));
-        });
-    } finally {
-        database.close();
-    }
-}
-
-function openDirectoryBindingDatabase(workspaceName: string): Promise<IDBDatabase | null> {
-    if (typeof indexedDB === "undefined") return Promise.resolve(null);
-    return new Promise((resolve, reject) => {
-        const request = indexedDB.open(workspaceName + DIRECTORY_BINDING_DATABASE_SUFFIX, 1);
-        request.onupgradeneeded = () => {
-            if (!request.result.objectStoreNames.contains(DIRECTORY_BINDING_STORE)) {
-                request.result.createObjectStore(DIRECTORY_BINDING_STORE, { keyPath: "key" });
-            }
-        };
-        request.onerror = () => reject(request.error || new Error("Failed to open Folder binding storage."));
-        request.onsuccess = () => resolve(request.result);
-    });
-}
-
-function parsePersistedDirectoryBinding(value: unknown): PersistedDirectoryBinding | null {
-    if (!value || typeof value !== "object") return null;
-    const candidate = value as Partial<PersistedDirectoryBinding>;
-    if (
-        candidate.key !== DIRECTORY_BINDING_KEY
-        || typeof candidate.directoryName !== "string"
-        || typeof candidate.fairyPath !== "string"
-        || !Array.isArray(candidate.baseline)
-        || !candidate.directory
-        || typeof candidate.directory.getFileHandle !== "function"
-    ) {
-        return null;
-    }
-    if (!candidate.baseline.every((entry) => (
-        entry
-        && typeof entry.path === "string"
-        && typeof entry.bytes === "number"
-        && typeof entry.sha256 === "string"
-    ))) {
-        return null;
-    }
-    return {
-        key: DIRECTORY_BINDING_KEY,
-        directory: candidate.directory,
-        directoryName: candidate.directoryName,
-        fairyPath: candidate.fairyPath,
-        baseline: candidate.baseline,
     };
 }
 

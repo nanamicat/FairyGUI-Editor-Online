@@ -95,10 +95,12 @@ const progressEvents = [];
 const picked = await new BrowserProjectImport().readDirectoryProject(created, (progress) => progressEvents.push(progress));
 assert.equal(picked.directoryHandle, created);
 assert.equal(picked.imported.fairyPath, "测试项目.fairy");
-assert.equal(picked.imported.fileCount, 1);
+assert.equal(picked.imported.fileCount, 0);
+assert.equal(picked.imported.onDemand, true);
+assert.deepEqual(picked.files, [], "Directory selection must not copy file contents.");
 assert.equal(progressEvents[0].fileCount, 0, "Report the selected directory before reading files.");
-assert.equal(progressEvents.at(-1).fileCount, 1, "Progress must exclude editor cache and Git metadata.");
-const original = new TextDecoder().decode(picked.files[0].data);
+assert.equal(progressEvents.at(-1).fileCount, 0, "Discovery must only inspect names, without reading content.");
+const original = await (await (await created.getFileHandle("测试项目.fairy")).getFile()).text();
 assert.match(original, /<projectDescription id="[a-f0-9]{32}" type="Layabox" version="3.0"\/>/);
 assert(created.entries.has("assets"));
 await assert.rejects(createLocalProject(parent, "测试项目", true), /不是空目录/);
@@ -109,7 +111,7 @@ await flat.getFileHandle("Other.fairy", { create: true });
 await assert.rejects(new BrowserProjectImport().readDirectoryProject(flat), /多个 .fairy/);
 
 const denied = directory("Denied");
-denied.entries.set("blocked", { kind: "file" });
+denied.entries.set("blocked.fairy", { kind: "file" });
 denied.getFileHandle = async () => { throw new DOMException("No read permission", "NotAllowedError"); };
 await assert.rejects(new BrowserProjectImport().readDirectoryProject(denied), { name: "NotAllowedError" });
 

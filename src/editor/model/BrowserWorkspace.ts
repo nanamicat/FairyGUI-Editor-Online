@@ -20,6 +20,7 @@ export interface BrowserProjectStorageState {
     directoryCount: number;
     totalBytes: number;
     writeCount: number;
+    onDemand?: boolean;
     error?: string;
     directoryWriteback?: BrowserDirectoryWritebackState;
 }
@@ -128,6 +129,7 @@ export interface BrowserWorkspaceImport {
     fairyPath: string;
     fileCount: number;
     totalBytes: number;
+    onDemand?: boolean;
 }
 
 export interface BrowserWorkspaceLifecycleResult {

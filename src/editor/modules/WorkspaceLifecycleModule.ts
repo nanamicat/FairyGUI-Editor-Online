@@ -95,12 +95,17 @@ export class EditorWorkspaceLifecycle {
         if (!this.active) return Promise.resolve(false);
         return this.track(this.session.runExclusive(async () => {
             if (!this.guardTransition("open", "data-fairy-editor-workspace-open")) return false;
-            const existing = await this.session.workspaceLifecycle.findDirectoryWorkspace(directory);
-            if (existing) return this.switchNow(existing, () => (
-                this.session.workspaceLifecycle.readDirectoryProject(directory, onProgress)
-            ));
-            const picked = await this.session.workspaceLifecycle.readDirectoryProject(directory, onProgress);
-            return this.openProjectNow(picked);
+            this.session.workspaceLifecycle.setReadProgressHandler(onProgress);
+            try {
+                const existing = await this.session.workspaceLifecycle.findDirectoryWorkspace(directory);
+                if (existing) return await this.switchNow(existing, () => (
+                    this.session.workspaceLifecycle.readDirectoryProject(directory, onProgress)
+                ));
+                const picked = await this.session.workspaceLifecycle.readDirectoryProject(directory, onProgress);
+                return await this.openProjectNow(picked);
+            } finally {
+                this.session.workspaceLifecycle.setReadProgressHandler();
+            }
         }));
     }
 
@@ -409,7 +414,7 @@ export class EditorWorkspaceLifecycle {
             return false;
         }
         if (!this.guardTransition("import", "data-fairy-editor-workspace-import")) return false;
-        this.chrome.setStatus(`Project ${label} import started.`);
+        this.chrome.setStatus(picked.imported.onDemand ? "正在打开目录，按需读取工程文件…" : `Project ${label} import started.`);
         const identity = this.session.liveSessionBridge.captureSessionIdentity();
         this.invalidateRuntime();
         try {
@@ -467,7 +472,7 @@ export class EditorWorkspaceLifecycle {
             this.chrome.setStatus(
                 picked.directoryHandle && binding?.status !== "ready"
                     ? `项目已打开；目录写回不可用：${binding?.message || "请重新授权目录。"}`
-                    : `Project ${label} imported: files ${result.storage.fileCount}.`,
+                    : result.storage.onDemand ? "项目已打开；文件按需读取，保存写回授权目录。" : `Project ${label} imported: files ${result.storage.fileCount}.`,
                 picked.directoryHandle && binding?.status !== "ready" ? "warning" : "info",
             );
             return true;

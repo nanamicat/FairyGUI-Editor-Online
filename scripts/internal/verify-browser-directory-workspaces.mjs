@@ -109,6 +109,7 @@ assert.equal((await controller.findPickedDirectoryWorkspace(picked)).id, active.
 const calls = [];
 let dirty = false;
 const service = {
+    setReadProgressHandler() {},
     get registry() { return controller.registry; },
     findDirectoryWorkspace: (...args) => controller.findDirectoryWorkspace(...args),
     findPickedDirectoryWorkspace: (...args) => controller.findPickedDirectoryWorkspace(...args),

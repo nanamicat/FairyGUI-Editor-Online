@@ -1,4 +1,7 @@
 import { zip, type AsyncZippable } from "fflate";
+import { readPersistedDirectoryBinding, savePersistedDirectoryBinding, type DirectoryWritebackBinding } from "./BrowserDirectoryBinding";
+import { BrowserDirectoryStorage } from "./BrowserDirectoryStorage";
+import type { BrowserProjectReadProgress } from "./BrowserProjectImport";
 import type {
     BrowserProjectStorageKind,
     BrowserProjectStorageState,
@@ -61,6 +64,7 @@ export class BrowserProjectStorage {
     private kind: BrowserProjectStorageKind = "indexeddb";
     private error = "";
     private initializePromise: Promise<BrowserProjectStorageState> | null = null;
+    private readProgress: ((progress: BrowserProjectReadProgress) => void) | undefined;
 
     constructor(
         private workspaceName: string = LEGACY_DEFAULT_WORKSPACE_NAME,
@@ -107,15 +111,21 @@ export class BrowserProjectStorage {
         this.error = "";
 
         try {
-            const opfs = await this.tryCreateOpfsAdapter();
+            const persisted = await readPersistedDirectoryBinding(this.workspaceName);
+            const cacheName = persisted?.cacheName || this.workspaceName;
+            const opfs = await this.tryCreateOpfsAdapter(cacheName);
             if (opfs) {
                 this.adapter = opfs;
                 this.kind = "opfs";
             } else {
-                this.adapter = await IndexedDbBrowserStorageAdapter.open(this.workspaceName);
+                this.adapter = await IndexedDbBrowserStorageAdapter.open(cacheName);
                 this.kind = "indexeddb";
             }
             await this.adapter.mkdir(".", { recursive: true });
+            if (persisted) {
+                this.adapter = new BrowserDirectoryStorage({ ...persisted, restored: true }, this.adapter, this.workspaceName,
+                    (progress) => this.readProgress?.(progress));
+            }
             this.status = "ready";
         } catch (error) {
             this.adapter = null;
@@ -128,6 +138,19 @@ export class BrowserProjectStorage {
 
     getAdapter(): BrowserProjectStorageAdapter | null {
         return this.adapter;
+    }
+
+    getDirectoryAdapter(): BrowserDirectoryStorage | null {
+        return this.adapter instanceof BrowserDirectoryStorage ? this.adapter : null;
+    }
+
+    setReadProgressHandler(handler?: (progress: BrowserProjectReadProgress) => void): void {
+        this.readProgress = handler;
+    }
+
+    async mountDirectory(binding: DirectoryWritebackBinding): Promise<BrowserProjectStorageState> {
+        await savePersistedDirectoryBinding(this.workspaceName, binding);
+        return this.switchWorkspace(this.workspaceName, binding.fairyPath);
     }
 
     async getState(): Promise<BrowserProjectStorageState> {
@@ -225,9 +248,9 @@ export class BrowserProjectStorage {
     }
 
     async exportRuntimeBundleZip(): Promise<BrowserWorkspaceExport> {
-        const files = (await this.readWorkspaceFiles()).filter((file) => (
-            file.path.startsWith(".fairygui-runtime/")
-        ));
+        await this.initialize();
+        const files = this.adapter && await this.adapter.exists(".fairygui-runtime")
+            ? await this.collectFiles(this.adapter, ".fairygui-runtime") : [];
         if (files.length === 0) throw new Error("Published runtime bundle is empty.");
         const blob = await createStoredZipBlob(files);
         const totalBytes = files.reduce((total, file) => total + file.data.byteLength, 0);
@@ -252,7 +275,7 @@ export class BrowserProjectStorage {
         return await this.collectFiles(this.adapter, ".");
     }
 
-    private async tryCreateOpfsAdapter(): Promise<BrowserProjectStorageAdapter | null> {
+    private async tryCreateOpfsAdapter(cacheName = this.workspaceName): Promise<BrowserProjectStorageAdapter | null> {
         const storageManager = navigator.storage as unknown as OpfsStorageManager | undefined;
         if (!storageManager || typeof storageManager.getDirectory !== "function") {
             return null;
@@ -260,7 +283,7 @@ export class BrowserProjectStorage {
 
         try {
             const root = await storageManager.getDirectory();
-            const workspaceRoot = await root.getDirectoryHandle(this.workspaceName, { create: true });
+            const workspaceRoot = await root.getDirectoryHandle(cacheName, { create: true });
             return new OpfsBrowserStorageAdapter(workspaceRoot);
         } catch {
             return null;
@@ -270,6 +293,13 @@ export class BrowserProjectStorage {
     private async createSummaryState(): Promise<BrowserProjectStorageState> {
         const adapter = this.adapter;
         if (!adapter) return this.createState(0, 0, 0, 0);
+        if (adapter instanceof BrowserDirectoryStorage) {
+            const summary = adapter.getSummary();
+            return {
+                ...this.createState(summary.fileCount, 0, summary.totalBytes, adapter.getWriteCount(), await adapter.exists(this.fairyPath)),
+                onDemand: true,
+            };
+        }
 
         let fileCount = 0;
         let directoryCount = 0;

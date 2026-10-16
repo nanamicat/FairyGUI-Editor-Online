@@ -172,7 +172,7 @@ export class ProjectImportDialog {
             dialog,
             "projectImportPreview2",
             pending
-                ? `内容：${pending.imported.fileCount} 个文件，${formatFileSize(pending.imported.totalBytes)}`
+                ? pending.imported.onDemand ? "内容：按需读取，不预先复制工程目录" : `内容：${pending.imported.fileCount} 个文件，${formatFileSize(pending.imported.totalBytes)}`
                 : "内容：-",
         );
         this.setText(
@@ -205,7 +205,7 @@ export class ProjectImportDialog {
         );
         this.callbacks.setDebugAttribute(
             "data-fairy-editor-workspace-pending-runtime-bundle",
-            pending?.files.some((file) => file.path === ".fairygui-runtime/manifest.json")
+            pending?.imported.onDemand ? "on-demand" : pending?.files.some((file) => file.path === ".fairygui-runtime/manifest.json")
                 ? "prepared"
                 : pending ? "missing" : "",
         );
@@ -252,7 +252,7 @@ export class ProjectImportDialog {
             cancel.grayed = true;
             cancel.touchable = false;
         }
-        this.render(`正在导入 ${pending.imported.fileCount} 个文件...`);
+        this.render(pending.imported.onDemand ? "正在打开目录，按需读取工程文件…" : `正在导入 ${pending.imported.fileCount} 个文件...`);
         try {
             if (await this.callbacks.applyImport(pending, formatImportSource(pending.imported.source))) {
                 this.callbacks.showWorkspace();
@@ -316,6 +316,7 @@ export function formatImportSource(
 }
 
 export function formatRuntimeBundlePreview(pending: BrowserProjectImportResult): string {
+    if (pending.imported.onDemand) return "工程文件和运行资源按需读取；保存时写回所选文件夹。";
     const runtimeFiles = pending.files.filter((file) => file.path.startsWith(".fairygui-runtime/"));
     const writeback = "保存时可写回所选文件夹。";
     return runtimeFiles.some((file) => file.path === ".fairygui-runtime/manifest.json")

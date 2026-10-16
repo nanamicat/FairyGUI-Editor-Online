@@ -12,6 +12,7 @@ export interface DirectoryWritebackObservedEntry {
 export interface DirectoryWritebackFileChange {
     file: BrowserWorkspaceFile;
     previous?: Uint8Array;
+    remove?: boolean;
 }
 
 export async function writeDirectoryFilesWithRollback(
@@ -23,7 +24,8 @@ export async function writeDirectoryFilesWithRollback(
     try {
         for (const change of changes) {
             attempted.push(change);
-            await writeFile(change.file);
+            if (change.remove) await removeFile(change.file.path);
+            else await writeFile(change.file);
         }
     } catch (writeError) {
         const rollbackErrors: string[] = [];

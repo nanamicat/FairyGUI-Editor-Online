@@ -25,6 +25,8 @@
 - 浏览器联调使用用户设置的系统默认浏览器。用户手动处理系统目录选择与授权对话框，代理观察调用返回与加载状态。
 - 大工程读取应显示文件数量和字节进度，忽略 `.objs`、`.git`、`.svn` 和 `node_modules` 缓存目录。
 - 保留目录句柄持久化、授权失败处理、保存冲突检测与写回恢复机制；新建本地工程只使用空目录。
+- 本地目录通过 `BrowserDirectoryStorage` 按请求读取，发现工程只检查文件名，挂载、恢复和统计不遍历或读取整个目录。后端产生的写入暂存在 OPFS / IndexedDB，首次读取或改写目标时记录 SHA-256 基线；保存仅检查和写回暂存目标，删除已跟踪文件也须检查冲突并参与失败回滚。旧镜像缓存保留作兼容覆盖层，不在打开时重新复制或全量校验。
+- OpenFairyGUI 当前 `openSession` 仍会请求解析所需的资源字节；不要绕过正式会话或保真保存保护来减少这些读取。
 - 首页打开本地项目按工程根目录句柄 `isSameEntry()` 和 `.fairy` 路径复用已有工作区；新目录才创建独立工作区。最近项目的历史重复注册执行一次性清理，优先保留当前工作区，其次保留最近打开项，备份原注册表并保留缓存文件。列表展示不做去重；工具栏导入保留确认后替换工作区的行为。
 - 工程打开和磁盘保存仅支持 File System Access API，不提供工程 ZIP 导入、ZIP 导出或文件夹只读降级；不支持目录句柄的浏览器应明确提示。
 - 本地新建工程目前使用 LayaAir 格式。共享 ZIP 解析仅用于 FairyGUI 资源包，已发布运行时包和资源导出不属于整个工程的 ZIP 传输。
@@ -35,6 +37,7 @@
 - 文件系统相关回归：
   - `node scripts/internal/verify-browser-file-system-access.mjs`
   - `node scripts/internal/verify-browser-directory-workspaces.mjs`
+  - `node scripts/internal/verify-browser-directory-on-demand.mjs`
   - `node scripts/internal/verify-browser-archive.mjs`
   - `node scripts/internal/verify-phase8-directory-writeback-policy.mjs`
   - `node scripts/internal/verify-browser-session-lifecycle-race.mjs`

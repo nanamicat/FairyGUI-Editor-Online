@@ -51,6 +51,7 @@ const steps = [
 	['Browser archive', process.execPath, ['scripts/internal/verify-browser-archive.mjs'], 0],
 	['File System Access', process.execPath, ['scripts/internal/verify-browser-file-system-access.mjs'], 0],
 	['Directory workspaces', process.execPath, ['scripts/internal/verify-browser-directory-workspaces.mjs'], 0],
+	['On-demand directories', process.execPath, ['scripts/internal/verify-browser-directory-on-demand.mjs'], 0],
 	['Canvas interaction', process.execPath, ['scripts/internal/verify-desktop-canvas-interaction.mjs'], 0],
 	['Hierarchy interaction', process.execPath, ['scripts/internal/verify-desktop-hierarchy-interaction.mjs'], 0],
 	['Group membership', process.execPath, ['scripts/internal/verify-group-membership.mjs'], 0],

@@ -7,7 +7,7 @@
 > [!WARNING]
 > **这是一个实验性项目，不是 FairyGUI 官方产品，也尚未承诺生产级稳定性。** 当前仓库用于探索 OpenFairyGUI 在真实浏览器编辑器中的工程读写、事务、发布和模块化边界。请在导入或绑定本地目录前保留独立备份，不要把浏览器工作区作为工程的唯一副本。
 
-FairyGUI Editor Online 使用 [OpenFairyGUI](https://github.com/OpenFairyGUI/OpenFairyGUI) 读取和修改 `.fairy` 工程，以冻结的 LayaAir 3.3.10 与 FairyGUI Web 运行时提供 Authoring Canvas 和已发布 runtime 预览。项目采用 local-first 设计：工程默认保存在浏览器工作区，只有用户明确授权后才会写回本地目录。
+FairyGUI Editor Online 使用 [OpenFairyGUI](https://github.com/OpenFairyGUI/OpenFairyGUI) 读取和修改 `.fairy` 工程，以冻结的 LayaAir 3.3.10 与 FairyGUI Web 运行时提供 Authoring Canvas 和已发布 runtime 预览。授权后的本地工程按需读取；后端写入先暂存于浏览器工作区，经过保存校验和冲突检查后写回目录。
 
 ## 在线体验
 
@@ -24,7 +24,7 @@ FairyGUI Editor Online 使用 [OpenFairyGUI](https://github.com/OpenFairyGUI/Ope
 | 方向 | 当前原则 |
 | --- | --- |
 | 浏览器优先 | 工程导入、编辑、保存、发布和预览不依赖 LayaAir IDE 或本地 HTTP bridge |
-| 本地优先 | 数据保存在 OPFS / IndexedDB；Folder 写回必须由用户授权并经过冲突检查 |
+| 本地优先 | 授权目录按需读取，改动暂存在 OPFS / IndexedDB；Folder 写回经过冲突检查 |
 | 格式兼容 | 标准 `.fairy` 工程和 OpenFairyGUI UAM 是事实来源，runtime object 只做派生显示 |
 | 可靠编辑 | 修改统一经过 typed transaction、preflight、Undo/Redo、checkpoint 和保存后验 |
 | 模块化复用 | 产品显式组合 Session、Document、Explorer、Inspector、Timeline、Transfer 等能力 |
@@ -38,9 +38,10 @@ FairyGUI Editor Online 使用 [OpenFairyGUI](https://github.com/OpenFairyGUI/Ope
 
 - 默认显示原版 FairyGUI 欢迎首页；创建或打开本地项目时选择目录并授予读写权限，最近项目支持刷新后重新授权。
 - 首页打开本地项目使用独立浏览器工作区；创建项目使用空目录，生成标准 LayaAir `.fairy` 工程。
-- 通过授权本地目录打开 FairyGUI 工程，工具栏导入会先预览工程路径和文件数量。
+- 通过授权本地目录打开 FairyGUI 工程，工具栏导入会先预览工程路径；不预先复制整个目录。
 - 使用 OPFS，缺失时降级 IndexedDB；支持多工作区、刷新恢复和 Web Locks 并发保护。
-- 保存后重新读取工程进行后验验证；Folder 写回使用 SHA-256 基线阻断外部冲突。
+- 挂载、刷新恢复和统计不扫描全部文件内容；后端请求哪些文件，适配层才读取哪些文件。OpenFairyGUI 解析阶段仍会请求它所需的资源字节。
+- 保存后重新读取工程进行后验验证；Folder 写回只检查暂存目标，使用首次读取/改写时的 SHA-256 基线阻断外部冲突。
 - 目录授权丢失时需要重新授权或选择目录；不提供工程 ZIP 导入、导出或只读目录降级。
 
 ### 编辑与资源
@@ -72,7 +73,7 @@ flowchart LR
     Workbench --> Modules["领域模块"]
     Modules --> Session["ProjectSession\n唯一 mutation queue"]
     Session --> UAM["OpenFairyGUI\nlive UAM + transaction"]
-    Session --> Storage["OPFS / IndexedDB\nFolder binding"]
+    Session --> Storage["按需目录读取\nOPFS / IndexedDB 写入暂存"]
     Modules --> Shell["EditorShell\n全局 UI 编排"]
     Modules --> Preview["Authoring / Published Preview"]
 ```
@@ -167,7 +168,7 @@ npm run publish:editor-ui
 
 ## 数据安全边界
 
-- 目录导入先写入浏览器工作区，不会在确认前修改原目录。
+- 目录打开只保存句柄，文件按需读取；后端写入先暂存，不会在保存校验前修改原目录。
 - Folder 写回只覆盖当前工作区已跟踪的目标，不删除用户目录中的额外文件。
 - 检测到 changed、missing 或 externally-created target 时停止写回并保留浏览器工作区。
 - 写回中途失败会尝试逆序恢复已经写入的文件。

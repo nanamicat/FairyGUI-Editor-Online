@@ -44,7 +44,7 @@ export class WorkspaceLifecycleController {
 
     constructor(
         private readonly liveSession: BrowserLiveSessionBridge,
-        storage: BrowserProjectStorage,
+        private readonly storage: BrowserProjectStorage,
         initialRegistry: BrowserWorkspaceRegistry,
     ) {
         this.coordinator = new BrowserSaveCoordinator(liveSession, storage);
@@ -172,6 +172,10 @@ export class WorkspaceLifecycleController {
         onProgress?: (progress: BrowserProjectReadProgress) => void,
     ): Promise<BrowserProjectImportResult> {
         return this.importer.readDirectoryProject(directory, onProgress);
+    }
+
+    setReadProgressHandler(handler?: (progress: BrowserProjectReadProgress) => void): void {
+        this.storage.setReadProgressHandler(handler);
     }
 
     restoreWorkspaceBinding() {
