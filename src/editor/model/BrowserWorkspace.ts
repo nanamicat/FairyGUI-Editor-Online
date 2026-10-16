@@ -87,9 +87,7 @@ export type BrowserWorkspaceLifecycleMode =
     | "workspace_bootstrap"
     | "workspace_clear"
     | "workspace_export_manifest"
-    | "workspace_export_zip"
-    | "workspace_import_directory"
-    | "workspace_import_zip";
+    | "workspace_import_directory";
 
 export interface BrowserWorkspaceExport {
     format: "manifest" | "zip";
@@ -124,7 +122,7 @@ export interface DirectoryWritebackConflict {
 }
 
 export interface BrowserWorkspaceImport {
-    source: "directory" | "zip";
+    source: "directory";
     sourceName: string;
     projectRoot: string;
     fairyPath: string;

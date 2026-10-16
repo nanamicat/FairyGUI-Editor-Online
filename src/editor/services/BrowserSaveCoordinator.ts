@@ -284,43 +284,8 @@ export class BrowserSaveCoordinator {
                         ? "BROWSER_WORKSPACE_EXPORTED"
                         : "BROWSER_WORKSPACE_EXPORT_EMPTY",
                     message: exported.fileCount > 0
-                        ? "Browser workspace was exported as a JSON manifest. ZIP export remains a separate route."
+                        ? "Browser workspace was exported as a JSON manifest."
                         : "Browser workspace is empty; the exported manifest contains no project files.",
-                },
-            ],
-        };
-    }
-
-    async exportWorkspaceZip(): Promise<BrowserWorkspaceLifecycleResult> {
-        const storageState = await this.restoreWorkspaceBinding();
-        if (!storageState.available) {
-            return this.createFailedLifecycleResult(
-                "workspace_export_zip",
-                storageState,
-                "BROWSER_STORAGE_UNAVAILABLE",
-                storageState.error || "Browser workspace storage is unavailable.",
-            );
-        }
-
-        const exported = await this.storage.exportWorkspaceZip();
-        const storage = await this.resolveStorageState(storageState);
-        const ok = exported.fileCount > 0;
-        return {
-            ok,
-            generatedAt: new Date().toISOString(),
-            mode: "workspace_export_zip",
-            storage,
-            results: {},
-            export: exported,
-            diagnostics: [
-                {
-                    severity: ok ? "info" : "warning",
-                    code: ok
-                        ? "BROWSER_WORKSPACE_ZIP_EXPORTED"
-                        : "BROWSER_WORKSPACE_EXPORT_EMPTY",
-                    message: ok
-                        ? "Browser workspace was exported as a standard ZIP that can be imported again."
-                        : "Browser workspace is empty; no ZIP download was created.",
                 },
             ],
         };
@@ -332,9 +297,7 @@ export class BrowserSaveCoordinator {
         directoryHandle?: FileSystemDirectoryHandle,
     ): Promise<BrowserWorkspaceLifecycleResult> {
         const storageState = await this.restoreWorkspaceBinding();
-        const mode: BrowserWorkspaceLifecycleMode = imported.source === "zip"
-            ? "workspace_import_zip"
-            : "workspace_import_directory";
+        const mode: BrowserWorkspaceLifecycleMode = "workspace_import_directory";
         if (!storageState.available) {
             return this.createFailedLifecycleResult(
                 mode,
@@ -446,7 +409,7 @@ export class BrowserSaveCoordinator {
                 diagnostics.push({
                     severity: "warning",
                     code: "DIRECTORY_WRITEBACK_UNAVAILABLE",
-                    message: `Folder import succeeded, but direct write-back is unavailable: ${formatError(error)}. Export ZIP remains available.`,
+                    message: `Folder import succeeded, but direct write-back is unavailable: ${formatError(error)}. Reauthorize or choose the project directory again.`,
                 });
             }
         }
@@ -542,7 +505,7 @@ export class BrowserSaveCoordinator {
                 status: "skipped",
                 fileCount: 0,
                 totalBytes: 0,
-                message: "No user-authorized Folder is attached; the browser workspace is saved and can be exported as ZIP.",
+                message: "No user-authorized Folder is attached; choose and authorize the project directory to save to disk.",
             };
         }
 
@@ -570,7 +533,7 @@ export class BrowserSaveCoordinator {
                 status: "skipped",
                 fileCount: 0,
                 totalBytes: 0,
-                message: "No user-authorized Folder is attached; export ZIP to save outside the browser workspace.",
+                message: "No user-authorized Folder is attached; choose and authorize the project directory to save to disk.",
             };
         }
 
@@ -936,7 +899,7 @@ function createDirectoryBindingState(
             ? "Folder handle was restored. Save will request permission before write-back."
             : status === "permission_denied"
                 ? "Folder handle was restored, but browser permission is denied. Choose Folder again to replace it."
-                : "Folder permission cannot be checked. Use ZIP export or choose Folder again.";
+                : "Folder permission cannot be checked. Reauthorize or choose the project directory again.";
     return {
         status,
         directoryName: binding.directoryName,
@@ -1111,7 +1074,7 @@ function describeDirectoryWritebackConflicts(conflicts: readonly { path: string;
     const sample = conflicts.slice(0, 3).map((conflict) => conflict.kind + " " + conflict.path).join(", ");
     const suffix = conflicts.length > 3 ? " and " + (conflicts.length - 3) + " more" : "";
     return "Folder write-back was blocked by " + conflicts.length + " external change(s): " + sample + suffix
-        + ". Browser workspace remains saved; re-import Folder or export ZIP before resolving the conflict.";
+        + ". Browser workspace remains saved; resolve the external change and select the project directory again.";
 }
 
 async function writeDirectoryFile(

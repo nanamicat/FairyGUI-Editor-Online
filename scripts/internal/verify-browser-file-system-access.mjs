@@ -77,7 +77,11 @@ for (const errorName of ["AbortError", "NotAllowedError", "SecurityError"]) {
 window.isSecureContext = false;
 assert(!supportsLocalDirectories());
 await assert.rejects(pickLocalDirectory(), /HTTPS/);
+await assert.rejects(new BrowserProjectImport().pickDirectoryProject(), /HTTPS/);
 window.isSecureContext = true;
+window.showDirectoryPicker = undefined;
+await assert.rejects(new BrowserProjectImport().pickDirectoryProject(), /不支持本地项目目录读写/);
+assert.equal(new BrowserProjectImport().pickZipProject, undefined, "Project ZIP import must not be exposed.");
 
 for (const invalid of ["", "..", "../escape", "A/B", "a\\b", "NUL", "CON.txt", "name.", "a:b"]) {
     assert.throws(() => validateLocalProjectName(invalid), /有效的项目名称/);

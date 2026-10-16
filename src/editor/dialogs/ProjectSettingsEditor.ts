@@ -13,7 +13,7 @@ import {
     normalizeBrowserLanguagePath,
     readBrowserLanguageValues,
 } from "../services/BrowserLanguageFiles";
-import { pickBrowserFile } from "../services/BrowserProjectImport";
+import { pickBrowserFile } from "../services/BrowserFilePicker";
 import type { SetDisplayNodePropsCommand } from "../model/EditorCommand";
 import type {
     ComponentInstanceEditableProperties,

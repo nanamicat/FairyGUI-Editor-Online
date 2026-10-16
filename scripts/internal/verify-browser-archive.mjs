@@ -7,18 +7,19 @@ const encoder = new TextEncoder();
 const { BrowserProjectStorage, BrowserWorkspaceRollbackError } = await importTypeScriptModule(
     "src/editor/services/BrowserProjectStorage.ts",
 );
-const { readZipProjectFiles } = await importTypeScriptModule(
-    "src/editor/services/BrowserProjectImport.ts",
+const { readZipArchiveFiles } = await importTypeScriptModule(
+    "src/editor/services/BrowserArchive.ts",
 );
 
 const adapter = new MemoryBrowserStorage();
 await adapter.writeFileRaw("Project.fairy", encoder.encode("<project />"));
 await adapter.writeFileRaw("assets/中文.bin", new Uint8Array([0, 1, 2, 255]));
 
-const storage = new BrowserProjectStorage("zip-verification", "Project.fairy");
+const storage = new BrowserProjectStorage("archive-verification", "Project.fairy");
 storage.status = "ready";
 storage.kind = "indexeddb";
 storage.adapter = adapter;
+assert.equal(storage.exportWorkspaceZip, undefined, "Whole-project ZIP export must not be exposed.");
 
 const rollbackAdapter = new MemoryBrowserStorage();
 await rollbackAdapter.writeFileRaw("Project.fairy", encoder.encode("<original />"));
@@ -74,25 +75,10 @@ await assert.rejects(
     "A failed rollback must be distinguishable from a successfully restored import failure.",
 );
 
-const exported = await storage.exportWorkspaceZip();
-const exportedBytes = new Uint8Array(await exported.blob.arrayBuffer());
-const exportedView = new DataView(exportedBytes.buffer, exportedBytes.byteOffset, exportedBytes.byteLength);
-assert.equal(exportedView.getUint32(0, true), 0x04034b50, "ZIP export must start with a local file header.");
-assert.equal(exportedView.getUint16(8, true), 0, "Workspace ZIP export must remain stored, not deflated.");
-
-const roundTrip = await readZipProjectFiles(new File([exportedBytes], exported.fileName));
-assert.deepEqual(
-    roundTrip.map((file) => [file.path, [...file.data]]),
-    [
-        ["assets/中文.bin", [0, 1, 2, 255]],
-        ["Project.fairy", [...encoder.encode("<project />")]],
-    ],
-);
-
 await adapter.writeFileRaw(".fairygui-runtime/manifest.json", encoder.encode("{}"));
 await adapter.writeFileRaw(".fairygui-runtime/Bag.fui", new Uint8Array([7, 8, 9]));
 const runtimeExported = await storage.exportRuntimeBundleZip();
-const runtimeRoundTrip = await readZipProjectFiles(new File(
+const runtimeRoundTrip = await readZipArchiveFiles(new File(
     [new Uint8Array(await runtimeExported.blob.arrayBuffer())],
     runtimeExported.fileName,
 ));
@@ -108,24 +94,24 @@ const deflatedBytes = zipSync({
     "Imported/data.txt": encoder.encode("browser zip ".repeat(200)),
     "__MACOSX/ignored": encoder.encode("ignored"),
 }, { level: 6 });
-const deflated = await readZipProjectFiles(new File([deflatedBytes], "deflated.zip"));
+const deflated = await readZipArchiveFiles(new File([deflatedBytes], "deflated.zip"));
 assert.deepEqual(deflated.map((file) => file.path), ["Imported/data.txt", "Imported/Project.fairy"]);
 assert.equal(new TextDecoder().decode(deflated[0].data), "browser zip ".repeat(200));
 
 await assert.rejects(
-    () => readZipProjectFiles(new File([new Uint8Array([1, 2, 3])], "broken.zip")),
+    () => readZipArchiveFiles(new File([new Uint8Array([1, 2, 3])], "broken.zip")),
 );
 
 const legacyGbk = createRawStoredZip([
     { name: new Uint8Array([0xb2, 0xe2, 0xca, 0xd4, 0x2e, 0x70, 0x6e, 0x67]), data: new Uint8Array([7, 8, 9]) },
 ]);
-const legacyFiles = await readZipProjectFiles(new File([legacyGbk], "air-legacy.fairypackage"));
+const legacyFiles = await readZipArchiveFiles(new File([legacyGbk], "air-legacy.fairypackage"));
 assert.deepEqual(legacyFiles.map((file) => file.path), ["测试.png"]);
 
 for (const unsafePath of ["../package.xml", "/absolute.txt", "C:/drive.txt"]) {
     const unsafeZip = createRawStoredZip([{ name: encoder.encode(unsafePath), data: new Uint8Array([1]) }]);
     await assert.rejects(
-        () => readZipProjectFiles(new File([unsafeZip], "unsafe.zip")),
+        () => readZipArchiveFiles(new File([unsafeZip], "unsafe.zip")),
         /unsafe path|absolute path/,
     );
 }
@@ -134,24 +120,24 @@ const duplicateZip = createRawStoredZip([
     { name: encoder.encode("same.txt"), data: new Uint8Array([2]) },
 ]);
 await assert.rejects(
-    () => readZipProjectFiles(new File([duplicateZip], "duplicate.zip")),
+    () => readZipArchiveFiles(new File([duplicateZip], "duplicate.zip")),
     /duplicate path/,
 );
 const oversizedZip = createRawStoredZip([
     { name: encoder.encode("large.bin"), data: new Uint8Array([1]), declaredSize: 64 * 1024 * 1024 + 1 },
 ]);
 await assert.rejects(
-    () => readZipProjectFiles(new File([oversizedZip], "oversized.zip")),
+    () => readZipArchiveFiles(new File([oversizedZip], "oversized.zip")),
     /entry exceeds/,
 );
 const forgedInflatedSizeZip = createForgedInflatedSizeZip();
 await assert.rejects(
-    () => readZipProjectFiles(new File([forgedInflatedSizeZip], "forged-size.zip")),
+    () => readZipArchiveFiles(new File([forgedInflatedSizeZip], "forged-size.zip")),
     /inflated size/,
     "A deflated entry must be rejected when its actual output exceeds the declared size.",
 );
 
-console.log("Browser project ZIP verification passed.");
+console.log("Browser archive and storage rollback verification passed.");
 
 function createRawStoredZip(entries) {
     const localParts = [];

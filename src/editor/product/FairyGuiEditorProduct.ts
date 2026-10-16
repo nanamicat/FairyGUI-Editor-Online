@@ -3,7 +3,6 @@ import {
     createFairyPackageExportModule,
     createFairyPackageImportModule,
     createRuntimePublishModule,
-    createWorkspaceExportModule,
     createWorkspaceImportModule,
 } from "../modules/ProjectTransferModules";
 import { createResourceHealthModule } from "../modules/ResourceHealthModule";
@@ -23,7 +22,6 @@ export function createFairyGuiEditorProductModules(): EditorModule<FairyGuiEdito
         createFairyPackageImportModule(),
         createFairyPackageExportModule(),
         createWorkspaceImportModule(),
-        createWorkspaceExportModule(),
         createRuntimePublishModule(),
         createBrowserPluginsModule(),
         createResourceHealthModule(),

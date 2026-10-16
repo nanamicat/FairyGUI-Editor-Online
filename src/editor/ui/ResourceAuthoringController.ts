@@ -64,7 +64,7 @@ import type {
 import {
     pickBrowserFile,
     pickBrowserFiles,
-} from "../services/BrowserProjectImport";
+} from "../services/BrowserFilePicker";
 import type { AuthoringDialogController } from "./AuthoringDialogController";
 import { setActionEnabled } from "./EditorFormControls";
 import type { LibraryResourceFolderSelector } from "./LibraryController";
@@ -1556,11 +1556,7 @@ export class ResourceAuthoringController {
                 this.runEditorAction("workspace:importProject");
             });
         }
-        if (this.options.hasEditorAction("toolbar:exportWorkspace")) {
-            this.addMenuItem(menu, "desktopMenuExportWorkspace", "导出工作区 ZIP", () => {
-                this.runEditorAction("toolbar:exportWorkspace");
-            });
-        }
+
         this.showActionMenu(menu, anchor, "resource", "Resource menu opened.");
     }
 

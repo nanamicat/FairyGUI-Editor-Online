@@ -26,19 +26,20 @@
 - 大工程读取应显示文件数量和字节进度，忽略 `.objs`、`.git`、`.svn` 和 `node_modules` 缓存目录。
 - 保留目录句柄持久化、授权失败处理、保存冲突检测与写回恢复机制；新建本地工程只使用空目录。
 - 首页打开本地项目使用独立浏览器工作区；工具栏导入保留确认后替换工作区的行为。
-- 本地新建工程目前使用 LayaAir 格式；不支持可写目录的环境继续提供 ZIP 导入和导出。
+- 工程打开和磁盘保存仅支持 File System Access API，不提供工程 ZIP 导入、ZIP 导出或文件夹只读降级；不支持目录句柄的浏览器应明确提示。
+- 本地新建工程目前使用 LayaAir 格式。共享 ZIP 解析仅用于 FairyGUI 资源包，已发布运行时包和资源导出不属于整个工程的 ZIP 传输。
 
 ## 验证和维护
 
 - 基础检查：`npm run typecheck`、`npm run build`、`git diff --check`。
 - 文件系统相关回归：
   - `node scripts/internal/verify-browser-file-system-access.mjs`
-  - `node scripts/internal/verify-browser-project-zip.mjs`
+  - `node scripts/internal/verify-browser-archive.mjs`
   - `node scripts/internal/verify-phase8-directory-writeback-policy.mjs`
   - `node scripts/internal/verify-browser-session-lifecycle-race.mjs`
   - `node scripts/internal/verify-editor-workbench.mjs`
   - `node scripts/internal/verify-phase10-ui-interactions.mjs`
 - 改动浏览器保存后，按需运行 `verify-phase8-browser-storage-save.mjs` 和 `verify-phase8-clean-materialize.mjs`。
-- UI 改动检查首页、新建、打开、最近项目、拒绝/取消授权和 ZIP 流程。明确区分模拟目录选择器的自动化测试与实际系统授权弹窗验证。
+- UI 改动检查首页、新建、打开、最近项目、拒绝/取消授权，并确认工程 ZIP 入口和只读降级不存在。明确区分模拟目录选择器的自动化测试与实际系统授权弹窗验证。
 - 测试报告、截图和临时浏览器脚本放在已忽略的 `verification/reports/` 中。
 - 持续维护本文件：实现边界、验证入口或用户约定发生变化时同步更新；不要把聊天记录和临时状态堆入本文件。

@@ -33,7 +33,7 @@ import {
 } from "../commands/MovieClipTransactions";
 import type { ImageResourceEditableProps } from "../model/EditorCommand";
 import type { ProjectSnapshotPackage, ProjectSnapshotResource } from "../model/ProjectSnapshot";
-import { pickBrowserFile, pickBrowserFiles } from "../services/BrowserProjectImport";
+import { pickBrowserFile, pickBrowserFiles } from "../services/BrowserFilePicker";
 import { createStoredZipBlob } from "../services/BrowserProjectStorage";
 import { addDialogBackground } from "../ui/EditorFormControls";
 

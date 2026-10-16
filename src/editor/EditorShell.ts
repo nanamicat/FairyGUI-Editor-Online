@@ -473,7 +473,7 @@ export class EditorShell {
         Laya.stage.on(Laya.Event.MOUSE_DOWN, this, this.onStageMouseDown);
         Laya.stage.on(Laya.Event.KEY_DOWN, this, this.onStageKeyDown);
         Laya.stage.on(Laya.Event.KEY_UP, this, this.onStageKeyUp);
-        this.setStatus("请选择 FairyGUI 工程目录，并允许浏览器读写。也可从 ZIP 导入工程。");
+        this.setStatus("请选择 FairyGUI 工程目录，并允许浏览器读写。");
     }
 
     dispose(): void {
@@ -647,6 +647,7 @@ export class EditorShell {
         this.statusLine.visible = true;
         this.mainView.getChild("userInfo").visible = false;
         this.toolbar.getChild("tbImport").tooltips = "导入项目";
+        this.toolbar.getChild("tbSaveAll").visible = false;
         this.startScene.getChild("n3").asRichTextField.text = "[url=create]创建新项目[/url]";
         this.startScene.getChild("n4").asRichTextField.text = "[url=open]打开项目...[/url]";
         this.startScene.getChild("n5").asRichTextField.text = "[url=open_folder]打开文件夹...[/url]";
@@ -660,18 +661,8 @@ export class EditorShell {
         hint.setSize(560, 62);
         hint.text = supportsLocalDirectories()
             ? "选择项目目录后，请允许浏览器读写。\n保存会写回授权目录；刷新后可从最近项目重新授权打开。"
-            : "本地目录读写需要 HTTPS / localhost 下的 Chrome 或 Edge。\n当前可通过 ZIP 导入、编辑和导出工程。";
+            : "本地目录读写需要 HTTPS / localhost 下的 Chrome 或 Edge。\n请在支持 File System Access API 的浏览器中打开本页。";
         this.startScene.addChild(hint);
-        const zip = new fgui.GRichTextField();
-        zip.name = "importZipLink";
-        zip.fontSize = 13;
-        zip.color = "#68baba";
-        zip.ubbEnabled = true;
-        zip.setXY(350, 236);
-        zip.setSize(250, 26);
-        zip.text = "[url=import_zip]从 ZIP 导入项目...[/url]";
-        this.startScene.addChild(zip);
-
         const viewScale = this.toolbar.getChild("viewScale").asComboBox;
         viewScale.items = ["50%", "75%", "100%", "125%", "150%", "200%"];
         viewScale.values = ["0.5", "0.75", "1", "1.25", "1.5", "2"];
@@ -1485,7 +1476,7 @@ export class EditorShell {
     }
 
     private bindStartSceneLinks(): void {
-        for (const childName of ["n3", "n4", "n5", "importZipLink"]) {
+        for (const childName of ["n3", "n4", "n5"]) {
             const link = this.startScene.getChild(childName);
             if (link) this.listenEvent(link, Laya.Event.LINK, this.onStartSceneLink);
         }
@@ -1790,8 +1781,8 @@ export class EditorShell {
             return;
         }
 
-        if (link === "import_zip" || link === "import_project") {
-            this.runEditorAction(link === "import_zip" ? "workspace:importProjectZip" : "workspace:importProject");
+        if (link === "import_project") {
+            this.runEditorAction("workspace:importProject");
             return;
         }
 
@@ -1820,9 +1811,6 @@ export class EditorShell {
             this.addMenuItem(menu, "workspaceMenuImportFolder", "从文件夹导入...", () => {
                 this.runEditorAction("workspace:importProjectDirectory");
             });
-            this.addMenuItem(menu, "workspaceMenuImportZip", "从 ZIP 导入...", () => {
-                this.runEditorAction("workspace:importProjectZip");
-            });
             menu.addSeperator();
         }
         this.addMenuItem(menu, "browserWorkspaceNewMenu", "新建浏览器工作区…", () => {
@@ -1848,11 +1836,6 @@ export class EditorShell {
         this.addMenuItem(menu, "workspaceMenuSave", "保存", () => {
             this.runEditorAction("save");
         }, this.editorPreferences.shortcuts.save);
-        if (this.chrome.hasAction("toolbar:exportWorkspace")) {
-            this.addMenuItem(menu, "workspaceMenuExport", "导出工作区 ZIP", () => {
-                this.runEditorAction("toolbar:exportWorkspace");
-            });
-        }
         this.showActionMenu(menu, anchor, "file", "已打开文件菜单。");
     }
 
@@ -2042,7 +2025,7 @@ export class EditorShell {
         const menu = this.createActionMenu();
         this.addMenuItem(menu, "desktopMenuUserGuide", "使用指南", () => {
             this.showHelpTextDialog("userGuideDialog", "使用指南", [
-                "1. 从开始页导入 Folder 或 ZIP；编辑内容先保存在浏览器工作区。",
+                "1. 从开始页选择本地项目文件夹，并允许浏览器读写；保存会写回授权目录。",
                 "2. 单击资源会选中并显示属性；双击组件或资源会打开对应编辑器/预览器。",
                 "3. 资源库空白或资源上右击可创建、导入、重命名、移动、删除、导出及查看导入历史。",
                 "4. 保存会写入浏览器工作区；绑定可写 Folder 时会先检查外部冲突再写回。",
@@ -2610,7 +2593,7 @@ export class EditorShell {
             return false;
         }
         if (!supportsLocalDirectories()) {
-            this.setStatus("本地目录读写需要 HTTPS 或 localhost 下的 Chrome / Edge，请使用 ZIP 导入。");
+            this.setStatus("本地目录读写需要 HTTPS 或 localhost 下的 Chrome / Edge，请在支持 File System Access API 的浏览器中打开。");
             return false;
         }
         return true;

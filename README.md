@@ -14,7 +14,7 @@ FairyGUI Editor Online 使用 [OpenFairyGUI](https://github.com/OpenFairyGUI/Ope
 ### [打开 FairyGUI Editor Online →](https://editor.fairygui.dev/)
 
 - 推荐使用最新版 Chrome 或 Edge，以获得 File System Access API、OPFS 和目录写回能力。
-- 不支持目录句柄的浏览器仍可使用浏览器工作区，并通过 ZIP 导入和导出工程。
+- 工程打开与磁盘保存仅支持 File System Access API；不支持目录授权的浏览器需要切换到 Chrome 或 Edge。
 - 在线版本会持续随实验进展更新；行为和数据格式边界可能变化，重要工程请先备份。
 
 ## 项目定位
@@ -38,10 +38,10 @@ FairyGUI Editor Online 使用 [OpenFairyGUI](https://github.com/OpenFairyGUI/Ope
 
 - 默认显示原版 FairyGUI 欢迎首页；创建或打开本地项目时选择目录并授予读写权限，最近项目支持刷新后重新授权。
 - 首页打开本地项目使用独立浏览器工作区；创建项目使用空目录，生成标准 LayaAir `.fairy` 工程。
-- 从本地 Folder 或 ZIP 导入 FairyGUI 工程，并在写入前预览来源、工程路径和文件数量。
+- 通过授权本地目录打开 FairyGUI 工程，工具栏导入会先预览工程路径和文件数量。
 - 使用 OPFS，缺失时降级 IndexedDB；支持多工作区、刷新恢复和 Web Locks 并发保护。
 - 保存后重新读取工程进行后验验证；Folder 写回使用 SHA-256 基线阻断外部冲突。
-- 无可写目录句柄时，可导出能够被同一导入器重新打开的标准 ZIP。
+- 目录授权丢失时需要重新授权或选择目录；不提供工程 ZIP 导入、导出或只读目录降级。
 
 ### 编辑与资源
 
@@ -90,7 +90,7 @@ flowchart LR
 | 编辑模型 | OpenFairyGUI 0.2.4 | `.fairy` 工程读写、UAM、transaction、save 和 browser publish |
 | 渲染引擎 | LayaAir 3.3.10 Web runtime | Stage、渲染和输入事件；版本冻结，不依赖 LayaAir IDE |
 | UI runtime | FairyGUI-Layabox | 编辑器界面、Authoring Canvas 和 runtime component |
-| ZIP | fflate 0.8.3 | 浏览器内 ZIP 导入与导出 |
+| 压缩资源 | fflate 0.8.3 | FairyGUI 资源包解压与运行时包、资源导出 |
 | 浏览器能力 | OPFS、IndexedDB、File System Access API、Web Workers、Web Locks | 本地存储、目录写回、插件隔离和并发保护 |
 
 项目不使用 React、Vue 等 DOM UI 框架。编辑器界面由 FairyGUI 组件构建，Vite 直接编译 `src/Main.ts` 及其 TypeScript 模块。
@@ -167,7 +167,7 @@ npm run publish:editor-ui
 
 ## 数据安全边界
 
-- ZIP / Folder 导入先写入浏览器工作区，不会在确认前修改原目录。
+- 目录导入先写入浏览器工作区，不会在确认前修改原目录。
 - Folder 写回只覆盖当前工作区已跟踪的目标，不删除用户目录中的额外文件。
 - 检测到 changed、missing 或 externally-created target 时停止写回并保留浏览器工作区。
 - 写回中途失败会尝试逆序恢复已经写入的文件。

@@ -87,10 +87,6 @@ export class WorkspaceLifecycleController {
         return this.importer.pickDirectoryProject();
     }
 
-    pickZipProject(): Promise<BrowserProjectImportResult> {
-        return this.importer.pickZipProject();
-    }
-
     restoreWorkspaceBinding() {
         return this.coordinator.restoreWorkspaceBinding();
     }
@@ -187,10 +183,6 @@ export class WorkspaceLifecycleController {
         const workspaceId = this.currentRegistry.activeId;
         await clearBrowserWorkspaceQuarantine(workspaceId);
         this.quarantineFallback.delete(workspaceId);
-    }
-
-    async exportWorkspaceZip() {
-        return this.coordinator.exportWorkspaceZip();
     }
 
     private persistRegistry(): void {

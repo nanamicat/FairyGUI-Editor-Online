@@ -26,13 +26,11 @@ export type ShellAction =
     | "toolbar:createMovieClip"
     | "toolbar:importProjectDirectory"
     | "workspace:importProjectDirectory"
-    | "workspace:importProjectZip"
     | "resource:importFairyPackage"
     | "resource:importFairyPackageResources"
     | "resource:exportFairyPackage"
     | "resource:exportFairyPackageResources"
     | "toolbar:save"
-    | "toolbar:exportWorkspace"
     | "toolbar:publish"
     | "toolbar:publishSettings"
     | "toolbar:canvasSettings"
@@ -105,7 +103,6 @@ export const TOOLBAR_ACTIONS: Array<{ childName: string; action: ShellAction }> 
     { childName: "tbCreateMc", action: "toolbar:createMovieClip" },
     { childName: "tbImport", action: "toolbar:importProjectDirectory" },
     { childName: "tbSave", action: "toolbar:save" },
-    { childName: "tbSaveAll", action: "toolbar:exportWorkspace" },
     { childName: "tbPublish", action: "toolbar:publish" },
     { childName: "tbPublishSettings", action: "toolbar:publishSettings" },
     { childName: "tbCanvas", action: "toolbar:canvasSettings" },

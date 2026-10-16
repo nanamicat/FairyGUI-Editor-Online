@@ -135,7 +135,7 @@ assert(!coreProductSource.includes("createWorkspaceExportModule"));
 assert(!coreProductSource.includes("createRuntimePublishModule"));
 assert(productSource.includes("createFairyPackageImportModule()"));
 assert(productSource.includes("createFairyPackageExportModule()"));
-assert(productSource.includes("createWorkspaceExportModule()"));
+assert(!productSource.includes("createWorkspaceExportModule()"));
 assert(productSource.includes("createWorkspaceImportModule()"));
 assert(productSource.includes("createRuntimePublishModule()"));
 assert(productSource.includes("createBrowserPluginsModule()"));
@@ -161,7 +161,6 @@ assert(productSource.includes([
     "        createFairyPackageImportModule(),",
     "        createFairyPackageExportModule(),",
     "        createWorkspaceImportModule(),",
-    "        createWorkspaceExportModule(),",
     "        createRuntimePublishModule(),",
     "        createBrowserPluginsModule(),",
     "        createResourceHealthModule(),",
@@ -261,7 +260,7 @@ assert(!shellSource.includes("exportBrowserWorkspaceZip"));
 assert(!shellSource.includes("new ProjectImportDialog("));
 assert(!shellSource.includes("applyProjectImportNow"));
 assert(!shellSource.includes("publishBrowserRuntimeBundle"));
-assert(projectTransferModuleSource.includes("createWorkspaceExportModule"));
+assert(!projectTransferModuleSource.includes("createWorkspaceExportModule"));
 assert(projectTransferModuleSource.includes("createWorkspaceImportModule"));
 assert(projectTransferModuleSource.includes("createRuntimePublishModule"));
 assert(projectTransferModuleSource.includes("createFairyPackageImportModule"));
@@ -276,9 +275,9 @@ assert(projectTransferModuleSource.includes("publishRuntimeBundle(snapshot"));
 assert(projectTransferModuleSource.includes("new ProjectImportDialog("));
 assert(projectTransferModuleSource.includes("workspace.importWorkspace(picked, label)"));
 assert(projectTransferModuleSource.includes("pickDirectory: () => workspace.pickDirectoryProject()"));
-assert(projectTransferModuleSource.includes("pickZip: () => workspace.pickZipProject()"));
+assert(!projectTransferModuleSource.includes("pickZipProject"));
 assert(projectTransferModuleSource.includes("workspace.invalidateRuntime(true)"));
-assert(projectTransferModuleSource.includes('["toolbar:exportWorkspace"]'));
+assert(!projectTransferModuleSource.includes('["toolbar:exportWorkspace"]'));
 assert(projectTransferModuleSource.includes("await inFlight"));
 assert(browserPluginsModuleSource.includes("new BrowserPluginHost()"));
 assert(browserPluginsModuleSource.includes("chrome.registerToolMenuProvider"));

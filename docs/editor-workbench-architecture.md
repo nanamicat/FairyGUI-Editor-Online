@@ -104,13 +104,12 @@ interface EditorModule<THost> {
 | --- | --- | --- |
 | `fairygui.fairy-package-import` | Workbench 级 | 导入 Fairy package 或其中资源；等待内部队列结束后清理 |
 | `fairygui.fairy-package-export` | 可停用/重载 | 导出当前 package 或资源 |
-| `fairygui.workspace-import` | 可停用/重载 | Folder / ZIP 选择、预览和工作区导入对话框 |
-| `fairygui.workspace-export` | 可停用/重载 | 导出可重新导入的浏览器工作区 ZIP |
+| `fairygui.workspace-import` | 可停用/重载 | 授权目录选择、预览和工作区导入对话框 |
 | `fairygui.runtime-publish` | 可停用/重载 | 保存检查、Publish Settings、runtime 发布和在途任务回收 |
 | `fairygui.browser-plugins` | 可停用/重载 | 外部插件 host、权限、菜单/面板 contribution 和沙箱生命周期 |
 | `fairygui.resource-health` | 可停用/重载 | 资源重复、未使用和名称冲突审计入口 |
 
-因此，下游若只想复用编辑能力而不需要 export，可以在产品组合中省略 `fairygui.fairy-package-export` 和 `fairygui.workspace-export`，不需要修改核心 Session、Document 或 Shell 的内部实现。
+因此，下游若只想复用编辑能力而不需要资源包导出，可以在产品组合中省略 `fairygui.fairy-package-export`，不需要修改核心 Session、Document 或 Shell 的内部实现。
 
 ## 6. 工程事实与数据流
 

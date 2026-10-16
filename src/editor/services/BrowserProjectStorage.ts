@@ -224,23 +224,6 @@ export class BrowserProjectStorage {
         };
     }
 
-    async exportWorkspaceZip(): Promise<BrowserWorkspaceExport> {
-        const files = await this.readWorkspaceFiles();
-        const blob = await createStoredZipBlob(files);
-        const totalBytes = files.reduce((total, file) => total + file.data.byteLength, 0);
-        const projectName = basenameStoragePath(this.fairyPath).replace(/\.fairy$/i, "") || "fairygui-project";
-
-        return {
-            format: "zip",
-            fileName: `${projectName}-${formatExportTimestamp(new Date())}.zip`,
-            mimeType: "application/zip",
-            bytes: blob.size,
-            fileCount: files.length,
-            totalBytes,
-            blob,
-        };
-    }
-
     async exportRuntimeBundleZip(): Promise<BrowserWorkspaceExport> {
         const files = (await this.readWorkspaceFiles()).filter((file) => (
             file.path.startsWith(".fairygui-runtime/")

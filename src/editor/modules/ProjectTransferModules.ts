@@ -9,7 +9,8 @@ import {
 import { getBrowserSaveFailure } from "../ui/InspectorPresentation";
 import { getWorkspaceLifecycleFailure } from "../ui/InspectorPresentation";
 import { downloadBrowserFile } from "../services/BrowserDownload";
-import { pickBrowserFile, readZipProjectFiles } from "../services/BrowserProjectImport";
+import { pickBrowserFile } from "../services/BrowserFilePicker";
+import { readZipArchiveFiles } from "../services/BrowserArchive";
 import type { BrowserLiveSessionIdentity } from "../services/BrowserLiveSessionBridge";
 import {
     exportFairyPackage,
@@ -121,7 +122,7 @@ class FairyPackageImport {
                 "fairy-package",
             );
             if (!this.ensureCurrent(interactionIdentity, "package import")) return;
-            const archiveFiles = await readZipProjectFiles(file);
+            const archiveFiles = await readZipArchiveFiles(file);
             if (!this.ensureCurrent(interactionIdentity, "package import")) return;
             const imported = await readFairyPackageFiles(backend, archiveFiles);
             if (!this.ensureCurrent(interactionIdentity, "package import")) return;
@@ -190,7 +191,7 @@ class FairyPackageImport {
                 "fairy-package-resources",
             );
             if (!this.ensureCurrent(interactionIdentity, "resource import")) return;
-            const archiveFiles = await readZipProjectFiles(file);
+            const archiveFiles = await readZipArchiveFiles(file);
             if (!this.ensureCurrent(interactionIdentity, "resource import")) return;
             const imported = await readFairyPackageFiles(backend, archiveFiles);
             if (!this.ensureCurrent(interactionIdentity, "resource import")) return;
@@ -444,45 +445,6 @@ export function createFairyPackageExportModule(): EditorModule<FairyGuiEditorWor
     };
 }
 
-export function createWorkspaceExportModule(): EditorModule<FairyGuiEditorWorkbenchHost> {
-    return {
-        id: "fairygui.workspace-export",
-        activate(context) {
-            const session = context.requireService<EditorProjectSession>(PROJECT_SESSION_SERVICE);
-            const chrome = context.requireService<EditorShellChrome>(SHELL_CHROME_SERVICE);
-            const toolbarButton = chrome.toolbar.getChild("tbSaveAll");
-            toolbarButton.visible = true;
-            let inFlight: Promise<unknown> = Promise.resolve();
-            const unregister = chrome.registerActions(["toolbar:exportWorkspace"], () => {
-                inFlight = session.runExclusive(async () => {
-                    chrome.setStatus("Browser workspace export started.");
-                    try {
-                        const result = await session.workspaceLifecycle.exportWorkspaceZip();
-                        if (result.ok && result.export?.blob) {
-                            downloadBrowserFile(result.export.blob, result.export.fileName);
-                        }
-                        recordWorkspaceLifecycleDebug(chrome, result);
-                        chrome.setStatus(
-                            result.ok
-                                ? `Browser workspace exported: ${result.export?.fileName || "ZIP"}.`
-                                : `Browser workspace export failed: ${getWorkspaceLifecycleFailure(result)}.`,
-                        );
-                    } catch (error) {
-                        const message = error instanceof Error ? error.message : String(error);
-                        chrome.setStatus(`Browser workspace export failed: ${message}`, "error");
-                        console.error("[Workspace] export failed", error);
-                    }
-                });
-            });
-            return async () => {
-                unregister();
-                toolbarButton.visible = false;
-                await inFlight;
-            };
-        },
-    };
-}
-
 export function createWorkspaceImportModule(): EditorModule<FairyGuiEditorWorkbenchHost> {
     return {
         id: "fairygui.workspace-import",
@@ -507,7 +469,6 @@ export function createWorkspaceImportModule(): EditorModule<FairyGuiEditorWorkbe
                     console.error(`[Workspace] project ${label} import failed`, error);
                 },
                 pickDirectory: () => workspace.pickDirectoryProject(),
-                pickZip: () => workspace.pickZipProject(),
                 setDebugAttribute: (name, value) => chrome.setDebugAttribute(name, value),
                 setStatus: (message) => chrome.setStatus(message),
                 showWorkspace,
@@ -517,14 +478,12 @@ export function createWorkspaceImportModule(): EditorModule<FairyGuiEditorWorkbe
                 "workspace:importProject",
             ], () => dialog.show());
             const unregisterDirectory = chrome.registerActions(["workspace:importProjectDirectory"], () => dialog.pickDirectory());
-            const unregisterZip = chrome.registerActions(["workspace:importProjectZip"], () => dialog.pickZip());
             const unregisterLayout = chrome.registerLayoutParticipant(() => dialog.layout());
             const toolbarButton = chrome.toolbar.getChild("tbImport");
             toolbarButton.visible = true;
             return async () => {
                 unregisterActions();
                 unregisterDirectory();
-                unregisterZip();
                 unregisterLayout();
                 toolbarButton.visible = false;
                 await inFlight;

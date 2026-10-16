@@ -126,7 +126,8 @@ const authoringTransactions = [
     "TransitionTransactions",
     "GearTransactions",
 ].map((name) => readSource(`src/editor/commands/${name}.ts`)).join("\n");
-const browserProjectImport = readSource("src/editor/services/BrowserProjectImport.ts");
+const browserProjectImport = readSource("src/editor/services/BrowserProjectImport.ts")
+    + readSource("src/editor/services/BrowserFilePicker.ts");
 const browserProjectStorage = readSource("src/editor/services/BrowserProjectStorage.ts");
 const browserSaveCoordinator = readSource("src/editor/services/BrowserSaveCoordinator.ts");
 const browserWorkspaceRegistrySource = readSource("src/editor/runtime/BrowserWorkspaceRegistry.ts");
@@ -1524,7 +1525,6 @@ for (const snippet of [
     "export async function pickBrowserFile(",
     'input.type = "file"',
     "input.dataset.fairyEditorFilePicker = debugName",
-    "if (supportsLocalDirectories())",
     "this.readDirectoryProject(await pickLocalDirectory(), onProgress)",
 ]) {
     assert(browserProjectImport.includes(snippet), `Missing native file picker wiring: ${snippet}`);
@@ -1939,7 +1939,6 @@ const workspaceImport = projectTransferModuleSource.slice(workspaceImportStart, 
 for (const delegated of [
     "workspace.importWorkspace(picked, label)",
     "workspace.pickDirectoryProject()",
-    "workspace.pickZipProject()",
 ]) assert(workspaceImport.includes(delegated), `Workspace import must delegate: ${delegated}`);
 for (const duplicateOwner of [
     "session.runExclusive",

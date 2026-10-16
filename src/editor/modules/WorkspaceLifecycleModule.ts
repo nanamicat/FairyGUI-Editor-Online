@@ -155,10 +155,6 @@ export class EditorWorkspaceLifecycle {
         return this.session.workspaceLifecycle.pickDirectoryProject();
     }
 
-    pickZipProject(): Promise<BrowserProjectImportResult> {
-        return this.session.workspaceLifecycle.pickZipProject();
-    }
-
     invalidateRuntime(refreshPreview = false): void {
         this.host?.stopPublishedTestQuietly();
         this.document.resetRuntimePackages();
@@ -257,7 +253,7 @@ export class EditorWorkspaceLifecycle {
                 && result.writeback?.status === "conflict"
             ) {
                 this.chrome.setStatus(
-                    "Browser workspace saved; Folder write-back was blocked by external changes. Re-import Folder or Export ZIP.",
+                    "Browser workspace saved; Folder write-back was blocked by external changes. Resolve the conflict and select the project directory again.",
                 );
                 return;
             }

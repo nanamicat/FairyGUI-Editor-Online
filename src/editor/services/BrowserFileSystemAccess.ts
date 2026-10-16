@@ -13,7 +13,7 @@ export function supportsLocalDirectories(): boolean {
 
 export function pickLocalDirectory(): Promise<FileSystemDirectoryHandle> {
     if (!supportsLocalDirectories()) {
-        return Promise.reject(new Error("本地目录读写需要在 HTTPS 或 localhost 下使用 Chrome / Edge。可通过导入 ZIP 使用浏览器工作区。"));
+        return Promise.reject(new Error("本地目录读写需要在 HTTPS 或 localhost 下使用 Chrome / Edge。当前浏览器不支持本地项目目录读写。"));
     }
     // Calling an extracted picker without its Window receiver can cause Illegal invocation.
     return (window as DirectoryPickerWindow).showDirectoryPicker!({ id: "fairygui-project", mode: "readwrite" }).then((directory) => {

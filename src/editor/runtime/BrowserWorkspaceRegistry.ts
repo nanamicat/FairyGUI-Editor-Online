@@ -10,7 +10,7 @@ export interface BrowserWorkspaceRegistryEntry {
     name: string;
     fairyPath: string;
     lastOpenedAt: string;
-    source?: "directory" | "zip";
+    source?: "directory";
     sourceName?: string;
     directoryBound?: boolean;
 }
@@ -50,7 +50,7 @@ export function parseBrowserWorkspaceRegistry(raw: string | null): BrowserWorksp
                 name: entry.name,
                 fairyPath: entry.fairyPath,
                 lastOpenedAt: entry.lastOpenedAt,
-                source: entry.source === "directory" || entry.source === "zip" ? entry.source : undefined,
+                source: entry.source === "directory" ? entry.source : undefined,
                 sourceName: typeof entry.sourceName === "string" ? entry.sourceName : undefined,
                 directoryBound: entry.directoryBound === true,
             }))

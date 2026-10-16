@@ -1,11 +1,10 @@
 import type { BrowserProjectImportResult } from "../services/BrowserProjectImport";
-import { createInspectorButton, setOverflowText } from "../ui/EditorFormControls";
+import { setOverflowText } from "../ui/EditorFormControls";
 
 type ProjectImportDialogCallbacks = {
     applyImport: (picked: BrowserProjectImportResult, label: string) => Promise<boolean>;
     onError: (label: string, error: unknown) => void;
     pickDirectory: () => Promise<BrowserProjectImportResult>;
-    pickZip: () => Promise<BrowserProjectImportResult>;
     setDebugAttribute: (name: string, value: string) => void;
     setStatus: (message: string) => void;
     showWorkspace: () => void;
@@ -27,7 +26,7 @@ export class ProjectImportDialog {
         this.pending = null;
         this.layout();
         this.render(
-            "请选择 FairyGUI 工程文件夹或 ZIP。导入前会先预览，确认后才替换浏览器工作区。",
+            "请选择并授权 FairyGUI 工程文件夹。导入前会先预览，确认后才替换浏览器工作区。",
         );
     }
 
@@ -71,17 +70,6 @@ export class ProjectImportDialog {
         );
     }
 
-    pickZip(): void {
-        void this.pick(
-            "ZIP",
-            "等待选择 FairyGUI 工程 ZIP...",
-            "Project ZIP import waiting for selection.",
-            "ZIP import ready for confirmation.",
-            "Project ZIP selected. Confirm import to replace the current workspace.",
-            this.callbacks.pickZip(),
-        );
-    }
-
     private ensureOpen(): void {
         if (this.host) return;
         const host = new fgui.GComponent();
@@ -110,23 +98,13 @@ export class ProjectImportDialog {
         this.setText(dialog, "n20", "目标");
         this.setInput(dialog, "name", "未选择");
         this.setInput(dialog, "path", "-");
-        dialog.getChild("path")?.setSize(244, 20);
+        dialog.getChild("path")?.setSize(327, 20);
 
         const folderButton = dialog.getChild("btnBrowse").asButton;
         folderButton.title = "文件夹";
-        folderButton.setXY(344, 58);
+        folderButton.setXY(424, 58);
         folderButton.setSize(72, 25);
         folderButton.onClick(this, this.pickDirectory);
-
-        const zipButton = createInspectorButton(
-            dialog,
-            "projectImportZip",
-            "ZIP",
-            424,
-            58,
-            64,
-        );
-        zipButton.onClick(this, this.pickZip);
 
         const replaceCheckbox = dialog.getChild("shouldCreateSubFolder").asButton;
         replaceCheckbox.title = "导入后替换当前工作区内容";
@@ -261,7 +239,7 @@ export class ProjectImportDialog {
 
     private async confirm(): Promise<void> {
         if (!this.pending) {
-            this.render("请先选择 FairyGUI 工程文件夹或 ZIP。");
+            this.render("请先选择并授权 FairyGUI 工程文件夹。");
             this.callbacks.setStatus("Project import requires a selected source.");
             return;
         }
@@ -334,14 +312,12 @@ export class ProjectImportDialog {
 export function formatImportSource(
     source: BrowserProjectImportResult["imported"]["source"],
 ): string {
-    return source === "zip" ? "ZIP" : "Folder";
+    return "Folder";
 }
 
 export function formatRuntimeBundlePreview(pending: BrowserProjectImportResult): string {
     const runtimeFiles = pending.files.filter((file) => file.path.startsWith(".fairygui-runtime/"));
-    const writeback = pending.directoryHandle
-        ? "保存时可写回所选文件夹。"
-        : "保存到浏览器后可导出 ZIP。";
+    const writeback = "保存时可写回所选文件夹。";
     return runtimeFiles.some((file) => file.path === ".fairygui-runtime/manifest.json")
         ? `运行预览：已包含发布资源（${runtimeFiles.length} 个文件）；${writeback}`
         : `运行预览：保存并发布后可用；${writeback}`;
