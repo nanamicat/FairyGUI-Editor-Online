@@ -23,7 +23,6 @@ export class ProjectImportDialog {
     ) {}
 
     show(): void {
-        this.callbacks.showWorkspace();
         this.ensureOpen();
         this.pending = null;
         this.layout();
@@ -278,6 +277,7 @@ export class ProjectImportDialog {
         this.render(`正在导入 ${pending.imported.fileCount} 个文件...`);
         try {
             if (await this.callbacks.applyImport(pending, formatImportSource(pending.imported.source))) {
+                this.callbacks.showWorkspace();
                 this.importing = false;
                 this.close();
             }

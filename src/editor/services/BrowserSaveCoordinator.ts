@@ -946,7 +946,7 @@ function createDirectoryBindingState(
     };
 }
 
-async function readPersistedDirectoryBinding(workspaceName: string): Promise<PersistedDirectoryBinding | null> {
+export async function readPersistedDirectoryBinding(workspaceName: string): Promise<PersistedDirectoryBinding | null> {
     const database = await openDirectoryBindingDatabase(workspaceName);
     if (!database) return null;
     try {

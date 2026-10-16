@@ -102,8 +102,8 @@ await assert.rejects(cleanupWorkbench.dispose(), /cleanup failed/);
 assert.equal(cleanupWorkbench.list()[0].state, "error");
 
 const mainSource = readFileSync("src/Main.ts", "utf8");
-const coreProductSource = readFileSync("src/editor/product/FairyGuiEditorCoreProduct.ts", "utf8");
-const productSource = readFileSync("src/editor/product/FairyGuiEditorProduct.ts", "utf8");
+const coreProductSource = readFileSync("src/editor/product/FairyGuiEditorCoreProduct.ts", "utf8").replace(/\r\n/g, "\n");
+const productSource = readFileSync("src/editor/product/FairyGuiEditorProduct.ts", "utf8").replace(/\r\n/g, "\n");
 const shellSource = readFileSync("src/editor/EditorShell.ts", "utf8");
 const shellModuleHostSource = readFileSync("src/editor/workbench/EditorShellModuleHost.ts", "utf8");
 const shellChromeModuleSource = readFileSync("src/editor/modules/ShellChromeModule.ts", "utf8");

@@ -77,6 +77,35 @@ export class EditorWorkspaceLifecycle {
         return this.track(this.session.runExclusive(() => this.initializeNow()));
     }
 
+    prepareStartScene(): Promise<void> {
+        return this.track(this.session.workspaceLifecycle.prepareRecentDirectories().catch((error) => {
+            this.chrome.setStatus(`最近项目授权记录读取失败：${error instanceof Error ? error.message : String(error)}`, "warning");
+        }));
+    }
+
+    openProject(picked: BrowserProjectImportResult): Promise<boolean> {
+        if (!this.active) return Promise.resolve(false);
+        return this.track(this.session.runExclusive(async () => {
+            if (!this.guardTransition("open", "data-fairy-editor-workspace-open")) return false;
+            this.document.persist();
+            this.host?.persistWorkspaceViewState();
+            const identity = this.session.liveSessionBridge.captureSessionIdentity();
+            try {
+                const entry = await this.session.workspaceLifecycle.createWorkspace(
+                    picked.imported.sourceName,
+                    picked.imported.fairyPath,
+                );
+                this.session.clearSnapshot();
+                this.document.reset();
+                this.host?.resetAndRestoreWorkspaceViewState();
+                return await this.importWorkspaceNow(picked, "Folder", entry.id);
+            } catch (error) {
+                await this.reconcileSwitchFailureNow(identity);
+                return this.failSwitch(error);
+            }
+        }));
+    }
+
     save(): Promise<void> {
         if (!this.active) return Promise.resolve();
         return this.track(this.session.runExclusive(() => this.saveNow()));
@@ -89,7 +118,15 @@ export class EditorWorkspaceLifecycle {
 
     switch(entry: BrowserWorkspaceRegistryEntry): Promise<boolean> {
         if (!this.active) return Promise.resolve(false);
-        return this.track(this.session.runExclusive(() => this.switchNow(entry)));
+        if (!this.guardTransition("switch", "data-fairy-editor-workspace-switch")) return Promise.resolve(false);
+        // Request permission now, before the session queue or IndexedDB can consume user activation.
+        const permission = this.session.workspaceLifecycle.authorizeWorkspace(entry);
+        return this.track(permission.then(() => this.active
+            ? this.session.runExclusive(() => this.switchNow(entry))
+            : false).catch((error) => {
+            this.chrome.setStatus(`项目打开失败：${error instanceof Error ? error.message : String(error)}`, "error");
+            return false;
+        }));
     }
 
     close(): Promise<boolean> {
@@ -400,7 +437,13 @@ export class EditorWorkspaceLifecycle {
                 );
             }
             this.chrome.setDebugAttribute("data-fairy-editor-workspace-quarantined", "");
-            this.chrome.setStatus(`Project ${label} imported: files ${result.storage.fileCount}.`);
+            const binding = result.storage.directoryWriteback;
+            this.chrome.setStatus(
+                picked.directoryHandle && binding?.status !== "ready"
+                    ? `项目已打开；目录写回不可用：${binding?.message || "请重新授权目录，或导出 ZIP。"}`
+                    : `Project ${label} imported: files ${result.storage.fileCount}.`,
+                picked.directoryHandle && binding?.status !== "ready" ? "warning" : "info",
+            );
             return true;
         } catch (error) {
             if (!identity || !this.session.liveSessionBridge.isSessionIdentityCurrent(identity)) {

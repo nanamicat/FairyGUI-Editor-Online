@@ -49,6 +49,7 @@ const steps = [
 	['MovieClip import', process.execPath, ['scripts/internal/verify-movieclip-import.mjs', moduleRoot], 0],
 	['MovieClip replacement', process.execPath, ['scripts/internal/verify-movieclip-replace.mjs', moduleRoot], 0],
 	['Browser project ZIP', process.execPath, ['scripts/internal/verify-browser-project-zip.mjs'], 0],
+	['File System Access', process.execPath, ['scripts/internal/verify-browser-file-system-access.mjs'], 0],
 	['Canvas interaction', process.execPath, ['scripts/internal/verify-desktop-canvas-interaction.mjs'], 0],
 	['Hierarchy interaction', process.execPath, ['scripts/internal/verify-desktop-hierarchy-interaction.mjs'], 0],
 	['Group membership', process.execPath, ['scripts/internal/verify-group-membership.mjs'], 0],

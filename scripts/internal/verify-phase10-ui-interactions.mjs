@@ -6,7 +6,7 @@ import { importTypeScriptModule } from "../import-typescript-module.mjs";
 const root = process.cwd();
 
 function readSource(relativePath) {
-    return readFileSync(path.join(root, relativePath), "utf8");
+    return readFileSync(path.join(root, relativePath), "utf8").replace(/\r\n/g, "\n");
 }
 
 const editorShellSource = readSource("src/editor/EditorShell.ts");
@@ -262,7 +262,9 @@ assert(projectSessionModuleSource.includes("this.operationQueue = pendingProject
 assert(projectSessionModuleSource.includes("pendingProjectSessionDisposal = close.then("));
 assert(editorShellSource.includes("this.projectSession.runExclusive(() => ("));
 assert(editorShellSource.includes("this.disposed ? Promise.resolve(false) : task()"));
-assert(editorShellSource.includes("void this.workspaceLifecycle.initialize();"));
+assert(editorShellSource.includes("this.showStartScene();"));
+assert(editorShellSource.includes("void this.workspaceLifecycle.prepareStartScene()"));
+assert(!editorShellSource.includes("void this.workspaceLifecycle.initialize();"));
 assert(!editorShellSource.includes("initializeProjectSnapshotNow"));
 assert(editorShellSource.includes("runWorkspaceTextFileTask: async (task)"));
 assert(!editorShellSource.includes("readWorkspaceTextFile:"));
@@ -1250,10 +1252,10 @@ assert(resourceAuthoringControllerSource.includes('"desktopMenuMoveComponent"'),
 assert(editorShellSource.includes("private setTransientStatus(message: string): void"), "Transient UI status must not append Console entries.");
 assert(editorShellSource.includes("list.removeChildrenToPool();"), "Start scene must replace upstream placeholder rows with live workspaces.");
 assert(
-    editorShellSource.includes("[url=create]创建浏览器工作区[/url]")
-        && editorShellSource.includes("[url=open]导入项目...[/url]")
-        && editorShellSource.includes("[url=open_folder]从文件夹导入...[/url]"),
-    "Start scene links must be configured for browser workspace import.",
+    editorShellSource.includes("[url=create]创建新项目[/url]")
+        && editorShellSource.includes("[url=open]打开项目...[/url]")
+        && editorShellSource.includes("[url=open_folder]打开文件夹...[/url]"),
+    "Start scene links must provide the original project entry points.",
 );
 assert(
     editorShellSource.includes('this.mainView.getChild("userInfo").visible = false;')
@@ -1522,8 +1524,8 @@ for (const snippet of [
     "export async function pickBrowserFile(",
     'input.type = "file"',
     "input.dataset.fairyEditorFilePicker = debugName",
-    "if (isDirectoryPickerCancelled(error)) throw error;",
-    "Intercepted by Page.setInterceptFileChooserDialog",
+    "if (supportsLocalDirectories())",
+    "this.readDirectoryProject(await pickLocalDirectory())",
 ]) {
     assert(browserProjectImport.includes(snippet), `Missing native file picker wiring: ${snippet}`);
 }

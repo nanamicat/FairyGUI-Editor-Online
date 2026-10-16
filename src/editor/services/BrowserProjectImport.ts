@@ -1,12 +1,9 @@
 import { Inflate } from "fflate";
+import { pickLocalDirectory, supportsLocalDirectories } from "./BrowserFileSystemAccess";
 import type {
     BrowserWorkspaceFile,
     BrowserWorkspaceImport,
 } from "../model/BrowserWorkspace";
-
-interface DirectoryPickerWindow {
-    showDirectoryPicker?: (options?: { mode?: "read" | "readwrite" }) => Promise<FileSystemDirectoryHandle>;
-}
 
 interface FileSystemDirectoryHandleWithKeys extends FileSystemDirectoryHandle {
     keys(): { next(): Promise<{ done?: boolean; value: string }> };
@@ -34,23 +31,8 @@ export interface BrowserProjectImportResult {
 
 export class BrowserProjectImport {
     async pickDirectoryProject(): Promise<BrowserProjectImportResult> {
-        const picker = (window as unknown as DirectoryPickerWindow).showDirectoryPicker;
-        if (typeof picker === "function") {
-            try {
-                const directory = await picker({ mode: "readwrite" });
-                const files = await this.readDirectoryFiles(directory, ".");
-                return this.createImportResult({
-                    source: "directory",
-                    sourceName: directory.name || "selected-folder",
-                    files,
-                    directoryHandle: directory,
-                });
-            } catch (error) {
-                if (isDirectoryPickerCancelled(error)) throw error;
-                // The File System Access API can exist yet be unavailable in an
-                // embedded/browser-automation context. Keep Folder import usable
-                // through the standard directory-input fallback in that case.
-            }
+        if (supportsLocalDirectories()) {
+            return this.readDirectoryProject(await pickLocalDirectory());
         }
 
         const fallback = await pickDirectoryFilesFallback();
@@ -58,6 +40,15 @@ export class BrowserProjectImport {
             source: "directory",
             sourceName: fallback.sourceName,
             files: fallback.files,
+        });
+    }
+
+    async readDirectoryProject(directory: FileSystemDirectoryHandle): Promise<BrowserProjectImportResult> {
+        return this.createImportResult({
+            source: "directory",
+            sourceName: directory.name || "selected-folder",
+            files: await this.readDirectoryFiles(directory, "."),
+            directoryHandle: directory,
         });
     }
 
@@ -87,7 +78,8 @@ export class BrowserProjectImport {
                     data: new Uint8Array(await file.arrayBuffer()),
                 });
                 continue;
-            } catch {
+            } catch (error) {
+                if (!(error instanceof Error) || error.name !== "TypeMismatchError") throw error;
                 // Continue as directory. File System Access has no stable stat call.
             }
 
@@ -467,6 +459,10 @@ function findFairyProjectPath(files: BrowserWorkspaceFile[]): string {
     if (fairyPaths.length === 0) {
         throw new Error("Imported files do not contain a .fairy project file.");
     }
+    const shallowest = fairyPaths.filter((path) => slashCount(path) === slashCount(fairyPaths[0]));
+    if (shallowest.length > 1) {
+        throw new Error("所选目录中有多个 .fairy 工程，请选择具体的工程文件夹。");
+    }
     return fairyPaths[0];
 }
 
@@ -495,12 +491,4 @@ function dirnameImportPath(filePath: string): string {
 
 function slashCount(value: string): number {
     return value.split("/").length - 1;
-}
-
-function isDirectoryPickerCancelled(error: unknown): boolean {
-    if (!(error instanceof Error) || error.name !== "AbortError") return false;
-    // Chromium reports an AbortError when an embedded automation host intercepts
-    // the native picker. That is an availability failure, not a user cancel, so
-    // it must still reach the directory-input fallback.
-    return !error.message.includes("Intercepted by Page.setInterceptFileChooserDialog");
 }

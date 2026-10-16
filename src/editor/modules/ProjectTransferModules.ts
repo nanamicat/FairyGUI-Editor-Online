@@ -493,6 +493,7 @@ export function createWorkspaceImportModule(): EditorModule<FairyGuiEditorWorkbe
             const showWorkspace = (): void => {
                 chrome.mainView.getController("start").selectedIndex = 0;
                 chrome.startScene.visible = false;
+                chrome.setDebugAttribute("data-fairy-editor-view", "workspace");
                 chrome.requestLayout();
             };
             const dialog = new ProjectImportDialog(chrome.mainView, {

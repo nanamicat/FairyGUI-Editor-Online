@@ -16,6 +16,9 @@ import {
     type PrimitiveDisplayNodeKind
 } from "./commands/HighRiskAuthoringTransactions";
 import { showBrowserWorkspaceDialog as openBrowserWorkspaceDialog } from "./dialogs/BrowserWorkspaceDialog";
+import { showCreateLocalProjectDialog } from "./dialogs/CreateLocalProjectDialog";
+import { isFilePickerCancelled, supportsLocalDirectories } from "./services/BrowserFileSystemAccess";
+import { BrowserProjectImport, type BrowserProjectImportResult } from "./services/BrowserProjectImport";
 import type { ExportedControllerDefinition } from "./dialogs/ComponentInstancePropertyEditors";
 import { showPreferencesDialog as openPreferencesDialog } from "./dialogs/PreferencesDialog";
 import {
@@ -461,13 +464,16 @@ export class EditorShell {
         this.bindActions();
         this.configureToolbarCapabilities();
         this.layout();
-        void this.workspaceLifecycle.initialize();
+        this.showStartScene();
+        void this.workspaceLifecycle.prepareStartScene().then(() => {
+            if (!this.disposed && this.startScene.visible) this.populateStartSceneRecentWorkspaces();
+        });
 
         Laya.stage.on(Laya.Event.RESIZE, this, this.onStageResize);
         Laya.stage.on(Laya.Event.MOUSE_DOWN, this, this.onStageMouseDown);
         Laya.stage.on(Laya.Event.KEY_DOWN, this, this.onStageKeyDown);
         Laya.stage.on(Laya.Event.KEY_UP, this, this.onStageKeyUp);
-        this.setStatus("Loading project snapshot.");
+        this.setStatus("请选择 FairyGUI 工程目录，并允许浏览器读写。也可从 ZIP 导入工程。");
     }
 
     dispose(): void {
@@ -641,9 +647,30 @@ export class EditorShell {
         this.statusLine.visible = true;
         this.mainView.getChild("userInfo").visible = false;
         this.toolbar.getChild("tbImport").tooltips = "导入项目";
-        this.startScene.getChild("n3").asRichTextField.text = "[url=create]创建浏览器工作区[/url]";
-        this.startScene.getChild("n4").asRichTextField.text = "[url=open]导入项目...[/url]";
-        this.startScene.getChild("n5").asRichTextField.text = "[url=open_folder]从文件夹导入...[/url]";
+        this.startScene.getChild("n3").asRichTextField.text = "[url=create]创建新项目[/url]";
+        this.startScene.getChild("n4").asRichTextField.text = "[url=open]打开项目...[/url]";
+        this.startScene.getChild("n5").asRichTextField.text = "[url=open_folder]打开文件夹...[/url]";
+        this.startScene.getChild("n4").tooltips = "选择包含 .fairy 文件的项目目录，并授权读写整个工程。";
+        const hint = new fgui.GTextField();
+        hint.name = "directoryPermissionHint";
+        hint.fontSize = 13;
+        hint.color = "#bdbdbd";
+        hint.autoSize = fgui.AutoSizeType.None;
+        hint.setXY(350, 166);
+        hint.setSize(560, 62);
+        hint.text = supportsLocalDirectories()
+            ? "选择项目目录后，请允许浏览器读写。\n保存会写回授权目录；刷新后可从最近项目重新授权打开。"
+            : "本地目录读写需要 HTTPS / localhost 下的 Chrome 或 Edge。\n当前可通过 ZIP 导入、编辑和导出工程。";
+        this.startScene.addChild(hint);
+        const zip = new fgui.GRichTextField();
+        zip.name = "importZipLink";
+        zip.fontSize = 13;
+        zip.color = "#68baba";
+        zip.ubbEnabled = true;
+        zip.setXY(350, 236);
+        zip.setSize(250, 26);
+        zip.text = "[url=import_zip]从 ZIP 导入项目...[/url]";
+        this.startScene.addChild(zip);
 
         const viewScale = this.toolbar.getChild("viewScale").asComboBox;
         viewScale.items = ["50%", "75%", "100%", "125%", "150%", "200%"];
@@ -1458,7 +1485,7 @@ export class EditorShell {
     }
 
     private bindStartSceneLinks(): void {
-        for (const childName of ["n3", "n4", "n5"]) {
+        for (const childName of ["n3", "n4", "n5", "importZipLink"]) {
             const link = this.startScene.getChild(childName);
             if (link) this.listenEvent(link, Laya.Event.LINK, this.onStartSceneLink);
         }
@@ -1754,17 +1781,17 @@ export class EditorShell {
 
     private onStartSceneLink(link: string): void {
         if (link === "create") {
-            void this.createBrowserWorkspace();
+            this.createLocalProject();
             return;
         }
 
-        if (link === "open" || link === "import_project") {
-            this.runEditorAction("workspace:importProject");
+        if (link === "open" || link === "open_folder") {
+            void this.openLocalProject();
             return;
         }
 
-        if (link === "open_folder") {
-            this.runEditorAction("workspace:importProjectDirectory");
+        if (link === "import_zip" || link === "import_project") {
+            this.runEditorAction(link === "import_zip" ? "workspace:importProjectZip" : "workspace:importProject");
             return;
         }
 
@@ -1774,12 +1801,17 @@ export class EditorShell {
     private onStartSceneRecentWorkspaceClick(itemObject: fgui.GObject): void {
         const entry = itemObject.data as BrowserWorkspaceRegistryEntry | null;
         if (!entry) return;
-        this.showEditorWorkspace();
-        void this.workspaceLifecycle.switch(entry);
+        void this.workspaceLifecycle.switch(entry).then((opened) => {
+            if (opened && !this.disposed) this.showEditorWorkspace();
+        });
     }
 
     private showFileMenu(anchor: fgui.GObject): void {
         const menu = this.createActionMenu();
+
+        this.addMenuItem(menu, "localProjectNewMenu", "创建新项目…", () => this.createLocalProject());
+        this.addMenuItem(menu, "localProjectOpenMenu", "打开项目文件夹…", () => { void this.openLocalProject(); });
+        menu.addSeperator();
 
         if (this.chrome.hasAction("workspace:importProject")) {
             this.addMenuItem(menu, "workspaceMenuImportProject", "导入项目...", () => {
@@ -2122,6 +2154,7 @@ export class EditorShell {
         this.populateStartSceneRecentWorkspaces();
         this.mainView.getController("start").selectedIndex = 1;
         this.startScene.visible = true;
+        this.setDebugAttribute("data-fairy-editor-view", "start");
         this.layout();
         this.setTransientStatus("Start scene opened.");
     }
@@ -2130,20 +2163,27 @@ export class EditorShell {
         const list = this.startScene.getChild("recentList").asList;
         list.removeChildrenToPool();
         const entries = [...this.workspaceLifecycle.registry.entries]
+            .filter((entry) => entry.source || entry.id !== DEFAULT_BROWSER_WORKSPACE_ID)
             .sort((left, right) => right.lastOpenedAt.localeCompare(left.lastOpenedAt));
         for (const entry of entries) {
             const item = list.addItemFromPool().asButton;
             item.data = entry;
-            item.getChild("title").asRichTextField.text = entry.name;
-            item.getChild("path").asTextField.text = `${entry.fairyPath} · ${new Date(entry.lastOpenedAt).toLocaleString("zh-CN")}`;
+            const title = item.getChild("title").asRichTextField;
+            title.ubbEnabled = false;
+            title.text = entry.name;
+            item.getChild("path").asTextField.text = entry.sourceName
+                ? `${entry.sourceName}/${entry.fairyPath}`
+                : `${entry.fairyPath} · ${new Date(entry.lastOpenedAt).toLocaleString("zh-CN")}`;
             item.getChild("delete").visible = false;
-            item.tooltips = `打开 ${entry.name}`;
+            item.tooltips = entry.source === "directory" ? `授权并打开 ${entry.name}` : `打开 ${entry.name}`;
         }
+        this.setDebugAttribute("data-fairy-editor-recent-projects", String(entries.length));
     }
 
     private showEditorWorkspace(): void {
         this.mainView.getController("start").selectedIndex = 0;
         this.startScene.visible = false;
+        this.setDebugAttribute("data-fairy-editor-view", "workspace");
         this.layout();
     }
 
@@ -2535,7 +2575,9 @@ export class EditorShell {
         openBrowserWorkspaceDialog({
             entries: this.workspaceLifecycle.registry.entries,
             activeId: this.workspaceLifecycle.registry.activeId,
-            select: (entry) => void this.workspaceLifecycle.switch(entry),
+            select: (entry) => void this.workspaceLifecycle.switch(entry).then((opened) => {
+                if (opened && !this.disposed) this.showEditorWorkspace();
+            }),
             create: () => void this.createBrowserWorkspace(),
             getActiveDialog: () => this.authoringJsonDialog,
             setActiveDialog: (dialog) => { this.authoringJsonDialog = dialog; },
@@ -2560,6 +2602,52 @@ export class EditorShell {
         if (name === null) return;
         this.showEditorWorkspace();
         await this.workspaceLifecycle.create(name);
+    }
+
+    private canOpenLocalProject(): boolean {
+        if (this.commandAdapter.getSessionState().dirty) {
+            this.setStatus("请先保存或撤销当前项目的修改，再创建或打开项目。");
+            return false;
+        }
+        if (!supportsLocalDirectories()) {
+            this.setStatus("本地目录读写需要 HTTPS 或 localhost 下的 Chrome / Edge，请使用 ZIP 导入。");
+            return false;
+        }
+        return true;
+    }
+
+    private localProjectOpening = false;
+
+    private async openPickedLocalProject(picked: BrowserProjectImportResult): Promise<boolean> {
+        const opened = await this.workspaceLifecycle.openProject(picked);
+        if (opened && !this.disposed) this.showEditorWorkspace();
+        return opened;
+    }
+
+    private async openLocalProject(): Promise<void> {
+        if (this.localProjectOpening || !this.canOpenLocalProject()) return;
+        this.localProjectOpening = true;
+        try {
+            const picked = await new BrowserProjectImport().pickDirectoryProject();
+            if (!this.disposed) await this.openPickedLocalProject(picked);
+        } catch (error) {
+            if (!isFilePickerCancelled(error)) {
+                this.setStatus(`项目打开失败：${error instanceof Error ? error.message : String(error)}`, "error");
+            }
+        } finally {
+            this.localProjectOpening = false;
+        }
+    }
+
+    private createLocalProject(): void {
+        if (!this.canOpenLocalProject()) return;
+        this.authoringJsonDialog?.dispose();
+        this.authoringJsonDialog = showCreateLocalProjectDialog({
+            canCreate: () => this.canOpenLocalProject(),
+            openProject: (picked) => this.openPickedLocalProject(picked),
+            setStatus: (message) => this.setStatus(message),
+            setActiveDialog: (dialog) => { this.authoringJsonDialog = dialog; },
+        });
     }
 
     private resetRuntimePreviewPackages(): void {

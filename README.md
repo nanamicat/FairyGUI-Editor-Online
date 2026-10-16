@@ -36,6 +36,8 @@ FairyGUI Editor Online 使用 [OpenFairyGUI](https://github.com/OpenFairyGUI/Ope
 
 ### 工程与工作区
 
+- 默认显示原版 FairyGUI 欢迎首页；创建或打开本地项目时选择目录并授予读写权限，最近项目支持刷新后重新授权。
+- 首页打开本地项目使用独立浏览器工作区；创建项目使用空目录，生成标准 LayaAir `.fairy` 工程。
 - 从本地 Folder 或 ZIP 导入 FairyGUI 工程，并在写入前预览来源、工程路径和文件数量。
 - 使用 OPFS，缺失时降级 IndexedDB；支持多工作区、刷新恢复和 Web Locks 并发保护。
 - 保存后重新读取工程进行后验验证；Folder 写回使用 SHA-256 基线阻断外部冲突。

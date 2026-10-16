@@ -8,6 +8,5 @@ node_modules
 vite-dist
 bin/js/bundles
 reference
-AGENTS.md
 .objs
 /verification/reports/

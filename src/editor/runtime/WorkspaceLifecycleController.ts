@@ -1,6 +1,7 @@
 import type { BrowserProjectImportResult } from "../services/BrowserProjectImport";
 import { BrowserProjectImport } from "../services/BrowserProjectImport";
-import { BrowserSaveCoordinator } from "../services/BrowserSaveCoordinator";
+import { BrowserSaveCoordinator, readPersistedDirectoryBinding } from "../services/BrowserSaveCoordinator";
+import { authorizeLocalDirectory } from "../services/BrowserFileSystemAccess";
 import type { BrowserLiveSessionBridge } from "../services/BrowserLiveSessionBridge";
 import type { BrowserProjectStorage } from "../services/BrowserProjectStorage";
 import type {
@@ -35,6 +36,8 @@ export class WorkspaceLifecycleController {
     private readonly importer = new BrowserProjectImport();
     private readonly quarantineFallback = new Map<string, string>();
     private currentRegistry: BrowserWorkspaceRegistry;
+    private readonly recentDirectories = new Map<string, FileSystemDirectoryHandle>();
+    private recentDirectoriesReady = false;
 
     constructor(
         private readonly liveSession: BrowserLiveSessionBridge,
@@ -47,6 +50,37 @@ export class WorkspaceLifecycleController {
 
     get registry(): BrowserWorkspaceRegistry {
         return this.currentRegistry;
+    }
+
+    async prepareRecentDirectories(): Promise<void> {
+        const results = await Promise.allSettled(this.currentRegistry.entries.map(async (entry) => {
+            const binding = await readPersistedDirectoryBinding(entry.id);
+            if (binding) {
+                this.recentDirectories.set(entry.id, binding.directory);
+                // Migrate existing bindings into the home page without losing old browser workspaces.
+                this.currentRegistry = {
+                    ...this.currentRegistry,
+                    entries: this.currentRegistry.entries.map((current) => current.id === entry.id
+                        ? { ...current, source: "directory", sourceName: current.sourceName || binding.directoryName, directoryBound: true }
+                        : current),
+                };
+            }
+        }));
+        this.recentDirectoriesReady = true;
+        if (results.some((result) => result.status === "rejected")) {
+            throw new Error("部分目录授权记录无法恢复，请重新选择项目目录。");
+        }
+    }
+
+    authorizeWorkspace(entry: BrowserWorkspaceRegistryEntry): Promise<void> {
+        const directory = this.recentDirectories.get(entry.id);
+        if (directory) return authorizeLocalDirectory(directory);
+        if (entry.directoryBound) {
+            return Promise.reject(new Error(this.recentDirectoriesReady
+                ? "目录授权记录不可用，请通过“打开文件夹”重新选择项目。"
+                : "正在读取最近项目的目录授权，请稍后再次点击。"));
+        }
+        return Promise.resolve();
     }
 
     pickDirectoryProject(): Promise<BrowserProjectImportResult> {
@@ -65,8 +99,9 @@ export class WorkspaceLifecycleController {
         return this.coordinator.save(target);
     }
 
-    async createWorkspace(name: string): Promise<BrowserWorkspaceRegistryEntry> {
+    async createWorkspace(name: string, fairyPath?: string): Promise<BrowserWorkspaceRegistryEntry> {
         const added = addBrowserWorkspace(this.currentRegistry, name);
+        if (fairyPath) added.entry.fairyPath = fairyPath;
         const state = await this.coordinator.switchWorkspace(added.entry.id, added.entry.fairyPath);
         this.currentRegistry = activateBrowserWorkspace(
             added.registry,
@@ -112,6 +147,24 @@ export class WorkspaceLifecycleController {
                 this.currentRegistry.activeId,
                 result.storage.fairyPath,
             );
+            this.currentRegistry = {
+                ...this.currentRegistry,
+                entries: this.currentRegistry.entries.map((entry) => entry.id === this.currentRegistry.activeId
+                    ? {
+                        ...entry,
+                        name: picked.imported.fairyPath.replace(/\.fairy$/i, ""),
+                        source: picked.imported.source,
+                        sourceName: picked.imported.projectRoot === "."
+                            ? picked.imported.sourceName
+                            : `${picked.imported.sourceName}/${picked.imported.projectRoot}`,
+                        directoryBound: !!picked.directoryHandle,
+                    }
+                    : entry),
+            };
+            // Reload the resolved project-root handle (selection may have been a parent folder).
+            this.recentDirectories.delete(this.currentRegistry.activeId);
+            const binding = await readPersistedDirectoryBinding(this.currentRegistry.activeId).catch(() => null);
+            if (binding) this.recentDirectories.set(this.currentRegistry.activeId, binding.directory);
             this.persistRegistry();
         }
         return result;
