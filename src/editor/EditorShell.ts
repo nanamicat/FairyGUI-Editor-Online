@@ -17,8 +17,8 @@ import {
 } from "./commands/HighRiskAuthoringTransactions";
 import { showBrowserWorkspaceDialog as openBrowserWorkspaceDialog } from "./dialogs/BrowserWorkspaceDialog";
 import { showCreateLocalProjectDialog } from "./dialogs/CreateLocalProjectDialog";
-import { isFilePickerCancelled, supportsLocalDirectories } from "./services/BrowserFileSystemAccess";
-import { BrowserProjectImport, type BrowserProjectImportResult } from "./services/BrowserProjectImport";
+import { isFilePickerCancelled, pickLocalDirectory, supportsLocalDirectories } from "./services/BrowserFileSystemAccess";
+import type { BrowserProjectImportResult } from "./services/BrowserProjectImport";
 import type { ExportedControllerDefinition } from "./dialogs/ComponentInstancePropertyEditors";
 import { showPreferencesDialog as openPreferencesDialog } from "./dialogs/PreferencesDialog";
 import {
@@ -2613,15 +2613,16 @@ export class EditorShell {
         this.setDebugAttribute("data-fairy-editor-directory-picker", "waiting");
         this.setStatus("等待选择项目目录，请在浏览器提示中允许读写。");
         try {
-            const picked = await new BrowserProjectImport().pickDirectoryProject((progress) => {
+            const directory = await pickLocalDirectory();
+            if (this.disposed) return;
+            this.setDebugAttribute("data-fairy-editor-directory-picker", "opening");
+            this.setStatus(`正在打开 ${directory.name}…`);
+            const opened = await this.workspaceLifecycle.openDirectoryProject(directory, (progress) => {
                 if (this.disposed) return;
                 this.setDebugAttribute("data-fairy-editor-directory-picker", "reading");
                 this.setStatus(`已选择 ${progress.sourceName}，正在读取工程：${progress.fileCount} 个文件，${(progress.totalBytes / 1024 / 1024).toFixed(1)} MB…`);
             });
             if (!this.disposed) {
-                this.setDebugAttribute("data-fairy-editor-directory-picker", "opening");
-                this.setStatus(`正在打开 ${picked.imported.fairyPath}，共 ${picked.imported.fileCount} 个文件…`);
-                const opened = await this.openPickedLocalProject(picked);
                 this.setDebugAttribute("data-fairy-editor-directory-picker", opened ? "opened" : "failed");
             }
         } catch (error) {

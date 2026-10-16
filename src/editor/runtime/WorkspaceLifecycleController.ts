@@ -1,4 +1,4 @@
-import type { BrowserProjectImportResult } from "../services/BrowserProjectImport";
+import type { BrowserProjectImportResult, BrowserProjectReadProgress } from "../services/BrowserProjectImport";
 import { BrowserProjectImport } from "../services/BrowserProjectImport";
 import { BrowserSaveCoordinator, readPersistedDirectoryBinding } from "../services/BrowserSaveCoordinator";
 import { authorizeLocalDirectory } from "../services/BrowserFileSystemAccess";
@@ -19,6 +19,8 @@ import {
     writeBrowserWorkspaceQuarantine,
 } from "./BrowserWorkspaceRegistry";
 
+const DIRECTORY_WORKSPACE_CLEANUP_KEY = "fairygui-editor-online.directory-workspace-cleanup.v1";
+
 export function loadBrowserWorkspaceRegistry(): BrowserWorkspaceRegistry {
     try {
         return parseBrowserWorkspaceRegistry(
@@ -38,6 +40,7 @@ export class WorkspaceLifecycleController {
     private currentRegistry: BrowserWorkspaceRegistry;
     private readonly recentDirectories = new Map<string, FileSystemDirectoryHandle>();
     private recentDirectoriesReady = false;
+    private recentDirectoriesPreparation: Promise<void> | null = null;
 
     constructor(
         private readonly liveSession: BrowserLiveSessionBridge,
@@ -52,7 +55,17 @@ export class WorkspaceLifecycleController {
         return this.currentRegistry;
     }
 
-    async prepareRecentDirectories(): Promise<void> {
+    prepareRecentDirectories(): Promise<void> {
+        if (this.recentDirectoriesReady) return Promise.resolve();
+        if (!this.recentDirectoriesPreparation) {
+            this.recentDirectoriesPreparation = this.loadRecentDirectories().finally(() => {
+                this.recentDirectoriesPreparation = null;
+            });
+        }
+        return this.recentDirectoriesPreparation;
+    }
+
+    private async loadRecentDirectories(): Promise<void> {
         const results = await Promise.allSettled(this.currentRegistry.entries.map(async (entry) => {
             const binding = await readPersistedDirectoryBinding(entry.id);
             if (binding) {
@@ -66,10 +79,77 @@ export class WorkspaceLifecycleController {
                 };
             }
         }));
-        this.recentDirectoriesReady = true;
         if (results.some((result) => result.status === "rejected")) {
             throw new Error("部分目录授权记录无法恢复，请重新选择项目目录。");
         }
+        await this.cleanupDuplicateDirectoryWorkspacesOnce();
+        this.recentDirectoriesReady = true;
+    }
+
+    async findPickedDirectoryWorkspace(picked: BrowserProjectImportResult): Promise<BrowserWorkspaceRegistryEntry | undefined> {
+        let directory = picked.directoryHandle;
+        for (const segment of picked.imported.projectRoot.split("/").filter((part) => part && part !== ".")) {
+            directory = await directory.getDirectoryHandle(segment);
+        }
+        return this.findDirectoryWorkspace(directory, picked.imported.fairyPath);
+    }
+
+    async findDirectoryWorkspace(
+        directory: FileSystemDirectoryHandle,
+        fairyPath?: string,
+    ): Promise<BrowserWorkspaceRegistryEntry | undefined> {
+        await this.prepareRecentDirectories();
+        for (const entry of this.preferredDirectoryEntries()) {
+            const existing = this.recentDirectories.get(entry.id);
+            if (existing && (!fairyPath || entry.fairyPath === fairyPath) && await directory.isSameEntry(existing)) {
+                return entry;
+            }
+        }
+        return undefined;
+    }
+
+    private preferredDirectoryEntries(): BrowserWorkspaceRegistryEntry[] {
+        return [...this.currentRegistry.entries].sort((left, right) => (
+            Number(right.id === this.currentRegistry.activeId) - Number(left.id === this.currentRegistry.activeId)
+            || right.lastOpenedAt.localeCompare(left.lastOpenedAt)
+        ));
+    }
+
+    private async cleanupDuplicateDirectoryWorkspacesOnce(): Promise<void> {
+        if (typeof localStorage === "undefined" || localStorage.getItem(DIRECTORY_WORKSPACE_CLEANUP_KEY)) return;
+        const retained: BrowserWorkspaceRegistryEntry[] = [];
+        const removed = new Set<string>();
+        for (const entry of this.preferredDirectoryEntries()) {
+            const directory = this.recentDirectories.get(entry.id);
+            let duplicate = false;
+            if (directory) {
+                for (const previous of retained) {
+                    const previousDirectory = this.recentDirectories.get(previous.id);
+                    if (previousDirectory && previous.fairyPath === entry.fairyPath
+                        && await directory.isSameEntry(previousDirectory)) {
+                        duplicate = true;
+                        break;
+                    }
+                }
+            }
+            if (duplicate) removed.add(entry.id);
+            else retained.push(entry);
+        }
+        const previousRegistry = this.currentRegistry;
+        const next = {
+            ...previousRegistry,
+            entries: previousRegistry.entries.filter((entry) => !removed.has(entry.id)),
+        };
+        // Remove duplicate recent-project registrations once; retain their cached files and
+        // original registry so existing browser-only changes remain recoverable.
+        const backupKey = `${DIRECTORY_WORKSPACE_CLEANUP_KEY}.backup`;
+        if (!localStorage.getItem(backupKey)) {
+            localStorage.setItem(backupKey, JSON.stringify({ removedIds: [...removed], previousRegistry }));
+        }
+        localStorage.setItem(BROWSER_WORKSPACE_REGISTRY_STORAGE_KEY, JSON.stringify(next));
+        this.currentRegistry = next;
+        localStorage.setItem(DIRECTORY_WORKSPACE_CLEANUP_KEY, new Date().toISOString());
+        for (const id of removed) this.recentDirectories.delete(id);
     }
 
     authorizeWorkspace(entry: BrowserWorkspaceRegistryEntry): Promise<void> {
@@ -85,6 +165,13 @@ export class WorkspaceLifecycleController {
 
     pickDirectoryProject(): Promise<BrowserProjectImportResult> {
         return this.importer.pickDirectoryProject();
+    }
+
+    readDirectoryProject(
+        directory: FileSystemDirectoryHandle,
+        onProgress?: (progress: BrowserProjectReadProgress) => void,
+    ): Promise<BrowserProjectImportResult> {
+        return this.importer.readDirectoryProject(directory, onProgress);
     }
 
     restoreWorkspaceBinding() {

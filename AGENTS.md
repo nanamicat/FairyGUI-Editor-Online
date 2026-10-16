@@ -25,7 +25,7 @@
 - 浏览器联调使用用户设置的系统默认浏览器。用户手动处理系统目录选择与授权对话框，代理观察调用返回与加载状态。
 - 大工程读取应显示文件数量和字节进度，忽略 `.objs`、`.git`、`.svn` 和 `node_modules` 缓存目录。
 - 保留目录句柄持久化、授权失败处理、保存冲突检测与写回恢复机制；新建本地工程只使用空目录。
-- 首页打开本地项目使用独立浏览器工作区；工具栏导入保留确认后替换工作区的行为。
+- 首页打开本地项目按工程根目录句柄 `isSameEntry()` 和 `.fairy` 路径复用已有工作区；新目录才创建独立工作区。最近项目的历史重复注册执行一次性清理，优先保留当前工作区，其次保留最近打开项，备份原注册表并保留缓存文件。列表展示不做去重；工具栏导入保留确认后替换工作区的行为。
 - 工程打开和磁盘保存仅支持 File System Access API，不提供工程 ZIP 导入、ZIP 导出或文件夹只读降级；不支持目录句柄的浏览器应明确提示。
 - 本地新建工程目前使用 LayaAir 格式。共享 ZIP 解析仅用于 FairyGUI 资源包，已发布运行时包和资源导出不属于整个工程的 ZIP 传输。
 
@@ -34,6 +34,7 @@
 - 基础检查：`npm run typecheck`、`npm run build`、`git diff --check`。
 - 文件系统相关回归：
   - `node scripts/internal/verify-browser-file-system-access.mjs`
+  - `node scripts/internal/verify-browser-directory-workspaces.mjs`
   - `node scripts/internal/verify-browser-archive.mjs`
   - `node scripts/internal/verify-phase8-directory-writeback-policy.mjs`
   - `node scripts/internal/verify-browser-session-lifecycle-race.mjs`

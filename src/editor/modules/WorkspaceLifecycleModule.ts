@@ -3,7 +3,7 @@ import type {
     BrowserSaveTarget,
     BrowserWorkspaceLifecycleResult,
 } from "../model/BrowserWorkspace";
-import type { BrowserProjectImportResult } from "../services/BrowserProjectImport";
+import type { BrowserProjectImportResult, BrowserProjectReadProgress } from "../services/BrowserProjectImport";
 import type { BrowserLiveSessionIdentity } from "../services/BrowserLiveSessionBridge";
 import { createDisplayNodeSaveTarget } from "../services/BrowserSaveTargetVerifier";
 import { loadProjectSnapshot } from "../services/ProjectSnapshotLoader";
@@ -85,25 +85,45 @@ export class EditorWorkspaceLifecycle {
 
     openProject(picked: BrowserProjectImportResult): Promise<boolean> {
         if (!this.active) return Promise.resolve(false);
+        return this.track(this.session.runExclusive(() => this.openProjectNow(picked)));
+    }
+
+    openDirectoryProject(
+        directory: FileSystemDirectoryHandle,
+        onProgress?: (progress: BrowserProjectReadProgress) => void,
+    ): Promise<boolean> {
+        if (!this.active) return Promise.resolve(false);
         return this.track(this.session.runExclusive(async () => {
             if (!this.guardTransition("open", "data-fairy-editor-workspace-open")) return false;
+            const existing = await this.session.workspaceLifecycle.findDirectoryWorkspace(directory);
+            if (existing) return this.switchNow(existing, () => (
+                this.session.workspaceLifecycle.readDirectoryProject(directory, onProgress)
+            ));
+            const picked = await this.session.workspaceLifecycle.readDirectoryProject(directory, onProgress);
+            return this.openProjectNow(picked);
+        }));
+    }
+
+    private async openProjectNow(picked: BrowserProjectImportResult): Promise<boolean> {
+        if (!this.guardTransition("open", "data-fairy-editor-workspace-open")) return false;
+        const identity = this.session.liveSessionBridge.captureSessionIdentity();
+        try {
+            const existing = await this.session.workspaceLifecycle.findPickedDirectoryWorkspace(picked);
+            if (existing) return await this.switchNow(existing, () => Promise.resolve(picked));
             this.document.persist();
             this.host?.persistWorkspaceViewState();
-            const identity = this.session.liveSessionBridge.captureSessionIdentity();
-            try {
-                const entry = await this.session.workspaceLifecycle.createWorkspace(
-                    picked.imported.sourceName,
-                    picked.imported.fairyPath,
-                );
-                this.session.clearSnapshot();
-                this.document.reset();
-                this.host?.resetAndRestoreWorkspaceViewState();
-                return await this.importWorkspaceNow(picked, "Folder", entry.id);
-            } catch (error) {
-                await this.reconcileSwitchFailureNow(identity);
-                return this.failSwitch(error);
-            }
-        }));
+            const entry = await this.session.workspaceLifecycle.createWorkspace(
+                picked.imported.sourceName,
+                picked.imported.fairyPath,
+            );
+            this.session.clearSnapshot();
+            this.document.reset();
+            this.host?.resetAndRestoreWorkspaceViewState();
+            return await this.importWorkspaceNow(picked, "Folder", entry.id);
+        } catch (error) {
+            await this.reconcileSwitchFailureNow(identity);
+            return this.failSwitch(error);
+        }
     }
 
     save(): Promise<void> {
@@ -265,14 +285,24 @@ export class EditorWorkspaceLifecycle {
         }
     }
 
-    private async switchNow(entry: BrowserWorkspaceRegistryEntry): Promise<boolean> {
+    private async switchNow(
+        entry: BrowserWorkspaceRegistryEntry,
+        recover?: () => Promise<BrowserProjectImportResult>,
+    ): Promise<boolean> {
         if (!this.guardTransition("switch", "data-fairy-editor-workspace-switch")) return false;
         this.document.persist();
         this.host?.persistWorkspaceViewState();
         this.chrome.setStatus(`正在切换到浏览器工作区 ${entry.name}…`);
         const identity = this.session.liveSessionBridge.captureSessionIdentity();
         try {
-            await this.session.workspaceLifecycle.switchWorkspace(entry);
+            const state = await this.session.workspaceLifecycle.switchWorkspace(entry);
+            if (recover && (!state.projectFileExists || await this.session.workspaceLifecycle.getActiveWorkspaceQuarantine())) {
+                const picked = await recover();
+                this.session.clearSnapshot();
+                this.document.reset();
+                this.host?.resetAndRestoreWorkspaceViewState();
+                return await this.importWorkspaceNow(picked, "Folder", entry.id);
+            }
             return await this.finishSwitchNow(entry);
         } catch (error) {
             await this.reconcileSwitchFailureNow(identity);
@@ -436,7 +466,7 @@ export class EditorWorkspaceLifecycle {
             const binding = result.storage.directoryWriteback;
             this.chrome.setStatus(
                 picked.directoryHandle && binding?.status !== "ready"
-                    ? `项目已打开；目录写回不可用：${binding?.message || "请重新授权目录，或导出 ZIP。"}`
+                    ? `项目已打开；目录写回不可用：${binding?.message || "请重新授权目录。"}`
                     : `Project ${label} imported: files ${result.storage.fileCount}.`,
                 picked.directoryHandle && binding?.status !== "ready" ? "warning" : "info",
             );
